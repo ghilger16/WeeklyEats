@@ -1,0 +1,58 @@
+import { Meal } from "../types/meals";
+
+export const mockMeals: Meal[] = [
+  {
+    id: "tacos",
+    title: "Tacos",
+    emoji: "🌮",
+    rating: 3,
+    plannedCostTier: 1,
+    locked: true,
+    isFavorite: true,
+  },
+  {
+    id: "margherita",
+    title: "Margherita Pizza",
+    emoji: "🍕",
+    rating: 2,
+    plannedCostTier: 2,
+    locked: false,
+    isFavorite: false,
+  },
+  {
+    id: "stirfry",
+    title: "Chicken Stir Fry",
+    emoji: "🥦",
+    rating: 4,
+    plannedCostTier: 2,
+    locked: true,
+    isFavorite: true,
+  },
+  {
+    id: "burgers",
+    title: "Burgers",
+    emoji: "🍔",
+    rating: 3,
+    plannedCostTier: 2,
+    locked: false,
+    isFavorite: false,
+  },
+  {
+    id: "salad",
+    title: "Caesar Salad",
+    emoji: "🥗",
+    rating: 1,
+    plannedCostTier: 2,
+    locked: false,
+    isFavorite: false,
+  },
+  {
+    id: "beeftacos",
+    title: "Beef Tacos",
+    emoji: "🌮",
+    rating: 2,
+    plannedCostTier: 2,
+    locked: false,
+    isFavorite: true,
+  },
+];

@@ -1,5 +1,5 @@
 import { Text, StyleSheet } from "react-native";
-import TabParent from "../../components/tab-parent/TabParent";
+import TabParent from "../../../components/tab-parent/TabParent";
 
 export default function WeekDashboardScreen() {
   return (

@@ -1,27 +1,13 @@
-import { Tabs } from "expo-router";
+import { Stack } from "expo-router";
 
-export default function RootTabs() {
+export default function RootLayout() {
   return (
-    <Tabs
-      initialRouteName="week-dashboard/index"
-      screenOptions={{ headerShown: false }}
-    >
-      {/* Order is exactly how tabs render, so list them in your desired order */}
-      <Tabs.Screen
-        name="meals/index"
-        options={{ tabBarLabel: "Meals", title: "Meals" }}
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen
+        name="modals/meal-editor"
+        options={{ presentation: "modal", headerShown: false }}
       />
-      <Tabs.Screen
-        name="week-dashboard/index"
-        options={{ tabBarLabel: "Week", title: "Week Dashboard" }}
-      />
-      <Tabs.Screen
-        name="more/index"
-        options={{ tabBarLabel: "More", title: "More" }}
-      />
-
-      {/* Hide the root index so it doesn't appear as a tab */}
-      <Tabs.Screen name="index" options={{ href: null }} />
-    </Tabs>
+    </Stack>
   );
 }
