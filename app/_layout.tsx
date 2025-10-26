@@ -1,13 +1,20 @@
 import { Stack } from "expo-router";
+import { ThemeControllerProvider } from "../providers/theme/ThemeController";
 
 export default function RootLayout() {
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen
-        name="modals/meal-editor"
-        options={{ presentation: "modal", headerShown: false }}
-      />
-    </Stack>
+    <ThemeControllerProvider>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen
+          name="modals/theme-select"
+          options={{
+            presentation: "transparentModal",
+            animation: "fade",
+            headerShown: false,
+          }}
+        />
+      </Stack>
+    </ThemeControllerProvider>
   );
 }

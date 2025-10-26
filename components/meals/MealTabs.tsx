@@ -7,12 +7,14 @@ import {
   View,
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { darkTheme } from "../../styles/theme";
+import { useThemeController } from "../../providers/theme/ThemeController";
+import { WeeklyTheme } from "../../styles/theme";
+import { FlexGrid } from "../../styles/flex-grid";
 
-export type MealTabKey = "meals" | "favorites";
+export type MealTabKey = "all" | "favorites";
 
 const tabs: Array<{ key: MealTabKey; label: string }> = [
-  { key: "meals", label: "Meals" },
+  { key: "all", label: "All" },
   { key: "favorites", label: "Favorites" },
 ];
 
@@ -26,11 +28,12 @@ type Props = {
   onChange: (tab: MealTabKey) => void;
 };
 
-const theme = darkTheme;
-
 const MealTabs = ({ activeTab, onChange }: Props) => {
+  const { theme } = useThemeController();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const animationDuration = theme.motion.duration.normal;
   const [layouts, setLayouts] = useState<Record<MealTabKey, TabLayout>>({
-    meals: { x: 0, width: 0 },
+    all: { x: 0, width: 0 },
     favorites: { x: 0, width: 0 },
   });
   const indicatorX = useRef(new Animated.Value(0)).current;
@@ -41,19 +44,19 @@ const MealTabs = ({ activeTab, onChange }: Props) => {
       Animated.parallel([
         Animated.timing(indicatorX, {
           toValue: layout.x,
-          duration: theme.motion.duration.normal,
+          duration: animationDuration,
           easing: Easing.bezier(0, 0, 0.2, 1),
           useNativeDriver: false,
         }),
         Animated.timing(indicatorWidth, {
           toValue: layout.width,
-          duration: theme.motion.duration.normal,
+          duration: animationDuration,
           easing: Easing.bezier(0, 0, 0.2, 1),
           useNativeDriver: false,
         }),
       ]).start();
     },
-    [indicatorWidth, indicatorX]
+    [animationDuration, indicatorWidth, indicatorX]
   );
 
   useEffect(() => {
@@ -91,62 +94,61 @@ const MealTabs = ({ activeTab, onChange }: Props) => {
   );
 
   return (
-    <View style={styles.container}>
-      {tabs.map((tab) => (
-        <Pressable
-          key={tab.key}
-          onPress={() => onChange(tab.key)}
-          onLayout={onTabLayout(tab.key)}
-          hitSlop={theme.space.sm}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: activeTab === tab.key }}
-          style={({ pressed }) => [
-            styles.tabButton,
-            pressed && styles.tabButtonPressed,
-          ]}
-        >
-          <Text
-            style={[
-              styles.tabLabel,
-              activeTab === tab.key && styles.tabLabelActive,
+    <FlexGrid>
+      <FlexGrid.Row>
+        {tabs.map((tab) => (
+          <Pressable
+            key={tab.key}
+            onPress={() => onChange(tab.key)}
+            onLayout={onTabLayout(tab.key)}
+            hitSlop={theme.space.sm}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === tab.key }}
+            style={({ pressed }) => [
+              styles.tabButton,
+              pressed && styles.tabButtonPressed,
             ]}
           >
-            {tab.label}
-          </Text>
-        </Pressable>
-      ))}
-      <Animated.View style={indicatorStyle} />
-    </View>
+            <Text
+              style={[
+                styles.tabLabel,
+                activeTab === tab.key && styles.tabLabelActive,
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </Pressable>
+        ))}
+        <Animated.View style={indicatorStyle} />
+      </FlexGrid.Row>
+    </FlexGrid>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    position: "relative",
-  },
-  tabButton: {
-    paddingBottom: theme.space.sm,
-    marginRight: theme.space.lg,
-  },
-  tabButtonPressed: {
-    opacity: 0.8,
-  },
-  tabLabel: {
-    fontSize: theme.type.size.base,
-    color: theme.color.subtleInk,
-    fontWeight: theme.type.weight.medium,
-  },
-  tabLabelActive: {
-    color: theme.color.ink,
-  },
-  indicator: {
-    position: "absolute",
-    height: theme.component.tabs.underlineHeight,
-    backgroundColor: theme.color.accent,
-    bottom: 0,
-    borderRadius: theme.radius.full,
-  },
-});
+const createStyles = (theme: WeeklyTheme) =>
+  StyleSheet.create({
+    tabButton: {
+      paddingBottom: theme.space.sm,
+      marginRight: theme.space.lg,
+    },
+    tabButtonPressed: {
+      opacity: 0.8,
+    },
+    tabLabel: {
+      fontSize: theme.type.size.title,
+      color: theme.color.subtleInk,
+      fontWeight: theme.type.weight.medium,
+    },
+    tabLabelActive: {
+      color: theme.color.ink,
+    },
+    indicator: {
+      position: "absolute",
+      height: theme.component.tabs.underlineHeight,
+      backgroundColor: theme.color.accent,
+      bottom: 0,
+      borderRadius: theme.radius.full,
+    },
+  });
 
 export default MealTabs;

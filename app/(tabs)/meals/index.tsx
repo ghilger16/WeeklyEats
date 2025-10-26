@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import {
   ActionSheetIOS,
   Alert,
@@ -10,25 +9,26 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  StyleProp,
   StyleSheet,
   Text,
   View,
+  ViewStyle,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { useCallback, useMemo, useRef, useState } from "react";
 import MealListItem from "../../../components/meals/MealListItem";
-import MealTabs, {
-  type MealTabKey,
-} from "../../../components/meals/MealTabs";
+import MealTabs, { type MealTabKey } from "../../../components/meals/MealTabs";
+import MealModalOverlay from "../../../components/meals/MealModalOverlay";
+import TabParent from "../../../components/tab-parent/TabParent";
 import { useMeals } from "../../../hooks/useMeals";
-import { darkTheme } from "../../../styles/theme";
+import { useThemeController } from "../../../providers/theme/ThemeController";
+import { WeeklyTheme } from "../../../styles/theme";
 import { Meal } from "../../../types/meals";
 import { FlexGrid } from "../../../styles/flex-grid";
 
-const theme = darkTheme;
-
 export default function MealsScreen() {
-  const router = useRouter();
+  const { theme } = useThemeController();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const {
     meals,
     favorites,
@@ -39,6 +39,8 @@ export default function MealsScreen() {
     deleteMeal,
   } = useMeals();
   const [activeTab, setActiveTab] = useState<MealTabKey>("meals");
+  const [selectedMealId, setSelectedMealId] = useState<string | undefined>();
+  const [isModalVisible, setModalVisible] = useState(false);
   const contentProgress = useRef(new Animated.Value(0)).current;
 
   const animateContent = useCallback(
@@ -63,70 +65,14 @@ export default function MealsScreen() {
 
   const data = activeTab === "meals" ? meals : favorites;
 
-  const onOpenMeal = useCallback(
-    (meal: Meal) => {
-      router.push({
-        pathname: "/modals/meal-editor",
-        params: { mealId: meal.id },
-      });
-    },
-    [router]
-  );
-
-  const onQuickActions = useCallback(
-    (meal: Meal) => {
-      const toggleLockLabel = meal.locked ? "Unlock" : "Lock";
-      const favoriteLabel = meal.isFavorite ? "Unfavorite" : "Favorite";
-
-      if (Platform.OS === "ios") {
-        ActionSheetIOS.showActionSheetWithOptions(
-          {
-            options: [toggleLockLabel, favoriteLabel, "Delete", "Cancel"],
-            destructiveButtonIndex: 2,
-            cancelButtonIndex: 3,
-          },
-          (buttonIndex) => {
-            if (buttonIndex === 0) {
-              toggleLock(meal.id);
-            } else if (buttonIndex === 1) {
-              toggleFavorite(meal.id);
-            } else if (buttonIndex === 2) {
-              deleteMeal(meal.id);
-            }
-          }
-        );
-        return;
-      }
-
-      Alert.alert("Meal actions", meal.title, [
-        {
-          text: toggleLockLabel,
-          onPress: () => toggleLock(meal.id),
-        },
-        {
-          text: favoriteLabel,
-          onPress: () => toggleFavorite(meal.id),
-        },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => deleteMeal(meal.id),
-        },
-        { text: "Cancel", style: "cancel" },
-      ]);
-    },
-    [deleteMeal, toggleFavorite, toggleLock]
-  );
+  const onOpenMeal = useCallback((meal: Meal) => {
+    setSelectedMealId(meal.id);
+    setModalVisible(true);
+  }, []);
 
   const renderMeal: ListRenderItem<Meal> = useCallback(
-    ({ item }) => (
-      <MealListItem
-        meal={item}
-        onPress={() => onOpenMeal(item)}
-        onLongPress={() => onQuickActions(item)}
-      />
-    ),
-    [onOpenMeal, onQuickActions]
+    ({ item }) => <MealListItem meal={item} onPress={() => onOpenMeal(item)} />,
+    [onOpenMeal]
   );
 
   const keyExtractor = useCallback((item: Meal) => item.id, []);
@@ -143,63 +89,74 @@ export default function MealsScreen() {
     []
   );
 
-  const translateX = contentProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 16],
-  });
   const opacity = contentProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [1, 0.92],
   });
 
+  const header = (
+    <FlexGrid
+      gutterWidth={theme.space.lg}
+      padding={{ bottom: theme.space["2xl"] }}
+    >
+      <FlexGrid.Row alignItems="center" justifyContent="space-between">
+        <FlexGrid.Col>
+          <MealTabs activeTab={activeTab} onChange={handleTabChange} />
+        </FlexGrid.Col>
+        <FlexGrid.Col alignSelf="center">
+          <PressableIcon theme={theme} style={styles.filterButton} />
+        </FlexGrid.Col>
+      </FlexGrid.Row>
+    </FlexGrid>
+  );
+
+  const handleDismissModal = useCallback(() => {
+    setModalVisible(false);
+    setSelectedMealId(undefined);
+  }, []);
+
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <Animated.View
-        style={[styles.listWrapper, { opacity, transform: [{ translateX }] }]}
-      >
-        <FlatList
-          testID="meals-list"
-          data={data}
-          keyExtractor={keyExtractor}
-          renderItem={renderMeal}
-          ListHeaderComponent={
-            <FlexGrid gutterWidth={theme.space.lg} padding={{ bottom: theme.space["2xl"] }}>
-              <FlexGrid.Row wrap={false}>
-                <FlexGrid.Col span={12}>
-                  <Text style={styles.heading}>Weekly Eats</Text>
-                </FlexGrid.Col>
-              </FlexGrid.Row>
-              <FlexGrid.Row alignItems="center" justifyContent="space-between">
-                <FlexGrid.Col grow={1}>
-                  <MealTabs activeTab={activeTab} onChange={handleTabChange} />
-                </FlexGrid.Col>
-                <FlexGrid.Col grow={0} alignSelf="stretch">
-                  <PressableIcon />
-                </FlexGrid.Col>
-              </FlexGrid.Row>
-            </FlexGrid>
-          }
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              testID="meals-refresh-control"
-              tintColor={theme.color.accent}
-              colors={[theme.color.accent]}
-              refreshing={isRefreshing}
-              onRefresh={refresh}
-            />
-          }
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          ListEmptyComponent={listEmpty}
-        />
-      </Animated.View>
-    </SafeAreaView>
+    <>
+      <TabParent backgroundColor={theme.color.bg} title="Meals">
+        <Animated.View style={[styles.listWrapper, { opacity }]}>
+          <FlatList
+            testID="meals-list"
+            data={data}
+            keyExtractor={keyExtractor}
+            renderItem={renderMeal}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl
+                testID="meals-refresh-control"
+                tintColor={theme.color.accent}
+                colors={[theme.color.accent]}
+                refreshing={isRefreshing}
+                onRefresh={refresh}
+              />
+            }
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            ListEmptyComponent={listEmpty}
+            ListHeaderComponent={header}
+          />
+        </Animated.View>
+      </TabParent>
+      <MealModalOverlay
+        mealId={selectedMealId}
+        visible={isModalVisible}
+        onDismiss={handleDismissModal}
+      />
+    </>
   );
 }
 
-const PressableIcon = () => (
+type PressableIconProps = {
+  theme: WeeklyTheme;
+  style: StyleProp<ViewStyle>;
+};
+
+const PressableIcon = ({ theme, style }: PressableIconProps) => (
   <Pressable
-    style={styles.filterButton}
+    style={({ pressed }) => [style, pressed ? { opacity: 0.9 } : null]}
     hitSlop={theme.space.sm}
     accessibilityRole="button"
     accessibilityLabel="Filter meals"
@@ -208,51 +165,55 @@ const PressableIcon = () => (
   </Pressable>
 );
 
-const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: theme.color.bg,
-  },
-  listContent: {
-    paddingHorizontal: theme.space.xl,
-    paddingBottom: theme.space["2xl"],
-    paddingTop: theme.space["2xl"],
-  },
-  listWrapper: {
-    flex: 1,
-  },
-  heading: {
-    color: theme.color.ink,
-    fontSize: theme.type.size.h1,
-    fontWeight: theme.type.weight.bold,
-    marginBottom: theme.space.xl,
-  },
-  filterButton: {
-    width: 40,
-    height: 40,
-    borderRadius: theme.radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: theme.color.surfaceAlt,
-    borderWidth: 1,
-    borderColor: theme.color.border,
-  },
-  separator: {
-    height: theme.space.lg,
-  },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: theme.space["2xl"],
-  },
-  emptyTitle: {
-    color: theme.color.ink,
-    fontSize: theme.type.size.title,
-    fontWeight: theme.type.weight.bold,
-    marginBottom: theme.space.sm,
-  },
-  emptySubtitle: {
-    color: theme.color.subtleInk,
-    fontSize: theme.type.size.base,
-  },
-});
+const createStyles = (theme: WeeklyTheme) =>
+  StyleSheet.create({
+    parentContainer: {
+      flex: 1,
+    },
+    parentContent: {
+      flex: 1,
+      padding: 0,
+    },
+    listContent: {
+      paddingHorizontal: theme.space.lg,
+      paddingBottom: theme.space["2xl"],
+      paddingTop: 0,
+    },
+    listWrapper: {
+      flex: 1,
+    },
+    heading: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.h1,
+      fontWeight: theme.type.weight.bold,
+      marginBottom: theme.space.xl,
+    },
+    filterButton: {
+      width: 40,
+      height: 40,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: 1,
+      borderColor: theme.color.border,
+    },
+    separator: {
+      height: theme.space.lg,
+    },
+    emptyState: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: theme.space["2xl"],
+    },
+    emptyTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+      marginBottom: theme.space.sm,
+    },
+    emptySubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+    },
+  });

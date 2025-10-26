@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { memo, useRef } from "react";
+import { memo, useMemo, useRef } from "react";
 import {
   Animated,
   Pressable,
@@ -10,7 +10,8 @@ import {
   View,
   ViewStyle,
 } from "react-native";
-import { darkTheme } from "../../styles/theme";
+import { useThemeController } from "../../providers/theme/ThemeController";
+import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
 import RatingStars from "./RatingStars";
 import { FlexGrid } from "../../styles/flex-grid";
@@ -18,24 +19,23 @@ import { FlexGrid } from "../../styles/flex-grid";
 type Props = {
   meal: Meal;
   onPress: () => void;
-  onLongPress: () => void;
   style?: StyleProp<ViewStyle>;
 };
-
-const theme = darkTheme;
 
 const MealListItem = memo(function MealListItem({
   meal,
   onPress,
-  onLongPress,
   style,
 }: Props) {
+  const { theme } = useThemeController();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const scale = useRef(new Animated.Value(1)).current;
+  const pressDuration = theme.motion.duration.fast;
 
   const animateTo = (value: number) => {
     Animated.timing(scale, {
       toValue: value,
-      duration: theme.motion.duration.fast,
+      duration: pressDuration,
       useNativeDriver: true,
     }).start();
   };
@@ -62,7 +62,6 @@ const MealListItem = memo(function MealListItem({
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         onPress={onPress}
-        onLongPress={onLongPress}
         style={combinedStyle}
       >
         <FlexGrid gutterWidth={theme.space.lg}>
@@ -98,46 +97,47 @@ const MealListItem = memo(function MealListItem({
   );
 });
 
-const styles = StyleSheet.create({
-  wrapper: {
-    borderRadius: theme.radius.lg,
-  },
-  card: {
-    backgroundColor: theme.color.surface,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.color.cardOutline,
-    paddingHorizontal: theme.space.lg,
-    paddingVertical: theme.space.md,
-    minHeight: 72,
-  },
-  cardPressed: {
-    borderColor: theme.color.accent,
-  },
-  emoji: {
-    fontSize: 28,
-  },
-  details: {
-    flex: 1,
-  },
-  title: {
-    color: theme.color.ink,
-    fontSize: 18,
-    fontWeight: theme.type.weight.bold,
-    marginBottom: theme.space.xs,
-  },
-  meta: {
-    alignItems: "flex-end",
-    justifyContent: "center",
-    gap: theme.space.xs,
-    minWidth: 48,
-  },
-  cost: {
-    color: theme.color.success,
-    fontSize: theme.type.size.base,
-    fontWeight: theme.type.weight.medium,
-    textAlign: "right",
-  },
-});
+const createStyles = (theme: WeeklyTheme) =>
+  StyleSheet.create({
+    wrapper: {
+      borderRadius: theme.radius.lg,
+    },
+    card: {
+      backgroundColor: theme.color.surface,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.color.cardOutline,
+      paddingHorizontal: theme.space.lg,
+      paddingVertical: theme.space.md,
+      minHeight: 72,
+    },
+    cardPressed: {
+      borderColor: theme.color.accent,
+    },
+    emoji: {
+      fontSize: 28,
+    },
+    details: {
+      flex: 1,
+    },
+    title: {
+      color: theme.color.ink,
+      fontSize: 18,
+      fontWeight: theme.type.weight.bold,
+      marginBottom: theme.space.xs,
+    },
+    meta: {
+      alignItems: "flex-end",
+      justifyContent: "center",
+      gap: theme.space.xs,
+      minWidth: 48,
+    },
+    cost: {
+      color: theme.color.success,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+      textAlign: "right",
+    },
+  });
 
 export default MealListItem;

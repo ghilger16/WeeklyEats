@@ -5,7 +5,15 @@ import { FlexGridContext } from "./FlexGridContext";
 import type { FlexRowProps } from "./types";
 
 const FlexRowBase = forwardRef<RNView, FlexRowProps>(function FlexRowBase(
-  { wrap = false, reverse = false, alignItems, justifyContent, style, children, ...rest },
+  {
+    wrap = false,
+    reverse = false,
+    alignItems,
+    justifyContent,
+    style,
+    children,
+    ...rest
+  },
   ref
 ) {
   const context = useContext(FlexGridContext);

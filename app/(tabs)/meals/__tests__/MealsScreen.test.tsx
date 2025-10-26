@@ -1,14 +1,20 @@
 import { act, fireEvent, render } from "@testing-library/react-native";
-import { useRouter } from "expo-router";
 import MealsScreen from "../index";
 import { useMeals } from "../../../../hooks/useMeals";
 import { Meal } from "../../../../types/meals";
 
-jest.mock("expo-router", () => ({
-  useRouter: jest.fn(),
-}));
-
 jest.mock("../../../../hooks/useMeals");
+jest.mock("../../../../providers/theme/ThemeController", () => {
+  const { darkTheme } = jest.requireActual("../../../../styles/theme");
+  return {
+    useThemeController: jest.fn().mockReturnValue({
+      theme: darkTheme,
+      preference: "system" as const,
+      setPreference: jest.fn().mockResolvedValue(undefined),
+      isHydrated: true,
+    }),
+  };
+});
 
 const mockMeals: Meal[] = [
   {
@@ -32,7 +38,6 @@ const mockMeals: Meal[] = [
 ];
 
 const mockUseMeals = useMeals as jest.MockedFunction<typeof useMeals>;
-const mockRouter = useRouter as jest.Mock;
 
 const createHookReturn = (overrides?: Partial<ReturnType<typeof useMeals>>) => {
   const refresh = jest.fn().mockResolvedValue(undefined);
@@ -51,7 +56,6 @@ const createHookReturn = (overrides?: Partial<ReturnType<typeof useMeals>>) => {
 describe("MealsScreen", () => {
   beforeEach(() => {
     mockUseMeals.mockReturnValue(createHookReturn());
-    mockRouter.mockReturnValue({ push: jest.fn() });
   });
 
   afterEach(() => {
@@ -68,18 +72,12 @@ describe("MealsScreen", () => {
     expect(getByText("Pizza")).toBeTruthy();
   });
 
-  it("navigates to the meal editor modal on press", () => {
-    const push = jest.fn();
-    mockRouter.mockReturnValue({ push });
-
-    const { getByTestId } = render(<MealsScreen />);
+  it("opens the meal modal overlay on press", () => {
+    const { getByTestId, getByText } = render(<MealsScreen />);
 
     fireEvent.press(getByTestId("meal-item-tacos"));
 
-    expect(push).toHaveBeenCalledWith({
-      pathname: "/modals/meal-editor",
-      params: { mealId: "tacos" },
-    });
+    expect(getByText("Edit Meal")).toBeTruthy();
   });
 
   it("triggers refresh control handler", async () => {
