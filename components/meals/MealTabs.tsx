@@ -109,16 +109,10 @@ const MealTabs = ({ activeTab, onChange }: Props) => {
               pressed && styles.tabButtonPressed,
             ]}
           >
-            <Text
-              style={[
-                styles.tabLabel,
-                activeTab === tab.key && styles.tabLabelActive,
-              ]}
-            >
-              {tab.label}
-            </Text>
+            <Text style={styles.tabLabel}>{tab.label}</Text>
           </Pressable>
         ))}
+        <View style={styles.underline} />
         <Animated.View style={indicatorStyle} />
       </FlexGrid.Row>
     </FlexGrid>
@@ -128,19 +122,16 @@ const MealTabs = ({ activeTab, onChange }: Props) => {
 const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
     tabButton: {
-      paddingBottom: theme.space.sm,
-      marginRight: theme.space.lg,
+      paddingBottom: theme.space.lg,
+      marginLeft: theme.space.lg,
     },
     tabButtonPressed: {
       opacity: 0.8,
     },
     tabLabel: {
       fontSize: theme.type.size.title,
-      color: theme.color.subtleInk,
-      fontWeight: theme.type.weight.medium,
-    },
-    tabLabelActive: {
       color: theme.color.ink,
+      fontWeight: theme.type.weight.medium,
     },
     indicator: {
       position: "absolute",
@@ -148,6 +139,17 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.accent,
       bottom: 0,
       borderRadius: theme.radius.full,
+      zIndex: 1,
+    },
+    underline: {
+      position: "absolute",
+      left: theme.space.lg,
+      right: theme.space.lg,
+      bottom: 0,
+      height: theme.component.tabs.underlineHeight,
+      backgroundColor: theme.color.cardOutline,
+      borderRadius: theme.radius.full,
+      zIndex: 0,
     },
   });
 

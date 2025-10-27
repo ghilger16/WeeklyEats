@@ -8,4 +8,30 @@ export type Meal = {
   plannedCostTier: CostTier;
   locked: boolean;
   isFavorite: boolean;
+  recipeUrl?: string;
+  ingredients?: string[];
+  difficulty?: number;
+  expense?: number;
+  createdAt?: string;
+  updatedAt?: string;
 };
+
+export type MealDraft = Omit<Meal, "id"> & {
+  id?: string;
+};
+
+export const createEmptyMealDraft = (): MealDraft => ({
+  title: "",
+  emoji: "🍽️",
+  rating: 3,
+  plannedCostTier: 2,
+  locked: false,
+  isFavorite: false,
+  recipeUrl: "",
+  ingredients: [],
+  difficulty: 3,
+  expense: 3,
+});
+
+export const createMealId = () =>
+  `meal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

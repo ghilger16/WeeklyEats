@@ -10,16 +10,31 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import MealCard from "./MealCard";
+import {
+  Meal,
+  MealDraft,
+  createEmptyMealDraft,
+} from "../../types/meals";
 
 type Props = {
   visible: boolean;
-  mealId?: string;
+  mode: "create" | "edit";
+  meal?: Meal | null;
   onDismiss: () => void;
+  onCreateMeal: (draft: MealDraft) => void;
+  onUpdateMeal: (meal: Meal) => void;
 };
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-export default function MealModalOverlay({ visible, mealId, onDismiss }: Props) {
+export default function MealModalOverlay({
+  visible,
+  mode,
+  meal,
+  onDismiss,
+  onCreateMeal,
+  onUpdateMeal,
+}: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const enterDuration = theme.motion.duration.slow;
@@ -108,6 +123,14 @@ export default function MealModalOverlay({ visible, mealId, onDismiss }: Props) 
     [animateTo, dismiss, exitDuration, translateX]
   );
 
+  const initialMeal = useMemo(() => {
+    if (mode === "edit" && meal) {
+      return { ...meal };
+    }
+
+    return createEmptyMealDraft();
+  }, [meal, mode]);
+
   if (!rendered) {
     return null;
   }
@@ -126,7 +149,13 @@ export default function MealModalOverlay({ visible, mealId, onDismiss }: Props) 
         edges={["top", "bottom", "left", "right"]}
         style={styles.safeArea}
       >
-        <MealCard mealId={mealId} onClose={dismiss} />
+        <MealCard
+          mode={mode}
+          initialMeal={initialMeal}
+          onClose={dismiss}
+          onCreateMeal={onCreateMeal}
+          onUpdateMeal={onUpdateMeal}
+        />
       </SafeAreaView>
     </Animated.View>
   );

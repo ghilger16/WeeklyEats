@@ -47,11 +47,7 @@ const MealListItem = memo(function MealListItem({
 
   const combinedStyle = ({
     pressed,
-  }: PressableStateCallbackType): StyleProp<ViewStyle> => [
-    styles.card,
-    pressed && styles.cardPressed,
-    style,
-  ];
+  }: PressableStateCallbackType): StyleProp<ViewStyle> => [styles.card, style];
 
   return (
     <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
@@ -111,9 +107,7 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingVertical: theme.space.md,
       minHeight: 72,
     },
-    cardPressed: {
-      borderColor: theme.color.accent,
-    },
+
     emoji: {
       fontSize: 28,
     },

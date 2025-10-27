@@ -31,11 +31,7 @@ const SettingsRow = ({ icon, label, value, onPress, style }: Props) => {
       accessibilityRole={disabled ? "text" : "button"}
       accessibilityState={{ disabled }}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        pressed && !disabled ? styles.rowPressed : null,
-        style,
-      ]}
+      style={[styles.row, style]}
     >
       <FlexGrid gutterWidth={theme.space.lg} gutterHeight={theme.space.lg}>
         <FlexGrid.Row alignItems="center" wrap={false}>
@@ -74,9 +70,6 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingHorizontal: theme.space.lg,
       paddingVertical: theme.space.lg,
     },
-    rowPressed: {
-      borderColor: theme.color.accent,
-    },
     iconContainer: {
       width: 40,
       height: 40,
@@ -90,6 +83,7 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.bold,
       flex: 1,
+      paddingLeft: theme.space.sm,
     },
     description: {
       color: theme.color.subtleInk,

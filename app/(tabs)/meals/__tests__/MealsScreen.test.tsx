@@ -46,6 +46,8 @@ const createHookReturn = (overrides?: Partial<ReturnType<typeof useMeals>>) => {
     favorites: mockMeals.filter((meal) => meal.isFavorite),
     isRefreshing: false,
     refresh,
+    addMeal: jest.fn(),
+    updateMeal: jest.fn(),
     toggleFavorite: jest.fn(),
     toggleLock: jest.fn(),
     deleteMeal: jest.fn(),

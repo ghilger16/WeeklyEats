@@ -112,7 +112,7 @@ const components = {
     thumbSize: 16,
   },
   tabs: {
-    underlineHeight: 2,
+    underlineHeight: 5,
   },
 } as const;
 

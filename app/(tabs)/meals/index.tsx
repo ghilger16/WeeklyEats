@@ -1,21 +1,15 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
-  ActionSheetIOS,
   Alert,
   Animated,
   Easing,
   FlatList,
   ListRenderItem,
-  Platform,
-  Pressable,
   RefreshControl,
-  StyleProp,
   StyleSheet,
   Text,
   View,
-  ViewStyle,
 } from "react-native";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MealListItem from "../../../components/meals/MealListItem";
 import MealTabs, { type MealTabKey } from "../../../components/meals/MealTabs";
 import MealModalOverlay from "../../../components/meals/MealModalOverlay";
@@ -23,8 +17,7 @@ import TabParent from "../../../components/tab-parent/TabParent";
 import { useMeals } from "../../../hooks/useMeals";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
-import { Meal } from "../../../types/meals";
-import { FlexGrid } from "../../../styles/flex-grid";
+import { Meal, MealDraft, createMealId } from "../../../types/meals";
 
 export default function MealsScreen() {
   const { theme } = useThemeController();
@@ -34,19 +27,22 @@ export default function MealsScreen() {
     favorites,
     refresh,
     isRefreshing,
+    addMeal,
+    updateMeal,
     toggleFavorite,
     toggleLock,
     deleteMeal,
   } = useMeals();
-  const [activeTab, setActiveTab] = useState<MealTabKey>("meals");
+  const [activeTab, setActiveTab] = useState<MealTabKey>("all");
   const [selectedMealId, setSelectedMealId] = useState<string | undefined>();
   const [isModalVisible, setModalVisible] = useState(false);
+  const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const contentProgress = useRef(new Animated.Value(0)).current;
 
   const animateContent = useCallback(
     (tab: MealTabKey) => {
       Animated.timing(contentProgress, {
-        toValue: tab === "meals" ? 0 : 1,
+        toValue: tab === "all" ? 0 : 1,
         duration: theme.motion.duration.normal,
         easing: Easing.bezier(0, 0, 0.2, 1),
         useNativeDriver: true,
@@ -63,10 +59,17 @@ export default function MealsScreen() {
     [animateContent]
   );
 
-  const data = activeTab === "meals" ? meals : favorites;
+  const data = activeTab === "all" ? meals : favorites;
 
   const onOpenMeal = useCallback((meal: Meal) => {
+    setModalMode("edit");
     setSelectedMealId(meal.id);
+    setModalVisible(true);
+  }, []);
+
+  const handleAddMeal = useCallback(() => {
+    setModalMode("create");
+    setSelectedMealId(undefined);
     setModalVisible(true);
   }, []);
 
@@ -94,30 +97,78 @@ export default function MealsScreen() {
     outputRange: [1, 0.92],
   });
 
-  const header = (
-    <FlexGrid
-      gutterWidth={theme.space.lg}
-      padding={{ bottom: theme.space["2xl"] }}
-    >
-      <FlexGrid.Row alignItems="center" justifyContent="space-between">
-        <FlexGrid.Col>
-          <MealTabs activeTab={activeTab} onChange={handleTabChange} />
-        </FlexGrid.Col>
-        <FlexGrid.Col alignSelf="center">
-          <PressableIcon theme={theme} style={styles.filterButton} />
-        </FlexGrid.Col>
-      </FlexGrid.Row>
-    </FlexGrid>
+  const selectedMeal = useMemo(
+    () => meals.find((meal) => meal.id === selectedMealId),
+    [meals, selectedMealId]
   );
 
   const handleDismissModal = useCallback(() => {
     setModalVisible(false);
     setSelectedMealId(undefined);
+    setModalMode("create");
   }, []);
+
+  const handleCreateMeal = useCallback(
+    (draft: MealDraft) => {
+      const now = new Date().toISOString();
+      const id = createMealId();
+      addMeal({
+        id,
+        ...draft,
+        createdAt: draft.createdAt ?? now,
+        updatedAt: draft.updatedAt ?? now,
+      });
+    },
+    [addMeal]
+  );
+
+  const handleUpdateMeal = useCallback(
+    (meal: Meal) => {
+      updateMeal(meal);
+    },
+    [updateMeal]
+  );
+
+  const handleOpenMenu = useCallback(() => {
+    Alert.alert("Meals", "Menu actions coming soon.");
+  }, []);
+
+  useEffect(() => {
+    if (
+      modalMode === "edit" &&
+      isModalVisible &&
+      selectedMealId &&
+      !selectedMeal
+    ) {
+      handleDismissModal();
+    }
+  }, [
+    handleDismissModal,
+    isModalVisible,
+    modalMode,
+    selectedMeal,
+    selectedMealId,
+  ]);
 
   return (
     <>
-      <TabParent backgroundColor={theme.color.bg} title="Meals">
+      <TabParent
+        backgroundColor={theme.color.bg}
+        title="Meals"
+        addBtn={{
+          onPress: handleAddMeal,
+          testID: "add-meal-button",
+          accessibilityLabel: "Add meal",
+        }}
+        menuBtn={{
+          onPress: handleOpenMenu,
+          testID: "meals-more-button",
+          accessibilityLabel: "Open meals menu",
+        }}
+      >
+        <View style={styles.tabsHeader}>
+          <MealTabs activeTab={activeTab} onChange={handleTabChange} />
+        </View>
         <Animated.View style={[styles.listWrapper, { opacity }]}>
           <FlatList
             testID="meals-list"
@@ -136,34 +187,20 @@ export default function MealsScreen() {
             }
             ItemSeparatorComponent={() => <View style={styles.separator} />}
             ListEmptyComponent={listEmpty}
-            ListHeaderComponent={header}
           />
         </Animated.View>
       </TabParent>
       <MealModalOverlay
-        mealId={selectedMealId}
+        mode={modalMode}
+        meal={modalMode === "edit" ? selectedMeal : undefined}
         visible={isModalVisible}
         onDismiss={handleDismissModal}
+        onCreateMeal={handleCreateMeal}
+        onUpdateMeal={handleUpdateMeal}
       />
     </>
   );
 }
-
-type PressableIconProps = {
-  theme: WeeklyTheme;
-  style: StyleProp<ViewStyle>;
-};
-
-const PressableIcon = ({ theme, style }: PressableIconProps) => (
-  <Pressable
-    style={({ pressed }) => [style, pressed ? { opacity: 0.9 } : null]}
-    hitSlop={theme.space.sm}
-    accessibilityRole="button"
-    accessibilityLabel="Filter meals"
-  >
-    <MaterialCommunityIcons name="tune" size={20} color={theme.color.ink} />
-  </Pressable>
-);
 
 const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
@@ -177,7 +214,7 @@ const createStyles = (theme: WeeklyTheme) =>
     listContent: {
       paddingHorizontal: theme.space.lg,
       paddingBottom: theme.space["2xl"],
-      paddingTop: 0,
+      paddingTop: 15,
     },
     listWrapper: {
       flex: 1,
@@ -188,15 +225,8 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.bold,
       marginBottom: theme.space.xl,
     },
-    filterButton: {
-      width: 40,
-      height: 40,
-      borderRadius: theme.radius.full,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: 1,
-      borderColor: theme.color.border,
+    tabsHeader: {
+      paddingTop: theme.space.lg,
     },
     separator: {
       height: theme.space.lg,
