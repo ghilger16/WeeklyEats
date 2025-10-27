@@ -1,18 +1,13 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
-  DimensionValue,
-  GestureResponderEvent,
   KeyboardAvoidingView,
-  LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
-  ViewStyle,
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useThemeController } from "../../providers/theme/ThemeController";
@@ -31,16 +26,21 @@ type MealCardProps = {
 type MealFormValues = MealDraft;
 
 const SLIDER_STEPS = 5;
-type PercentString = `${number}%`;
 
 const clampSliderValue = (value: number) =>
   Math.min(Math.max(Math.round(value), 1), SLIDER_STEPS);
 
-const sliderValueToPercent = (value: number): PercentString => {
-  const clamped = clampSliderValue(value);
-  const ratio = (clamped - 1) / (SLIDER_STEPS - 1);
-  return `${Math.round(ratio * 100)}%` as PercentString;
-};
+const DIFFICULTY_LEVELS = [
+  { label: "Easy", value: 1 as const },
+  { label: "Medium", value: 3 as const },
+  { label: "Hard", value: 5 as const },
+];
+
+const EXPENSE_LEVELS = [
+  { label: "Cheap", value: 1 as const },
+  { label: "Medium", value: 3 as const },
+  { label: "Pricey", value: 5 as const },
+];
 
 const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   id: meal.id,
@@ -72,10 +72,7 @@ export default function MealCard({
   );
   const [newIngredient, setNewIngredient] = useState("");
   const skipAutoSaveRef = useRef(true);
-  const difficultyTrackWidth = useRef(1);
-  const expenseTrackWidth = useRef(1);
   const isEditMode = mode === "edit";
-  const title = isEditMode ? "Edit Meal" : "Add Meal";
 
   useEffect(() => {
     skipAutoSaveRef.current = true;
@@ -109,60 +106,6 @@ export default function MealCard({
       }));
     },
     []
-  );
-
-  const handleSliderPress = useCallback(
-    (key: "difficulty" | "expense") => (event: GestureResponderEvent) => {
-      const { locationX } = event.nativeEvent;
-      const trackWidth =
-        key === "difficulty"
-          ? difficultyTrackWidth.current
-          : expenseTrackWidth.current;
-      const ratio =
-        trackWidth <= 0 ? 0 : Math.min(Math.max(locationX / trackWidth, 0), 1);
-      const value = clampSliderValue(ratio * (SLIDER_STEPS - 1) + 1);
-      updateField(key, value);
-    },
-    [updateField]
-  );
-
-  const handleTrackLayout = useCallback(
-    (key: "difficulty" | "expense") => (event: LayoutChangeEvent) => {
-      const width = event.nativeEvent.layout.width;
-      if (width <= 0) {
-        return;
-      }
-      if (key === "difficulty") {
-        difficultyTrackWidth.current = width;
-      } else {
-        expenseTrackWidth.current = width;
-      }
-    },
-    []
-  );
-
-  const difficultyStyles = useMemo(
-    () => ({
-      fill: {
-        width: sliderValueToPercent(form.difficulty ?? 3) as DimensionValue,
-      } as ViewStyle,
-      thumb: {
-        left: sliderValueToPercent(form.difficulty ?? 3) as DimensionValue,
-      } as ViewStyle,
-    }),
-    [form.difficulty]
-  );
-
-  const expenseStyles = useMemo(
-    () => ({
-      fill: {
-        width: sliderValueToPercent(form.expense ?? 3) as DimensionValue,
-      } as ViewStyle,
-      thumb: {
-        left: sliderValueToPercent(form.expense ?? 3) as DimensionValue,
-      } as ViewStyle,
-    }),
-    [form.expense]
   );
 
   const handleAddIngredient = useCallback(() => {
@@ -235,9 +178,6 @@ export default function MealCard({
                 />
               </Pressable>
             </FlexGrid.Col>
-            <FlexGrid.Col grow={1}>
-              <Text style={styles.headerTitle}>{title}</Text>
-            </FlexGrid.Col>
           </FlexGrid.Row>
         </FlexGrid>
 
@@ -307,82 +247,69 @@ export default function MealCard({
                 onSubmitEditing={handleAddIngredient}
                 returnKeyType="done"
               />
-              <Pressable
-                style={[
-                  styles.addIngredientButton,
-                  !newIngredient.trim() && styles.addIngredientButtonDisabled,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Add ingredient"
-                disabled={!newIngredient.trim()}
-                onPress={handleAddIngredient}
-              >
-                <Text style={styles.addIngredientText}>Add</Text>
-              </Pressable>
             </View>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Difficulty</Text>
-            <Pressable
-              style={styles.sliderTrack}
-              onPress={handleSliderPress("difficulty")}
-              onLayout={handleTrackLayout("difficulty")}
-            >
-              <View style={[styles.sliderFill, difficultyStyles.fill]} />
-              <View style={[styles.sliderThumb, difficultyStyles.thumb]} />
-            </Pressable>
-            <View style={styles.sliderLabels}>
-              <Text style={styles.sliderLabelText}>Easy</Text>
-              <Text style={styles.sliderLabelText}>Hard</Text>
+            <View style={styles.levelChipRow}>
+              {DIFFICULTY_LEVELS.map(({ label, value }) => {
+                const isSelected = form.difficulty === value;
+                return (
+                  <Pressable
+                    key={label}
+                    style={[
+                      styles.levelChip,
+                      isSelected && styles.levelChipSelected,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityLabel={`Set difficulty to ${label}`}
+                    onPress={() => updateField("difficulty", value)}
+                  >
+                    <Text
+                      style={[
+                        styles.levelChipText,
+                        isSelected && styles.levelChipTextSelected,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Expense</Text>
-            <Pressable
-              style={styles.sliderTrack}
-              onPress={handleSliderPress("expense")}
-              onLayout={handleTrackLayout("expense")}
-            >
-              <View
-                style={[
-                  styles.sliderFill,
-                  styles.sliderFillExpense,
-                  expenseStyles.fill,
-                ]}
-              />
-              <View
-                style={[
-                  styles.sliderThumb,
-                  styles.sliderThumbExpense,
-                  expenseStyles.thumb,
-                ]}
-              />
-            </Pressable>
-            <View style={styles.sliderLabels}>
-              <Text style={styles.sliderLabelText}>Cheap</Text>
-              <Text style={styles.sliderLabelText}>Pricey</Text>
+            <View style={styles.levelChipRow}>
+              {EXPENSE_LEVELS.map(({ label, value }) => {
+                const isSelected = form.expense === value;
+                return (
+                  <Pressable
+                    key={label}
+                    style={[
+                      styles.levelChip,
+                      isSelected && styles.levelChipSelectedExpense,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    accessibilityLabel={`Set expense to ${label}`}
+                    onPress={() => updateField("expense", value)}
+                  >
+                    <Text
+                      style={[
+                        styles.levelChipText,
+                        isSelected && styles.levelChipTextSelected,
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
-          </View>
-
-          <View style={styles.section}>
-            <FlexGrid.Row alignItems="center" justifyContent="space-between">
-              <FlexGrid.Col grow={1}>
-                <Text style={styles.sectionLabel}>Lock every Tuesday?</Text>
-              </FlexGrid.Col>
-              <FlexGrid.Col grow={0}>
-                <Switch
-                  value={form.locked}
-                  onValueChange={(value) => updateField("locked", value)}
-                  thumbColor={form.locked ? theme.color.accent : undefined}
-                  trackColor={{
-                    false: theme.color.surfaceAlt,
-                    true: theme.color.surfaceAlt,
-                  }}
-                />
-              </FlexGrid.Col>
-            </FlexGrid.Row>
           </View>
         </ScrollView>
 
@@ -432,11 +359,6 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
-    },
-    headerTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.h2,
-      fontWeight: theme.type.weight.bold,
     },
     scrollContent: {
       paddingHorizontal: theme.space.xl,
@@ -500,7 +422,6 @@ const createStyles = (theme: WeeklyTheme) =>
     addIngredientRow: {
       flexDirection: "row",
       alignItems: "center",
-      gap: theme.space.sm,
     },
     ingredientInput: {
       flex: 1,
@@ -511,65 +432,35 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
       fontSize: theme.type.size.base,
     },
-    addIngredientButton: {
-      paddingHorizontal: theme.space.md,
-      paddingVertical: 6,
+    levelChipRow: {
+      flexDirection: "row",
+      gap: theme.space.sm,
+    },
+    levelChip: {
+      flex: 1,
       borderRadius: theme.radius.md,
-      backgroundColor: theme.color.accent,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
+      backgroundColor: theme.color.surface,
+      paddingVertical: theme.space.sm,
+      alignItems: "center",
+      justifyContent: "center",
     },
-    addIngredientButtonDisabled: {
-      backgroundColor: theme.color.surfaceAlt,
+    levelChipSelected: {
+      backgroundColor: theme.color.accent,
+      borderColor: theme.color.accent,
     },
-    addIngredientText: {
-      color: theme.color.ink,
+    levelChipSelectedExpense: {
+      backgroundColor: theme.color.success,
+      borderColor: theme.color.success,
+    },
+    levelChipText: {
+      color: theme.color.subtleInk,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.medium,
     },
-    sliderTrack: {
-      height: theme.component.slider.trackHeight,
-      borderRadius: theme.component.slider.trackHeight / 2,
-      backgroundColor: theme.color.surfaceAlt,
-      position: "relative",
-      overflow: "hidden",
-      justifyContent: "center",
-    },
-    sliderFill: {
-      position: "absolute",
-      left: 0,
-      top: 0,
-      bottom: 0,
-      backgroundColor: theme.color.accent,
-      width: "0%",
-    },
-    sliderFillExpense: {
-      backgroundColor: theme.color.success,
-    },
-    sliderThumb: {
-      position: "absolute",
-      top:
-        -(theme.component.slider.thumbSize / 2 -
-          theme.component.slider.trackHeight / 2),
-      left: "0%",
-      width: theme.component.slider.thumbSize,
-      height: theme.component.slider.thumbSize,
-      borderRadius: theme.component.slider.thumbSize / 2,
-      backgroundColor: theme.color.accent,
-      borderWidth: 2,
-      borderColor: theme.color.bg,
-      transform: [{ translateX: -(theme.component.slider.thumbSize / 2) }],
-    },
-    sliderThumbExpense: {
-      backgroundColor: theme.color.success,
-    },
-    sliderLabels: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-    },
-    sliderLabelText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
+    levelChipTextSelected: {
+      color: theme.color.ink,
     },
     footer: {
       paddingHorizontal: theme.space.xl,
