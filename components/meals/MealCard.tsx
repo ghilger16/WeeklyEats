@@ -20,6 +20,7 @@ import { Meal, MealDraft } from "../../types/meals";
 import { useFeatureFlag } from "../../hooks/useFeatureFlags";
 import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
 import { supportsRecipeAutoFill } from "../../utils/recipeAutoFillCapability";
+import RatingStars from "./RatingStars";
 
 type MealCardProps = {
   mode: "create" | "edit";
@@ -75,7 +76,7 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   id: meal.id,
   title: meal.title ?? "",
   emoji: meal.emoji ?? "🍽️",
-  rating: meal.rating ?? 3,
+  rating: meal.rating ?? 0,
   plannedCostTier: meal.plannedCostTier ?? 2,
   locked: meal.locked ?? false,
   isFavorite: meal.isFavorite ?? false,
@@ -193,8 +194,7 @@ export default function MealCard({
 
     const defaultSelection: AutoFillSelectionState = {
       ...AUTO_FILL_SELECTION_DEFAULT,
-      title:
-        Boolean(outcome.data.title) && form.title.trim().length === 0,
+      title: Boolean(outcome.data.title) && form.title.trim().length === 0,
       ingredients:
         Boolean(outcome.data.ingredients?.length) &&
         (form.ingredients ?? []).length === 0,
@@ -249,17 +249,15 @@ export default function MealCard({
       updateField("difficulty", clampSliderValue(autoFillResult.difficulty));
     }
 
-    if (autoFillSelection.expense && typeof autoFillResult.expense === "number") {
+    if (
+      autoFillSelection.expense &&
+      typeof autoFillResult.expense === "number"
+    ) {
       updateField("expense", clampSliderValue(autoFillResult.expense));
     }
 
     closeAutoFillPreview();
-  }, [
-    autoFillResult,
-    autoFillSelection,
-    closeAutoFillPreview,
-    updateField,
-  ]);
+  }, [autoFillResult, autoFillSelection, closeAutoFillPreview, updateField]);
 
   const isSaveDisabled = form.title.trim().length === 0;
   const hasAutoFillSelection = useMemo(
@@ -430,7 +428,10 @@ export default function MealCard({
                   )}
                 </Pressable>
                 {autoFillError ? (
-                  <Text style={styles.autoFillErrorText} accessibilityRole="alert">
+                  <Text
+                    style={styles.autoFillErrorText}
+                    accessibilityRole="alert"
+                  >
                     {autoFillError}
                   </Text>
                 ) : null}
@@ -470,6 +471,18 @@ export default function MealCard({
                 returnKeyType="done"
               />
             </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Rating</Text>
+            <FlexGrid.Row justifyContent="center">
+              <RatingStars
+                value={form.rating ?? 0}
+                size={32}
+                onChange={(next) => updateField("rating", next)}
+                gap={theme.space.xl}
+              />
+            </FlexGrid.Row>
           </View>
 
           <View style={styles.section}>
@@ -559,7 +572,9 @@ export default function MealCard({
                   return (
                     <View style={styles.autoFillFieldRow} key={field.key}>
                       <View style={styles.autoFillFieldContent}>
-                        <Text style={styles.autoFillFieldLabel}>{field.label}</Text>
+                        <Text style={styles.autoFillFieldLabel}>
+                          {field.label}
+                        </Text>
                         <Text style={styles.autoFillFieldValue}>
                           {field.value ?? "No new suggestion"}
                         </Text>

@@ -56,7 +56,24 @@ const MealListItem = memo(function MealListItem({
     onDelete();
   };
 
-  const costLabel = "$".repeat(meal.plannedCostTier);
+  const resolveExpenseTier = () => {
+    if (typeof meal.expense === "number") {
+      if (meal.expense <= 2) {
+        return 1;
+      }
+      if (meal.expense >= 4) {
+        return 3;
+      }
+      return 2;
+    }
+
+    return Math.min(Math.max(meal.plannedCostTier ?? 2, 1), 3);
+  };
+
+  const expenseTier = resolveExpenseTier();
+  const expenseLabel =
+    expenseTier === 1 ? "cheap" : expenseTier === 2 ? "medium" : "pricey";
+  const costLabel = "$".repeat(expenseTier);
 
   const combinedStyle = ({
     pressed,
@@ -88,7 +105,7 @@ const MealListItem = memo(function MealListItem({
         rightThreshold={64}
         renderRightActions={renderRightActions}
       >
-        <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}> 
+        <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${meal.title} meal`}
@@ -112,12 +129,19 @@ const MealListItem = memo(function MealListItem({
                 <FlexGrid.Col span={7} grow={1}>
                   <View style={styles.details}>
                     <Text style={styles.title}>{meal.title}</Text>
-                    <RatingStars value={meal.rating} size={16} />
+                    {meal.rating ? (
+                      <RatingStars value={meal.rating} size={16} gap={0} />
+                    ) : null}
                   </View>
                 </FlexGrid.Col>
                 <FlexGrid.Col span={3} grow={0}>
                   <View style={styles.meta}>
-                    <Text style={styles.cost}>{costLabel}</Text>
+                    <Text
+                      style={styles.cost}
+                      accessibilityLabel={`Expense ${expenseLabel}`}
+                    >
+                      {costLabel}
+                    </Text>
                     {meal.locked ? (
                       <MaterialCommunityIcons
                         name="lock"
