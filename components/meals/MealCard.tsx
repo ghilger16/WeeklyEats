@@ -1,10 +1,13 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -14,6 +17,9 @@ import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
 import { Meal, MealDraft } from "../../types/meals";
+import { useFeatureFlag } from "../../hooks/useFeatureFlags";
+import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
+import { supportsRecipeAutoFill } from "../../utils/recipeAutoFillCapability";
 
 type MealCardProps = {
   mode: "create" | "edit";
@@ -41,6 +47,29 @@ const EXPENSE_LEVELS = [
   { label: "Medium", value: 3 as const },
   { label: "Pricey", value: 5 as const },
 ];
+
+const AUTO_FILL_SELECTION_DEFAULT = {
+  title: false,
+  ingredients: false,
+  difficulty: false,
+  expense: false,
+} as const;
+
+type AutoFillSelectionKey = keyof typeof AUTO_FILL_SELECTION_DEFAULT;
+type AutoFillSelectionState = Record<AutoFillSelectionKey, boolean>;
+
+const labelForLevel = (
+  value: number | undefined,
+  levels: readonly { label: string; value: number }[]
+): string | undefined => {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return undefined;
+  }
+
+  const clamped = clampSliderValue(value);
+  const match = levels.find((level) => level.value === clamped);
+  return match?.label ?? `Level ${clamped}`;
+};
 
 const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   id: meal.id,
@@ -73,6 +102,23 @@ export default function MealCard({
   const [newIngredient, setNewIngredient] = useState("");
   const skipAutoSaveRef = useRef(true);
   const isEditMode = mode === "edit";
+  const autoFillFeatureFlag = useFeatureFlag("recipeAutoFillEnabled");
+  const isAutoFillSupported = useMemo(() => supportsRecipeAutoFill(), []);
+  const isAutoFillEnabled = autoFillFeatureFlag && isAutoFillSupported;
+  const {
+    isLoading: isAutoFillLoading,
+    error: autoFillError,
+    result: autoFillResult,
+    requestAutoFill,
+    resetAutoFill,
+    clearError,
+  } = useRecipeAutoFill(form.recipeUrl);
+  const [isAutoFillPreviewVisible, setIsAutoFillPreviewVisible] =
+    useState(false);
+  const [autoFillSelection, setAutoFillSelection] =
+    useState<AutoFillSelectionState>({
+      ...AUTO_FILL_SELECTION_DEFAULT,
+    });
 
   useEffect(() => {
     skipAutoSaveRef.current = true;
@@ -128,7 +174,146 @@ export default function MealCard({
     [form.ingredients, updateField]
   );
 
+  const handleToggleAutoFillSelection = useCallback(
+    (field: AutoFillSelectionKey, value: boolean) => {
+      setAutoFillSelection((prev) => ({
+        ...prev,
+        [field]: value,
+      }));
+    },
+    []
+  );
+
+  const handleAutoFillPress = useCallback(async () => {
+    clearError();
+    const outcome = await requestAutoFill();
+    if (!outcome.ok) {
+      return;
+    }
+
+    const defaultSelection: AutoFillSelectionState = {
+      ...AUTO_FILL_SELECTION_DEFAULT,
+      title:
+        Boolean(outcome.data.title) && form.title.trim().length === 0,
+      ingredients:
+        Boolean(outcome.data.ingredients?.length) &&
+        (form.ingredients ?? []).length === 0,
+      difficulty:
+        typeof outcome.data.difficulty === "number" &&
+        clampSliderValue(outcome.data.difficulty) !==
+          clampSliderValue(form.difficulty ?? 3),
+      expense:
+        typeof outcome.data.expense === "number" &&
+        clampSliderValue(outcome.data.expense) !==
+          clampSliderValue(form.expense ?? 3),
+    };
+
+    setAutoFillSelection(defaultSelection);
+    setIsAutoFillPreviewVisible(true);
+  }, [
+    clearError,
+    requestAutoFill,
+    form.title,
+    form.ingredients,
+    form.difficulty,
+    form.expense,
+  ]);
+
+  const closeAutoFillPreview = useCallback(() => {
+    setIsAutoFillPreviewVisible(false);
+    setAutoFillSelection({ ...AUTO_FILL_SELECTION_DEFAULT });
+    resetAutoFill();
+  }, [resetAutoFill]);
+
+  const handleConfirmAutoFill = useCallback(() => {
+    if (!autoFillResult) {
+      return;
+    }
+
+    if (autoFillSelection.title && autoFillResult.title) {
+      updateField("title", autoFillResult.title);
+    }
+
+    if (
+      autoFillSelection.ingredients &&
+      autoFillResult.ingredients &&
+      autoFillResult.ingredients.length > 0
+    ) {
+      updateField("ingredients", autoFillResult.ingredients);
+    }
+
+    if (
+      autoFillSelection.difficulty &&
+      typeof autoFillResult.difficulty === "number"
+    ) {
+      updateField("difficulty", clampSliderValue(autoFillResult.difficulty));
+    }
+
+    if (autoFillSelection.expense && typeof autoFillResult.expense === "number") {
+      updateField("expense", clampSliderValue(autoFillResult.expense));
+    }
+
+    closeAutoFillPreview();
+  }, [
+    autoFillResult,
+    autoFillSelection,
+    closeAutoFillPreview,
+    updateField,
+  ]);
+
   const isSaveDisabled = form.title.trim().length === 0;
+  const hasAutoFillSelection = useMemo(
+    () => Object.values(autoFillSelection).some(Boolean),
+    [autoFillSelection]
+  );
+  const trimmedRecipeUrl = form.recipeUrl?.trim() ?? "";
+  const isAutoFillButtonDisabled =
+    !trimmedRecipeUrl.length || isAutoFillLoading;
+  const autoFillFields = useMemo(() => {
+    if (!autoFillResult) {
+      return [] as Array<{
+        key: AutoFillSelectionKey;
+        label: string;
+        value?: string;
+        selectable: boolean;
+      }>;
+    }
+
+    const difficultyLabel = labelForLevel(
+      autoFillResult.difficulty,
+      DIFFICULTY_LEVELS
+    );
+    const expenseLabel = labelForLevel(autoFillResult.expense, EXPENSE_LEVELS);
+
+    return [
+      {
+        key: "title" as const,
+        label: "Meal Title",
+        value: autoFillResult.title,
+        selectable: Boolean(autoFillResult.title),
+      },
+      {
+        key: "ingredients" as const,
+        label: "Key Ingredients",
+        value: autoFillResult.ingredients?.length
+          ? autoFillResult.ingredients.join("\n")
+          : undefined,
+        selectable: Boolean(autoFillResult.ingredients?.length),
+      },
+      {
+        key: "difficulty" as const,
+        label: "Difficulty",
+        value: difficultyLabel,
+        selectable: Boolean(difficultyLabel),
+      },
+      {
+        key: "expense" as const,
+        label: "Expense",
+        value: expenseLabel,
+        selectable: Boolean(expenseLabel),
+      },
+    ];
+  }, [autoFillResult]);
 
   const handleSubmit = useCallback(() => {
     if (isEditMode) {
@@ -209,11 +394,48 @@ export default function MealCard({
                 placeholderTextColor={theme.color.subtleInk}
                 style={styles.linkTextInput}
                 value={form.recipeUrl}
-                onChangeText={(value) => updateField("recipeUrl", value)}
+                onChangeText={(value) => {
+                  if (autoFillError) {
+                    clearError();
+                  }
+                  if (autoFillResult) {
+                    resetAutoFill();
+                    setAutoFillSelection({ ...AUTO_FILL_SELECTION_DEFAULT });
+                    setIsAutoFillPreviewVisible(false);
+                  }
+                  updateField("recipeUrl", value);
+                }}
                 autoCapitalize="none"
                 keyboardType="url"
               />
             </View>
+            {isAutoFillEnabled ? (
+              <View style={styles.autoFillBlock}>
+                <Pressable
+                  style={[
+                    styles.autoFillButton,
+                    isAutoFillButtonDisabled && styles.autoFillButtonDisabled,
+                  ]}
+                  disabled={isAutoFillButtonDisabled}
+                  onPress={handleAutoFillPress}
+                  accessibilityRole="button"
+                  accessibilityLabel="Auto-fill meal details from recipe link"
+                >
+                  {isAutoFillLoading ? (
+                    <ActivityIndicator color={theme.color.ink} size="small" />
+                  ) : (
+                    <Text style={styles.autoFillButtonText}>
+                      Auto-fill from link
+                    </Text>
+                  )}
+                </Pressable>
+                {autoFillError ? (
+                  <Text style={styles.autoFillErrorText} accessibilityRole="alert">
+                    {autoFillError}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.section}>
@@ -312,6 +534,94 @@ export default function MealCard({
             </View>
           </View>
         </ScrollView>
+
+        <Modal
+          transparent
+          animationType="fade"
+          visible={isAutoFillPreviewVisible && Boolean(autoFillResult)}
+          onRequestClose={closeAutoFillPreview}
+        >
+          <View style={styles.autoFillModalBackdrop}>
+            <View style={styles.autoFillModalContent}>
+              <Text style={styles.autoFillModalTitle}>
+                Apply recipe details?
+              </Text>
+              {autoFillResult?.summary ? (
+                <Text style={styles.autoFillModalDescription}>
+                  {autoFillResult.summary}
+                </Text>
+              ) : null}
+
+              <View style={styles.autoFillFieldGroup}>
+                {autoFillFields.map((field) => {
+                  const isActive = autoFillSelection[field.key];
+                  const isSelectable = field.selectable;
+                  return (
+                    <View style={styles.autoFillFieldRow} key={field.key}>
+                      <View style={styles.autoFillFieldContent}>
+                        <Text style={styles.autoFillFieldLabel}>{field.label}</Text>
+                        <Text style={styles.autoFillFieldValue}>
+                          {field.value ?? "No new suggestion"}
+                        </Text>
+                      </View>
+                      <Switch
+                        style={styles.autoFillSwitch}
+                        value={isSelectable && isActive}
+                        disabled={!isSelectable}
+                        onValueChange={(value) =>
+                          handleToggleAutoFillSelection(field.key, value)
+                        }
+                        trackColor={{
+                          false: theme.color.surfaceAlt,
+                          true: theme.color.accent,
+                        }}
+                        thumbColor={
+                          isSelectable && isActive
+                            ? theme.color.ink
+                            : theme.color.surface
+                        }
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.autoFillModalActions}>
+                <Pressable
+                  style={styles.autoFillModalButton}
+                  onPress={closeAutoFillPreview}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel applying auto-filled details"
+                >
+                  <Text style={styles.autoFillModalButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.autoFillModalButton,
+                    styles.autoFillModalButtonPrimary,
+                    !hasAutoFillSelection &&
+                      styles.autoFillModalButtonPrimaryDisabled,
+                  ]}
+                  disabled={!hasAutoFillSelection}
+                  onPress={handleConfirmAutoFill}
+                  accessibilityRole="button"
+                  accessibilityLabel="Apply the selected auto-filled details"
+                >
+                  <Text
+                    style={[
+                      styles.autoFillModalButtonText,
+                      styles.autoFillModalButtonTextPrimary,
+                      !hasAutoFillSelection &&
+                        styles.autoFillModalButtonTextDisabled,
+                    ]}
+                  >
+                    Apply
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {!isEditMode ? (
           <View style={styles.footer}>
@@ -461,6 +771,116 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     levelChipTextSelected: {
       color: theme.color.ink,
+    },
+    autoFillBlock: {
+      gap: theme.space.xs,
+    },
+    autoFillButton: {
+      alignSelf: "flex-start",
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.sm,
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      backgroundColor: theme.color.surfaceAlt,
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+      gap: theme.space.sm,
+    },
+    autoFillButtonDisabled: {
+      opacity: 0.6,
+    },
+    autoFillButtonText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+    },
+    autoFillErrorText: {
+      color: theme.color.danger,
+      fontSize: theme.type.size.sm,
+    },
+    autoFillModalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0, 0, 0, 0.35)",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: theme.space.xl,
+    },
+    autoFillModalContent: {
+      width: "100%",
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surface,
+      padding: theme.space.xl,
+      gap: theme.space.lg,
+    },
+    autoFillModalTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+    },
+    autoFillModalDescription: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+    },
+    autoFillFieldGroup: {
+      gap: theme.space.md,
+    },
+    autoFillFieldRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: theme.space.md,
+    },
+    autoFillFieldContent: {
+      flex: 1,
+      gap: theme.space.xs,
+    },
+    autoFillFieldLabel: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+    },
+    autoFillFieldValue: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      lineHeight: theme.type.size.base * 1.3,
+    },
+    autoFillSwitch: {
+      marginLeft: theme.space.sm,
+    },
+    autoFillModalActions: {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      gap: theme.space.sm,
+    },
+    autoFillModalButton: {
+      paddingHorizontal: theme.space.lg,
+      paddingVertical: theme.space.sm,
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    autoFillModalButtonPrimary: {
+      backgroundColor: theme.color.accent,
+      borderColor: theme.color.accent,
+    },
+    autoFillModalButtonPrimaryDisabled: {
+      opacity: 0.5,
+    },
+    autoFillModalButtonText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+    },
+    autoFillModalButtonTextPrimary: {
+      color: theme.color.ink,
+    },
+    autoFillModalButtonTextDisabled: {
+      color: theme.color.subtleInk,
     },
     footer: {
       paddingHorizontal: theme.space.xl,

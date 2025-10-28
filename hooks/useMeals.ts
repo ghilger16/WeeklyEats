@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { mockMeals } from "../stores/mockMeals";
 import { getMeals, setMeals as persistMeals } from "../stores/mealsStorage";
 import { Meal } from "../types/meals";
-
-const cloneMeals = (data: Meal[]) =>
-  data.map((meal) => ({
-    ...meal,
-    ingredients: meal.ingredients ? [...meal.ingredients] : [],
-  }));
 
 export type MealListSubset = "meals" | "favorites";
 export type MealUpdate = Partial<Omit<Meal, "id">> & { id: Meal["id"] };
@@ -45,12 +38,7 @@ export const useMeals = (): UseMealsResult => {
 
       if (storedMeals.length > 0) {
         setMealsState(storedMeals);
-      } else {
-        const defaults = cloneMeals(mockMeals);
-        setMealsState(defaults);
-        await persistMeals(defaults);
       }
-
     };
 
     hydrateMeals();
@@ -79,10 +67,6 @@ export const useMeals = (): UseMealsResult => {
     const storedMeals = await getMeals();
     if (storedMeals.length > 0) {
       setMealsState(storedMeals);
-    } else {
-      const defaults = cloneMeals(mockMeals);
-      setMealsState(defaults);
-      await persistMeals(defaults);
     }
     setRefreshing(false);
   }, []);

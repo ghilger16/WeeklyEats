@@ -74,8 +74,14 @@ export default function MealsScreen() {
   }, []);
 
   const renderMeal: ListRenderItem<Meal> = useCallback(
-    ({ item }) => <MealListItem meal={item} onPress={() => onOpenMeal(item)} />,
-    [onOpenMeal]
+    ({ item }) => (
+      <MealListItem
+        meal={item}
+        onPress={() => onOpenMeal(item)}
+        onDelete={() => deleteMeal(item.id)}
+      />
+    ),
+    [deleteMeal, onOpenMeal]
   );
 
   const keyExtractor = useCallback((item: Meal) => item.id, []);
