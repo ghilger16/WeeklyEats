@@ -38,15 +38,15 @@ const clampSliderValue = (value: number) =>
   Math.min(Math.max(Math.round(value), 1), SLIDER_STEPS);
 
 const DIFFICULTY_LEVELS = [
-  { label: "Easy", value: 1 as const },
-  { label: "Medium", value: 3 as const },
-  { label: "Hard", value: 5 as const },
+  { label: "Easy", value: 1 as const, colorKey: "success" as const },
+  { label: "Medium", value: 3 as const, colorKey: "warning" as const },
+  { label: "Hard", value: 5 as const, colorKey: "danger" as const },
 ];
 
 const EXPENSE_LEVELS = [
-  { label: "Cheap", value: 1 as const },
-  { label: "Medium", value: 3 as const },
-  { label: "Pricey", value: 5 as const },
+  { label: "$", value: 1 as const },
+  { label: "$$", value: 3 as const },
+  { label: "$$$", value: 5 as const },
 ];
 
 const AUTO_FILL_SELECTION_DEFAULT = {
@@ -488,28 +488,44 @@ export default function MealCard({
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Difficulty</Text>
             <View style={styles.levelChipRow}>
-              {DIFFICULTY_LEVELS.map(({ label, value }) => {
+              {DIFFICULTY_LEVELS.map(({ label, value, colorKey }) => {
                 const isSelected = form.difficulty === value;
+                const levelColor = theme.color[colorKey];
                 return (
                   <Pressable
                     key={label}
                     style={[
                       styles.levelChip,
-                      isSelected && styles.levelChipSelected,
+                      {
+                        borderColor: levelColor,
+                        backgroundColor: isSelected
+                          ? levelColor
+                          : theme.color.surface,
+                      },
                     ]}
                     accessibilityRole="button"
                     accessibilityState={{ selected: isSelected }}
                     accessibilityLabel={`Set difficulty to ${label}`}
                     onPress={() => updateField("difficulty", value)}
                   >
-                    <Text
-                      style={[
-                        styles.levelChipText,
-                        isSelected && styles.levelChipTextSelected,
-                      ]}
-                    >
-                      {label}
-                    </Text>
+                    <View style={styles.levelChipContent}>
+                      {!isSelected ? (
+                        <View
+                          style={[
+                            styles.levelChipDot,
+                            { backgroundColor: levelColor },
+                          ]}
+                        />
+                      ) : null}
+                      <Text
+                        style={[
+                          styles.levelChipText,
+                          { color: isSelected ? theme.color.ink : levelColor },
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </View>
                   </Pressable>
                 );
               })}
@@ -771,9 +787,15 @@ const createStyles = (theme: WeeklyTheme) =>
       alignItems: "center",
       justifyContent: "center",
     },
-    levelChipSelected: {
-      backgroundColor: theme.color.accent,
-      borderColor: theme.color.accent,
+    levelChipContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs,
+    },
+    levelChipDot: {
+      width: 8,
+      height: 8,
+      borderRadius: theme.radius.full,
     },
     levelChipSelectedExpense: {
       backgroundColor: theme.color.success,
@@ -785,7 +807,7 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.medium,
     },
     levelChipTextSelected: {
-      color: theme.color.ink,
+      color: theme.color.bg,
     },
     autoFillBlock: {
       gap: theme.space.xs,

@@ -28,6 +28,28 @@ type Props = {
   style?: StyleProp<ViewStyle>;
 };
 
+type DifficultyColorKey = "success" | "warning" | "danger";
+
+const clampDifficulty = (value: number) =>
+  Math.min(Math.max(Math.round(value), 1), 5);
+
+const resolveDifficultyColorKey = (
+  difficulty: number | undefined
+): DifficultyColorKey | undefined => {
+  if (typeof difficulty !== "number" || Number.isNaN(difficulty)) {
+    return undefined;
+  }
+
+  const clamped = clampDifficulty(difficulty);
+  if (clamped <= 2) {
+    return "success";
+  }
+  if (clamped >= 4) {
+    return "danger";
+  }
+  return "warning";
+};
+
 const MealListItem = memo(function MealListItem({
   meal,
   onPress,
@@ -74,6 +96,10 @@ const MealListItem = memo(function MealListItem({
   const expenseLabel =
     expenseTier === 1 ? "cheap" : expenseTier === 2 ? "medium" : "pricey";
   const costLabel = "$".repeat(expenseTier);
+  const difficultyColorKey = resolveDifficultyColorKey(meal.difficulty);
+  const difficultyColor = difficultyColorKey
+    ? theme.color[difficultyColorKey]
+    : undefined;
 
   const combinedStyle = ({
     pressed,
@@ -136,6 +162,16 @@ const MealListItem = memo(function MealListItem({
                 </FlexGrid.Col>
                 <FlexGrid.Col span={3} grow={0}>
                   <View style={styles.meta}>
+                    {difficultyColor ? (
+                      <View
+                        style={[
+                          styles.difficultyDot,
+                          { backgroundColor: difficultyColor },
+                        ]}
+                        accessibilityLabel="Meal difficulty indicator"
+                        accessible
+                      />
+                    ) : null}
                     <Text
                       style={styles.cost}
                       accessibilityLabel={`Expense ${expenseLabel}`}
@@ -196,6 +232,11 @@ const createStyles = (theme: WeeklyTheme) =>
       justifyContent: "center",
       gap: theme.space.xs,
       minWidth: 48,
+    },
+    difficultyDot: {
+      width: 8,
+      height: 8,
+      borderRadius: theme.radius.full,
     },
     cost: {
       color: theme.color.success,
