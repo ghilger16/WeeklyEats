@@ -7,7 +7,7 @@ import {
   View,
 } from "react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
@@ -20,12 +20,14 @@ import { useCurrentWeekPlan } from "../../../hooks/useCurrentWeekPlan";
 import { useMeals } from "../../../hooks/useMeals";
 import { useFeatureFlag } from "../../../hooks/useFeatureFlags";
 import { useWeekStartController } from "../../../providers/week-start/WeekStartController";
+import { useServedMeals } from "../../../hooks/useServedMeals";
 import {
   addDays,
   formatWeekdayDate,
   getNextWeekStartForDate,
   startOfDay,
 } from "../../../utils/weekDays";
+import { PLANNED_WEEK_LABELS } from "../../../types/weekPlan";
 
 export default function WeekDashboardScreen() {
   const router = useRouter();
@@ -49,19 +51,67 @@ export default function WeekDashboardScreen() {
     [dateControlsEnabled, overrideDate]
   );
 
-  const { isLoading, days, today } = useCurrentWeekPlan({
+  const {
+    isLoading,
+    days,
+    today,
+    refresh: refreshWeekPlan,
+  } = useCurrentWeekPlan({
     today: effectiveDate,
   });
+  const {
+    entries: servedEntries,
+    logServedMeal,
+    refresh: refreshServedMeals,
+  } = useServedMeals();
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshWeekPlan();
+      refreshServedMeals();
+    }, [refreshServedMeals, refreshWeekPlan])
+  );
 
   const servedWeek = useMemo<ServedWeek>(
     () =>
-      days
-        .filter((day) => day.status === "past")
-        .map((day) => ({
-          dayLabel: day.label,
-          mealId: day.mealId,
-        })),
-    [days]
+      servedEntries.slice(0, 7).map((entry) => ({
+        dayLabel: PLANNED_WEEK_LABELS[entry.dayKey],
+        mealId: entry.mealId,
+      })),
+    [servedEntries]
+  );
+
+  const todayServedEntry = useMemo(
+    () => {
+      if (!today) {
+        return undefined;
+      }
+      const todayDate = startOfDay(today.plannedDate).getTime();
+      return servedEntries.find((entry) => {
+        if (entry.dayKey !== today.key) {
+          return false;
+        }
+        const entryDate = startOfDay(new Date(entry.servedAtISO)).getTime();
+        return entryDate === todayDate;
+      });
+    },
+    [servedEntries, today]
+  );
+
+  const handleMarkServed = useCallback(
+    async (message: string) => {
+      if (!today?.meal) {
+        return;
+      }
+      await logServedMeal({
+        dayKey: today.key,
+        mealId: today.mealId,
+        servedAtISO: new Date().toISOString(),
+        outcome: "cookedAsPlanned",
+        celebrationMessage: message,
+      });
+    },
+    [logServedMeal, today]
   );
 
   const formattedDate = useMemo(
@@ -150,6 +200,8 @@ export default function WeekDashboardScreen() {
         <TodayCard
           meal={today.meal}
           dateLabel={formatWeekdayDate(today.plannedDate)}
+          servedEntry={todayServedEntry}
+          onMarkServed={handleMarkServed}
         />
       );
     }
@@ -190,11 +242,7 @@ export default function WeekDashboardScreen() {
             days={days}
             title="Current Week Plan"
           />
-          <ServedList
-            servedWeek={servedWeek}
-            meals={meals}
-            title="Served Meals"
-          />
+          <ServedList servedWeek={servedWeek} meals={meals} title="Served Meals" />
         </View>
       </ScrollView>
     </TabParent>

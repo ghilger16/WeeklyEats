@@ -12,11 +12,16 @@ type Props = {
 };
 
 export default function CurrentWeekList({
-  days,
+  days: rawDays,
   title = "Current Week",
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const days = useMemo(
+    () =>
+      rawDays.filter((day) => day.status === "upcoming"),
+    [rawDays]
+  );
 
   return (
     <View style={styles.card}>
