@@ -12,6 +12,7 @@ export type Meal = {
   ingredients?: string[];
   difficulty?: number;
   expense?: number;
+  prepNotes?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -31,6 +32,7 @@ export const createEmptyMealDraft = (): MealDraft => ({
   ingredients: [],
   difficulty: 3,
   expense: 3,
+  prepNotes: "",
 });
 
 export const createMealId = () =>

@@ -4,11 +4,14 @@ import { useMemo } from "react";
 import SettingsRow from "../../../components/settings/SettingsRow";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useThemeController } from "../../../providers/theme/ThemeController";
+import { useWeekStartController } from "../../../providers/week-start/WeekStartController";
+import { PLANNED_WEEK_DISPLAY_NAMES } from "../../../types/weekPlan";
 import { WeeklyTheme } from "../../../styles/theme";
 
 export default function MoreScreen() {
   const router = useRouter();
   const { theme, preference } = useThemeController();
+  const { startDay } = useWeekStartController();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
   const preferenceLabel =
@@ -21,6 +24,12 @@ export default function MoreScreen() {
   const openThemeSelector = () => {
     router.push("/modals/theme-select");
   };
+
+  const openWeekStartSelector = () => {
+    router.push("/modals/week-start");
+  };
+
+  const weekStartLabel = PLANNED_WEEK_DISPLAY_NAMES[startDay];
 
   return (
     <TabParent
@@ -45,7 +54,12 @@ export default function MoreScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>Preferences</Text>
           <SettingsRow icon="bell-outline" label="Notifications" />
-          <SettingsRow icon="calendar-start" label="Week Start Day" />
+          <SettingsRow
+            icon="calendar-start"
+            label="Week Start Day"
+            value={weekStartLabel}
+            onPress={openWeekStartSelector}
+          />
         </View>
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>Family</Text>

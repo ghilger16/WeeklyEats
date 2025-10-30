@@ -22,7 +22,7 @@ export const mockMeals: Meal[] = [
     plannedCostTier: 2,
     locked: false,
     isFavorite: false,
-    recipeUrl: "",
+    recipeUrl: "https://example.com/margherita",
     ingredients: ["Tomato", "Mozzarella", "Basil"],
     difficulty: 3,
     expense: 2,

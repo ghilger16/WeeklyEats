@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -84,6 +85,7 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   ingredients: meal.ingredients ? [...meal.ingredients] : [],
   difficulty: clampSliderValue(meal.difficulty ?? 3),
   expense: clampSliderValue(meal.expense ?? 3),
+  prepNotes: meal.prepNotes ?? "",
   createdAt: meal.createdAt,
   updatedAt: meal.updatedAt,
 });
@@ -97,8 +99,14 @@ export default function MealCard({
 }: MealCardProps) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const notesSectionOffsetRef = useRef(0);
+  const prevMealKeyRef = useRef<string | undefined>(undefined);
   const [form, setForm] = useState<MealFormValues>(() =>
     normalizeMeal(initialMeal)
+  );
+  const [prepNotesDraft, setPrepNotesDraft] = useState(
+    () => form.prepNotes ?? ""
   );
   const [newIngredient, setNewIngredient] = useState("");
   const skipAutoSaveRef = useRef(true);
@@ -122,10 +130,25 @@ export default function MealCard({
     });
 
   useEffect(() => {
+    const mealKey = `${mode}-${initialMeal.id ?? "draft"}`;
+    if (prevMealKeyRef.current === mealKey) {
+      return;
+    }
+
+    prevMealKeyRef.current = mealKey;
     skipAutoSaveRef.current = true;
-    setForm(normalizeMeal(initialMeal));
+    const normalized = normalizeMeal(initialMeal);
+    setForm(normalized);
+    setPrepNotesDraft(normalized.prepNotes ?? "");
     setNewIngredient("");
-  }, [initialMeal]);
+  }, [initialMeal, mode]);
+
+  useEffect(() => {
+    setPrepNotesDraft((prev) => {
+      const next = form.prepNotes ?? "";
+      return prev === next ? prev : next;
+    });
+  }, [form.prepNotes]);
 
   useEffect(() => {
     if (!isEditMode || !form.id) {
@@ -327,46 +350,74 @@ export default function MealCard({
     const sanitizedIngredients = (rest.ingredients ?? []).map((ingredient) =>
       ingredient.trim()
     );
+    const sanitizedPrepNotes = prepNotesDraft.trim();
 
     onCreateMeal({
       ...rest,
       title: trimmedTitle,
       recipeUrl: rest.recipeUrl?.trim() ?? "",
       ingredients: sanitizedIngredients,
+      prepNotes: sanitizedPrepNotes,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
     onClose();
-  }, [form, isEditMode, onClose, onCreateMeal]);
+  }, [form, isEditMode, onClose, onCreateMeal, prepNotesDraft]);
 
   return (
     <View style={styles.container}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardAvoid}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 80}
       >
         <FlexGrid gutterWidth={theme.space.lg} gutterHeight={theme.space.md}>
           <FlexGrid.Row alignItems="center" wrap={false}>
-            <FlexGrid.Col grow={0}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Back"
-                onPress={onClose}
-                style={styles.backButton}
-              >
-                <MaterialCommunityIcons
-                  name="arrow-left"
-                  size={24}
-                  color={theme.color.subtleInk}
-                />
-              </Pressable>
+            <FlexGrid.Col span={6} grow={1}>
+              {isEditMode ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Back"
+                  onPress={onClose}
+                  style={styles.backButton}
+                >
+                  <MaterialCommunityIcons
+                    name="arrow-left"
+                    size={24}
+                    color={theme.color.subtleInk}
+                  />
+                </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Add meal"
+                  onPress={handleSubmit}
+                  disabled={isSaveDisabled}
+                  style={[
+                    styles.addIconButton,
+                    isSaveDisabled && styles.addIconButtonDisabled,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="plus-circle"
+                    size={24}
+                    color={
+                      isSaveDisabled
+                        ? theme.color.subtleInk
+                        : theme.color.accent
+                    }
+                  />
+                </Pressable>
+              )}
             </FlexGrid.Col>
           </FlexGrid.Row>
         </FlexGrid>
 
         <ScrollView
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Meal Title</Text>
@@ -562,6 +613,40 @@ export default function MealCard({
               })}
             </View>
           </View>
+
+          <View
+            style={styles.section}
+            onLayout={({ nativeEvent }) => {
+              notesSectionOffsetRef.current = nativeEvent.layout.y;
+            }}
+          >
+            <Text style={styles.sectionLabel}>Prep Notes</Text>
+            <TextInput
+              placeholder="Add reminders or prep steps"
+              placeholderTextColor={theme.color.subtleInk}
+              style={styles.notesInput}
+              multiline
+              value={prepNotesDraft}
+              onChangeText={setPrepNotesDraft}
+              onFocus={() => {
+                const y = Math.max(
+                  notesSectionOffsetRef.current - theme.space.xl,
+                  0
+                );
+                scrollRef.current?.scrollTo({
+                  y,
+                  animated: true,
+                });
+              }}
+              blurOnSubmit
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                updateField("prepNotes", prepNotesDraft);
+                Keyboard.dismiss();
+              }}
+              onBlur={() => updateField("prepNotes", prepNotesDraft)}
+            />
+          </View>
         </ScrollView>
 
         <Modal
@@ -653,30 +738,6 @@ export default function MealCard({
             </View>
           </View>
         </Modal>
-
-        {!isEditMode ? (
-          <View style={styles.footer}>
-            <Pressable
-              style={[
-                styles.saveButton,
-                isSaveDisabled && styles.saveButtonDisabled,
-              ]}
-              disabled={isSaveDisabled}
-              onPress={handleSubmit}
-              accessibilityRole="button"
-              accessibilityLabel="Save meal"
-            >
-              <Text
-                style={[
-                  styles.saveText,
-                  isSaveDisabled && styles.saveTextDisabled,
-                ]}
-              >
-                Save Meal
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
       </KeyboardAvoidingView>
     </View>
   );
@@ -700,11 +761,26 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
+      marginLeft: theme.space.md,
+    },
+    addIconButton: {
+      width: 44,
+      height: 44,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      marginLeft: theme.space.md,
+    },
+    addIconButtonDisabled: {
+      opacity: 0.6,
     },
     scrollContent: {
       paddingHorizontal: theme.space.xl,
       paddingTop: theme.space["2xl"],
-      paddingBottom: theme.space["2xl"],
+      paddingBottom: theme.space["2xl"] + theme.space.xl,
       gap: theme.space["2xl"],
     },
     section: {
@@ -772,6 +848,18 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingHorizontal: theme.space.md,
       color: theme.color.ink,
       fontSize: theme.type.size.base,
+    },
+    notesInput: {
+      backgroundColor: theme.color.surface,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.space.lg,
+      paddingVertical: theme.space.md,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      minHeight: 120,
+      textAlignVertical: "top",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
     },
     levelChipRow: {
       flexDirection: "row",
@@ -917,32 +1005,6 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
     },
     autoFillModalButtonTextDisabled: {
-      color: theme.color.subtleInk,
-    },
-    footer: {
-      paddingHorizontal: theme.space.xl,
-      paddingBottom: theme.space["2xl"],
-      paddingTop: theme.space.lg,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: theme.color.border,
-      backgroundColor: theme.color.bg,
-    },
-    saveButton: {
-      height: theme.component.button.height,
-      borderRadius: theme.component.button.radius,
-      backgroundColor: theme.color.accent,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    saveButtonDisabled: {
-      opacity: 0.6,
-    },
-    saveText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.bold,
-    },
-    saveTextDisabled: {
       color: theme.color.subtleInk,
     },
   });
