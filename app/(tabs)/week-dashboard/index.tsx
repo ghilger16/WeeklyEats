@@ -6,7 +6,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useFocusEffect } from "expo-router";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useThemeController } from "../../../providers/theme/ThemeController";
@@ -28,6 +28,7 @@ import {
   startOfDay,
 } from "../../../utils/weekDays";
 import { PLANNED_WEEK_LABELS } from "../../../types/weekPlan";
+import { setCurrentWeekPlan } from "../../../stores/weekPlanStorage";
 
 export default function WeekDashboardScreen() {
   const router = useRouter();
@@ -35,8 +36,30 @@ export default function WeekDashboardScreen() {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals } = useMeals();
   const { startDay } = useWeekStartController();
-  const dateControlsEnabled = useFeatureFlag("weekDashboardDateControlsEnabled");
+  const dateControlsEnabled = useFeatureFlag(
+    "weekDashboardDateControlsEnabled"
+  );
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollEnabledRef = useRef(true);
+
+  const handleWeekListDragStateChange = useCallback((isDragging: boolean) => {
+    const nextEnabled = !isDragging;
+    if (scrollEnabledRef.current === nextEnabled) {
+      return;
+    }
+    scrollEnabledRef.current = nextEnabled;
+    scrollViewRef.current?.setNativeProps({ scrollEnabled: nextEnabled });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (!scrollEnabledRef.current) {
+        scrollEnabledRef.current = true;
+        scrollViewRef.current?.setNativeProps({ scrollEnabled: true });
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!dateControlsEnabled) {
@@ -55,6 +78,8 @@ export default function WeekDashboardScreen() {
     isLoading,
     days,
     today,
+    plan,
+    setPlanState,
     refresh: refreshWeekPlan,
   } = useCurrentWeekPlan({
     today: effectiveDate,
@@ -81,22 +106,24 @@ export default function WeekDashboardScreen() {
     [servedEntries]
   );
 
-  const todayServedEntry = useMemo(
-    () => {
-      if (!today) {
-        return undefined;
-      }
-      const todayDate = startOfDay(today.plannedDate).getTime();
-      return servedEntries.find((entry) => {
-        if (entry.dayKey !== today.key) {
-          return false;
-        }
-        const entryDate = startOfDay(new Date(entry.servedAtISO)).getTime();
-        return entryDate === todayDate;
-      });
-    },
-    [servedEntries, today]
+  const upcomingDays = useMemo(
+    () => days.filter((day) => day.status === "upcoming"),
+    [days]
   );
+
+  const todayServedEntry = useMemo(() => {
+    if (!today) {
+      return undefined;
+    }
+    const todayDate = startOfDay(today.plannedDate).getTime();
+    return servedEntries.find((entry) => {
+      if (entry.dayKey !== today.key) {
+        return false;
+      }
+      const entryDate = startOfDay(new Date(entry.servedAtISO)).getTime();
+      return entryDate === todayDate;
+    });
+  }, [servedEntries, today]);
 
   const handleMarkServed = useCallback(
     async (message: string) => {
@@ -219,6 +246,7 @@ export default function WeekDashboardScreen() {
   return (
     <TabParent title="Week Dashboard" header={header}>
       <ScrollView
+        ref={scrollViewRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -239,10 +267,30 @@ export default function WeekDashboardScreen() {
         <View style={styles.stack}>
           {todayCard}
           <CurrentWeekList
-            days={days}
+            days={upcomingDays}
             title="Current Week Plan"
+            onDragStateChange={handleWeekListDragStateChange}
+            onReorder={async (reordered) => {
+              if (!plan) {
+                return;
+              }
+              const nextPlan = { ...plan };
+              upcomingDays.forEach((day, index) => {
+                const nextSlot = reordered[index];
+                if (!day || !nextSlot) {
+                  return;
+                }
+                nextPlan[day.key] = nextSlot.mealId ?? null;
+              });
+              setPlanState(nextPlan);
+              await setCurrentWeekPlan(nextPlan);
+            }}
           />
-          <ServedList servedWeek={servedWeek} meals={meals} title="Served Meals" />
+          <ServedList
+            servedWeek={servedWeek}
+            meals={meals}
+            title="Served Meals"
+          />
         </View>
       </ScrollView>
     </TabParent>

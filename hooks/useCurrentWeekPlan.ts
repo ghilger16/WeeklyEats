@@ -38,6 +38,7 @@ export type UseCurrentWeekPlanResult = {
   days: WeekPlanDay[];
   today?: WeekPlanDay;
   upcoming: WeekPlanDay[];
+  setPlanState: (nextPlan: CurrentPlannedWeek) => void;
   refresh: () => Promise<void>;
 };
 
@@ -62,6 +63,10 @@ export const useCurrentWeekPlan = (
       setPlan(stored);
     }
     setLoading(false);
+  }, []);
+
+  const setPlanState = useCallback((nextPlan: CurrentPlannedWeek) => {
+    setPlan(nextPlan);
   }, []);
 
   useEffect(() => {
@@ -113,6 +118,7 @@ export const useCurrentWeekPlan = (
     days,
     today,
     upcoming,
+    setPlanState,
     refresh: hydrate,
   };
 };

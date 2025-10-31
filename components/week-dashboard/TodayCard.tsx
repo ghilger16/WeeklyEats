@@ -119,80 +119,82 @@ export default function TodayCard({
             <Text style={styles.celebrationMessage}>{celebrationMessage}</Text>
           </View>
         </View>
-      ) : null}
+      ) : (
+        <>
+          <Pressable
+            style={styles.touchArea}
+            accessibilityRole="button"
+            accessibilityLabel={`Open recipe for ${meal.title}`}
+            onPress={handleCardPress}
+          >
+            <View style={styles.topRow}>
+              <Text style={styles.date}>{dateLabel}</Text>
+              <View style={styles.recipeTag}>
+                <Text style={styles.recipeTagText}>Recipe</Text>
+              </View>
+            </View>
 
-      <Pressable
-        style={styles.touchArea}
-        accessibilityRole="button"
-        accessibilityLabel={`Open recipe for ${meal.title}`}
-        onPress={handleCardPress}
-      >
-        <View style={styles.topRow}>
-          <Text style={styles.date}>{dateLabel}</Text>
-          <View style={styles.recipeTag}>
-            <Text style={styles.recipeTagText}>Recipe</Text>
-          </View>
-        </View>
+            <Text style={styles.emoji} accessibilityLabel={`${meal.title} meal`}>
+              {meal.emoji}
+            </Text>
 
-        <Text style={styles.emoji} accessibilityLabel={`${meal.title} meal`}>
-          {meal.emoji}
-        </Text>
+            <Text style={styles.title}>{meal.title}</Text>
+            {prepNotesToShow ? (
+              <Text style={styles.notes}>{prepNotesToShow}</Text>
+            ) : null}
+          </Pressable>
 
-        <Text style={styles.title}>{meal.title}</Text>
-        {prepNotesToShow ? (
-          <Text style={styles.notes}>{prepNotesToShow}</Text>
-        ) : null}
-      </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.servedButton,
+              isServed && styles.servedButtonCompleted,
+              pressed && !isServed && styles.servedButtonPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Mark meal as served"
+            onPress={handleToggleServed}
+            disabled={isServed}
+          >
+            <MaterialCommunityIcons
+              name={isServed ? "check-decagram" : "check-circle"}
+              size={20}
+              color={theme.color.ink}
+            />
+            <Text style={styles.servedButtonText}>
+              {isServed ? "Served and celebrating" : "Served"}
+            </Text>
+            <MaterialCommunityIcons
+              name={toggleIconName as any}
+              size={18}
+              color={theme.color.ink}
+            />
+          </Pressable>
 
-      <Pressable
-        style={({ pressed }) => [
-          styles.servedButton,
-          isServed && styles.servedButtonCompleted,
-          pressed && !isServed && styles.servedButtonPressed,
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel="Mark meal as served"
-        onPress={handleToggleServed}
-        disabled={isServed}
-      >
-        <MaterialCommunityIcons
-          name={isServed ? "check-decagram" : "check-circle"}
-          size={20}
-          color={theme.color.ink}
-        />
-        <Text style={styles.servedButtonText}>
-          {isServed ? "Served and celebrating" : "Served"}
-        </Text>
-        <MaterialCommunityIcons
-          name={toggleIconName as any}
-          size={18}
-          color={theme.color.ink}
-        />
-      </Pressable>
-
-      {isExpanded ? (
-        <View style={styles.drawer}>
-          {SERVED_ACTIONS.map((action) => (
-            <Pressable
-              key={action.label}
-              style={({ pressed }) => [
-                styles.drawerButton,
-                pressed && styles.drawerButtonPressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={action.label}
-              onPress={() => handleSelectAction(action.value)}
-            >
-              <MaterialCommunityIcons
-                name={action.icon}
-                size={18}
-                color={theme.color.ink}
-              />
-              <Text style={styles.drawerButtonText}>{action.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
+          {isExpanded ? (
+            <View style={styles.drawer}>
+              {SERVED_ACTIONS.map((action) => (
+                <Pressable
+                  key={action.label}
+                  style={({ pressed }) => [
+                    styles.drawerButton,
+                    pressed && styles.drawerButtonPressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={action.label}
+                  onPress={() => handleSelectAction(action.value)}
+                >
+                  <MaterialCommunityIcons
+                    name={action.icon}
+                    size={18}
+                    color={theme.color.ink}
+                  />
+                  <Text style={styles.drawerButtonText}>{action.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </>
+      )}
     </View>
   );
 }
