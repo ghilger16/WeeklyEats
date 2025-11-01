@@ -22,6 +22,11 @@ import { useFeatureFlag } from "../../hooks/useFeatureFlags";
 import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
 import { supportsRecipeAutoFill } from "../../utils/recipeAutoFillCapability";
 import RatingStars from "./RatingStars";
+import EmojiPickerModal from "../emoji/EmojiPickerModal";
+import {
+  DEFAULT_MEAL_EMOJI,
+  suggestEmojiForTitle,
+} from "../../utils/emojiCatalog";
 
 type MealCardProps = {
   mode: "create" | "edit";
@@ -133,6 +138,22 @@ export default function MealCard({
     useState<AutoFillSelectionState>({
       ...AUTO_FILL_SELECTION_DEFAULT,
     });
+  const [isEmojiPickerVisible, setEmojiPickerVisible] = useState(false);
+
+  const suggestedEmoji = useMemo(
+    () => suggestEmojiForTitle(form.title),
+    [form.title]
+  );
+
+  const showEmojiSuggestion = useMemo(() => {
+    if (!suggestedEmoji) {
+      return false;
+    }
+    if (form.emoji === suggestedEmoji) {
+      return false;
+    }
+    return true;
+  }, [form.emoji, suggestedEmoji]);
 
   useEffect(() => {
     const servedKey =
@@ -202,6 +223,29 @@ export default function MealCard({
     updateField("ingredients", [...(form.ingredients ?? []), trimmed]);
     setNewIngredient("");
   }, [form.ingredients, newIngredient, updateField]);
+
+  const handleOpenEmojiPicker = useCallback(() => {
+    Keyboard.dismiss();
+    setEmojiPickerVisible(true);
+  }, []);
+
+  const handleCloseEmojiPicker = useCallback(() => {
+    setEmojiPickerVisible(false);
+  }, []);
+
+  const handlePickEmoji = useCallback(
+    (emoji: string) => {
+      updateField("emoji", emoji);
+    },
+    [updateField]
+  );
+
+  const handleApplySuggestedEmoji = useCallback(() => {
+    if (!suggestedEmoji) {
+      return;
+    }
+    updateField("emoji", suggestedEmoji);
+  }, [suggestedEmoji, updateField]);
 
   const handleRemoveIngredient = useCallback(
     (index: number) => {
@@ -434,6 +478,39 @@ export default function MealCard({
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Meal Icon</Text>
+            <View style={styles.emojiRow}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.emojiPreview,
+                  pressed && styles.emojiPreviewPressed,
+                ]}
+                onPress={handleOpenEmojiPicker}
+                accessibilityRole="button"
+                accessibilityLabel="Choose meal icon"
+              >
+                <Text style={styles.emojiPreviewGlyph}>{form.emoji}</Text>
+                <Text style={styles.emojiPreviewHint}>Tap to change</Text>
+              </Pressable>
+              {showEmojiSuggestion ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.emojiSuggestionButton,
+                    pressed && styles.emojiSuggestionButtonPressed,
+                  ]}
+                  onPress={handleApplySuggestedEmoji}
+                  accessibilityRole="button"
+                  accessibilityLabel="Use suggested meal icon"
+                >
+                  <Text style={styles.emojiSuggestionText}>
+                    Try {suggestedEmoji}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Meal Title</Text>
             <TextInput
@@ -778,6 +855,13 @@ export default function MealCard({
             </View>
           </View>
         </Modal>
+        <EmojiPickerModal
+          visible={isEmojiPickerVisible}
+          selectedEmoji={form.emoji ?? DEFAULT_MEAL_EMOJI}
+          suggestedEmoji={showEmojiSuggestion ? suggestedEmoji : undefined}
+          onPick={handlePickEmoji}
+          onClose={handleCloseEmojiPicker}
+        />
       </KeyboardAvoidingView>
     </View>
   );
@@ -825,6 +909,49 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     section: {
       gap: theme.space.md,
+    },
+    emojiRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+    },
+    emojiPreview: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: theme.space.sm,
+      paddingHorizontal: theme.space.lg,
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surface,
+      borderWidth: 1,
+      borderColor: theme.color.cardOutline,
+      minWidth: 96,
+    },
+    emojiPreviewPressed: {
+      opacity: 0.8,
+    },
+    emojiPreviewGlyph: {
+      fontSize: 40,
+    },
+    emojiPreviewHint: {
+      marginTop: theme.space.xs / 2,
+      fontSize: theme.type.size.xs,
+      color: theme.color.subtleInk,
+    },
+    emojiSuggestionButton: {
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.sm,
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.color.cardOutline,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    emojiSuggestionButtonPressed: {
+      opacity: 0.85,
+    },
+    emojiSuggestionText: {
+      fontSize: theme.type.size.base,
+      color: theme.color.ink,
+      fontWeight: theme.type.weight.medium,
     },
     sectionLabel: {
       color: theme.color.subtleInk,

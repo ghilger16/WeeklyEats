@@ -13,11 +13,61 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MealListItem from "../../../components/meals/MealListItem";
 import MealTabs, { type MealTabKey } from "../../../components/meals/MealTabs";
 import MealModalOverlay from "../../../components/meals/MealModalOverlay";
+import MealSearchInput, {
+  type MealSortSelection,
+} from "../../../components/meals/MealSearchInput";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useMeals } from "../../../hooks/useMeals";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 import { Meal, MealDraft, createMealId } from "../../../types/meals";
+
+const getMealRatingValue = (meal: Meal) =>
+  typeof meal.rating === "number" ? meal.rating : 0;
+
+const getMealCostTier = (meal: Meal) => {
+  if (typeof meal.expense === "number") {
+    if (meal.expense <= 2) {
+      return 1;
+    }
+    if (meal.expense >= 4) {
+      return 3;
+    }
+    return 2;
+  }
+  const planned = meal.plannedCostTier ?? 2;
+  return Math.min(Math.max(planned, 1), 3);
+};
+
+const getMealCreatedTimestamp = (meal: Meal) => {
+  if (meal.createdAt) {
+    const time = Date.parse(meal.createdAt);
+    if (!Number.isNaN(time)) {
+      return time;
+    }
+  }
+  if (meal.updatedAt) {
+    const time = Date.parse(meal.updatedAt);
+    if (!Number.isNaN(time)) {
+      return time;
+    }
+  }
+  return 0;
+};
+
+const getMealDifficultyValue = (meal: Meal) => {
+  if (typeof meal.difficulty === "number") {
+    return meal.difficulty;
+  }
+  return 3;
+};
+
+const getMealServedCount = (meal: Meal) => {
+  if (typeof meal.servedCount === "number") {
+    return meal.servedCount;
+  }
+  return 0;
+};
 
 export default function MealsScreen() {
   const { theme } = useThemeController();
@@ -37,6 +87,11 @@ export default function MealsScreen() {
   const [selectedMealId, setSelectedMealId] = useState<string | undefined>();
   const [isModalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortSelection, setSortSelection] = useState<MealSortSelection | null>({
+    id: "dateAdded",
+    direction: "desc",
+  });
   const contentProgress = useRef(new Animated.Value(0)).current;
 
   const animateContent = useCallback(
@@ -59,7 +114,189 @@ export default function MealsScreen() {
     [animateContent]
   );
 
-  const data = activeTab === "all" ? meals : favorites;
+  const filteredMeals = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return meals;
+    }
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    return meals.filter((meal) =>
+      meal.title.toLowerCase().includes(normalizedQuery)
+    );
+  }, [meals, searchQuery]);
+
+  const sortMealsList = useCallback(
+    (list: Meal[]) => {
+      if (!sortSelection) {
+        return list;
+      }
+
+      const filterByExpense = (meal: Meal) => {
+        if (sortSelection?.id !== "expense") {
+          return true;
+        }
+        switch (sortSelection.direction) {
+          case "cheap":
+            return getMealCostTier(meal) === 1;
+          case "mediumCost":
+            return getMealCostTier(meal) === 2;
+          case "expensive":
+            return getMealCostTier(meal) === 3;
+          default:
+            return true;
+        }
+      };
+
+      const filterByDifficulty = (meal: Meal) => {
+        if (sortSelection?.id !== "difficulty") {
+          return true;
+        }
+        switch (sortSelection.direction) {
+          case "easy":
+            return getMealDifficultyValue(meal) <= 2;
+          case "medium":
+            return getMealDifficultyValue(meal) === 3;
+          case "hard":
+            return getMealDifficultyValue(meal) >= 4;
+          default:
+            return true;
+        }
+      };
+
+      const filteredList = list
+        .filter(filterByExpense)
+        .filter(filterByDifficulty);
+
+      const sorted = [...filteredList].sort((a, b) => {
+        switch (sortSelection.id) {
+          case "name":
+            return sortSelection.direction === "asc"
+              ? a.title.localeCompare(b.title)
+              : b.title.localeCompare(a.title);
+          case "rating": {
+            const ratingA = getMealRatingValue(a);
+            const ratingB = getMealRatingValue(b);
+            if (ratingA === ratingB) {
+              return a.title.localeCompare(b.title);
+            }
+            return sortSelection.direction === "asc"
+              ? ratingA - ratingB
+              : ratingB - ratingA;
+          }
+          case "expense": {
+            const costA = getMealCostTier(a);
+            const costB = getMealCostTier(b);
+            if (sortSelection.direction === "asc") {
+              if (costA === costB) {
+                return a.title.localeCompare(b.title);
+              }
+              return costA - costB;
+            }
+            if (sortSelection.direction === "desc") {
+              if (costA === costB) {
+                return a.title.localeCompare(b.title);
+              }
+              return costB - costA;
+            }
+            const target =
+              sortSelection.direction === "cheap"
+                ? 1
+                : sortSelection.direction === "mediumCost"
+                  ? 2
+                  : 3;
+            const distanceA = Math.abs(costA - target);
+            const distanceB = Math.abs(costB - target);
+            if (distanceA === distanceB) {
+              if (sortSelection.direction === "expensive") {
+                return costB - costA;
+              }
+              if (sortSelection.direction === "cheap") {
+                return costA - costB;
+              }
+              return a.title.localeCompare(b.title);
+            }
+            return distanceA - distanceB;
+          }
+          case "dateAdded": {
+            const dateA = getMealCreatedTimestamp(a);
+            const dateB = getMealCreatedTimestamp(b);
+            if (dateA === dateB) {
+              return a.title.localeCompare(b.title);
+            }
+            return sortSelection.direction === "asc"
+              ? dateA - dateB
+              : dateB - dateA;
+          }
+          case "difficulty": {
+            const difficultyA = getMealDifficultyValue(a);
+            const difficultyB = getMealDifficultyValue(b);
+            if (sortSelection.direction === "asc") {
+              if (difficultyA === difficultyB) {
+                return a.title.localeCompare(b.title);
+              }
+              return difficultyA - difficultyB;
+            }
+            if (sortSelection.direction === "desc") {
+              if (difficultyA === difficultyB) {
+                return a.title.localeCompare(b.title);
+              }
+              return difficultyB - difficultyA;
+            }
+            const target =
+              sortSelection.direction === "easy"
+                ? 1
+                : sortSelection.direction === "medium"
+                  ? 3
+                  : 5;
+            const distanceA = Math.abs(difficultyA - target);
+            const distanceB = Math.abs(difficultyB - target);
+            if (distanceA === distanceB) {
+              if (sortSelection.direction === "hard") {
+                return difficultyB - difficultyA;
+              }
+              if (sortSelection.direction === "easy") {
+                return difficultyA - difficultyB;
+              }
+              return a.title.localeCompare(b.title);
+            }
+            return distanceA - distanceB;
+          }
+          case "servedCount": {
+            const servedA = getMealServedCount(a);
+            const servedB = getMealServedCount(b);
+            if (servedA === servedB) {
+              return a.title.localeCompare(b.title);
+            }
+            return sortSelection.direction === "asc"
+              ? servedA - servedB
+              : servedB - servedA;
+          }
+          default:
+            return 0;
+        }
+      });
+      return sorted;
+    },
+    [sortSelection]
+  );
+
+  const sortedAllMeals = useMemo(
+    () => sortMealsList(filteredMeals),
+    [filteredMeals, sortMealsList]
+  );
+
+  const sortedFavorites = useMemo(
+    () => sortMealsList(favorites),
+    [favorites, sortMealsList]
+  );
+
+  const data = activeTab === "all" ? sortedAllMeals : sortedFavorites;
+
+  const handleSortChange = useCallback(
+    (selection: MealSortSelection | null) => {
+      setSortSelection(selection);
+    },
+    []
+  );
 
   const onOpenMeal = useCallback((meal: Meal) => {
     setModalMode("edit");
@@ -86,17 +323,26 @@ export default function MealsScreen() {
 
   const keyExtractor = useCallback((item: Meal) => item.id, []);
 
-  const listEmpty = useMemo(
-    () => (
+  const listEmpty = useMemo(() => {
+    if (activeTab === "all" && searchQuery.trim()) {
+      return (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>No matches found</Text>
+          <Text style={styles.emptySubtitle}>
+            Try searching with a different name.
+          </Text>
+        </View>
+      );
+    }
+    return (
       <View style={styles.emptyState}>
         <Text style={styles.emptyTitle}>No meals yet</Text>
         <Text style={styles.emptySubtitle}>
           Add dinners to see them listed here.
         </Text>
       </View>
-    ),
-    []
-  );
+    );
+  }, [activeTab, searchQuery, styles]);
 
   const opacity = contentProgress.interpolate({
     inputRange: [0, 1],
@@ -200,6 +446,17 @@ export default function MealsScreen() {
                 onRefresh={refresh}
               />
             }
+            ListHeaderComponent={
+              activeTab === "all" ? (
+                <View style={styles.searchHeader}>
+                  <MealSearchInput
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    onSortChange={handleSortChange}
+                  />
+                </View>
+              ) : null
+            }
             ItemSeparatorComponent={() => <View style={styles.separator} />}
             ListEmptyComponent={listEmpty}
           />
@@ -229,7 +486,7 @@ const createStyles = (theme: WeeklyTheme) =>
     listContent: {
       paddingHorizontal: theme.space.lg,
       paddingBottom: theme.space["2xl"],
-      paddingTop: 15,
+      paddingTop: theme.space.lg,
     },
     listWrapper: {
       flex: 1,
@@ -245,6 +502,9 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     separator: {
       height: theme.space.lg,
+    },
+    searchHeader: {
+      paddingBottom: theme.space.lg,
     },
     freezerHelper: {
       marginTop: theme.space.lg,
