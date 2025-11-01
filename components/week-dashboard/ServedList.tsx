@@ -5,8 +5,14 @@ import { Meal } from "../../types/meals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import ServedListItem from "./ServedListItem";
+import type { ServedOutcome } from "./servedActions";
 
-export type ServedWeek = Array<{ dayLabel: string; mealId: Meal["id"] | null }>;
+export type ServedWeek = Array<{
+  id: string;
+  dayLabel: string;
+  mealId: Meal["id"] | null;
+  outcome: ServedOutcome;
+}>;
 
 type Props = {
   servedWeek: ServedWeek;
@@ -49,13 +55,33 @@ export default function ServedList({ servedWeek, meals, title = "Served Meals" }
       <View style={styles.divider} />
 
       <View>
-        {servedWeek.map((entry) => (
-          <ServedListItem
-            key={entry.dayLabel}
-            dayLabel={entry.dayLabel}
-            meal={entry.mealId ? mealsById.get(entry.mealId) : undefined}
-          />
-        ))}
+        {servedWeek.map((entry) => {
+          const meal = entry.mealId ? mealsById.get(entry.mealId) : undefined;
+          let labelOverride: string | undefined;
+          let iconOverride: string | undefined;
+          let showActions = true;
+
+          if (entry.outcome === "ateOut") {
+            labelOverride = "Ate Out";
+            iconOverride = "silverware-fork-knife";
+            showActions = false;
+          } else if (entry.outcome === "skipped") {
+            labelOverride = "Skipped";
+            iconOverride = "close-circle";
+            showActions = false;
+          }
+
+          return (
+            <ServedListItem
+              key={entry.id}
+              dayLabel={entry.dayLabel}
+              meal={meal}
+              labelOverride={labelOverride}
+              iconOverride={iconOverride}
+              hideActions={!showActions}
+            />
+          );
+        })}
       </View>
 
       <Pressable style={styles.footer} accessibilityRole="button">
@@ -133,4 +159,3 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.medium,
     },
   });
-

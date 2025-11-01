@@ -175,6 +175,15 @@ export default function MealsScreen() {
         <View style={styles.tabsHeader}>
           <MealTabs activeTab={activeTab} onChange={handleTabChange} />
         </View>
+        {activeTab === "favorites" ? (
+          <View style={styles.freezerHelper}>
+            <Text style={styles.freezerHelperTitle}>Ready to serve</Text>
+            <Text style={styles.freezerHelperSubtitle}>
+              Keep tabs on leftovers and meal prep you've already handled.
+              Use this list as your personal freezer inventory.
+            </Text>
+          </View>
+        ) : null}
         <Animated.View style={[styles.listWrapper, { opacity }]}>
           <FlatList
             testID="meals-list"
@@ -236,6 +245,29 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     separator: {
       height: theme.space.lg,
+    },
+    freezerHelper: {
+      marginTop: theme.space.lg,
+      marginHorizontal: theme.space.lg,
+      backgroundColor: theme.color.surfaceAlt,
+      borderRadius: theme.radius.lg,
+      paddingHorizontal: theme.space.lg,
+      paddingVertical: theme.space.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      gap: theme.space.xs,
+    },
+    freezerHelperTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+    },
+    freezerHelperSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      lineHeight: theme.type.size.sm * 1.4,
     },
     emptyState: {
       alignItems: "center",

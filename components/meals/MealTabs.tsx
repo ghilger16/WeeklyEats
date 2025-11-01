@@ -15,7 +15,7 @@ export type MealTabKey = "all" | "favorites";
 
 const tabs: Array<{ key: MealTabKey; label: string }> = [
   { key: "all", label: "All" },
-  { key: "favorites", label: "Favorites" },
+  { key: "favorites", label: "Freezer" },
 ];
 
 type TabLayout = {

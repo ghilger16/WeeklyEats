@@ -56,7 +56,8 @@ export default function PlanWeekModal() {
     createEmptyCurrentPlannedWeek()
   );
   const [activeDayIndex, setActiveDayIndex] = useState(0);
-  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyKey>("medium");
+  const [difficultyFilter, setDifficultyFilter] =
+    useState<DifficultyKey>("medium");
   const [suggestionIndexMap, setSuggestionIndexMap] = useState(
     createInitialSuggestionIndex
   );
@@ -64,9 +65,7 @@ export default function PlanWeekModal() {
   const [isSaving, setIsSaving] = useState(false);
 
   const activeDay =
-    orderedDays[activeDayIndex] ??
-    orderedDays[0] ??
-    PLANNED_WEEK_ORDER[0];
+    orderedDays[activeDayIndex] ?? orderedDays[0] ?? PLANNED_WEEK_ORDER[0];
 
   useEffect(() => {
     setActiveDayIndex(0);
@@ -105,7 +104,9 @@ export default function PlanWeekModal() {
       return undefined;
     }
     const index = suggestionIndexMap[activeDay] ?? 0;
-    const normalizedIndex = ((index % filteredMeals.length) + filteredMeals.length) % filteredMeals.length;
+    const normalizedIndex =
+      ((index % filteredMeals.length) + filteredMeals.length) %
+      filteredMeals.length;
     return filteredMeals[normalizedIndex];
   }, [activeDay, filteredMeals, suggestionIndexMap]);
 
@@ -159,7 +160,10 @@ export default function PlanWeekModal() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top", "left", "right", "bottom"]}>
+    <SafeAreaView
+      style={styles.safe}
+      edges={["top", "left", "right", "bottom"]}
+    >
       <View style={styles.header}>
         <Pressable
           onPress={() => router.back()}
@@ -248,7 +252,9 @@ export default function PlanWeekModal() {
             const meal = meals.find((item) => item.id === mealId);
             return (
               <View key={day} style={styles.summaryRow}>
-                <Text style={styles.summaryDay}>{PLANNED_WEEK_LABELS[day]}</Text>
+                <Text style={styles.summaryDay}>
+                  {PLANNED_WEEK_LABELS[day]}
+                </Text>
                 <Text style={styles.summaryMeal} numberOfLines={1}>
                   {meal ? `${meal.emoji} ${meal.title}` : "Unplanned"}
                 </Text>
@@ -309,14 +315,14 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.bold,
     },
     content: {
-      paddingHorizontal: theme.space.xl,
-      paddingBottom: theme.space.xl,
+      paddingHorizontal: theme.space.lg,
+      paddingBottom: theme.space.lg,
       gap: theme.space["2xl"],
     },
     daySelectorRow: {
       flexDirection: "row",
       justifyContent: "center",
-      gap: theme.space.sm,
+      gap: theme.space.xs,
       flexWrap: "wrap",
     },
     dayChip: {
@@ -332,7 +338,7 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,
-      letterSpacing: 1.2,
+      letterSpacing: 1,
     },
     dayChipTextActive: {
       color: theme.color.ink,

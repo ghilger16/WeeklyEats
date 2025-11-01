@@ -1,16 +1,33 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PlannedWeekDayKey } from "../types/weekPlan";
+import type { ServedOutcome } from "../components/week-dashboard/servedActions";
 
 export type ServedMealEntry = {
   id: string;
   dayKey: PlannedWeekDayKey;
   mealId: string | null;
   servedAtISO: string;
-  outcome: "cookedAsPlanned" | "cookedAlt" | "ateOut" | "skipped";
+  outcome: ServedOutcome;
   celebrationMessage?: string;
 };
 
 const STORAGE_KEY = "@weeklyeats/servedMeals";
+
+const normalizeOutcome = (
+  outcome: string | undefined
+): ServedOutcome | null => {
+  switch (outcome) {
+    case "served":
+    case "cookedAlt":
+    case "ateOut":
+    case "skipped":
+      return outcome;
+    case "cookedAsPlanned":
+      return "served";
+    default:
+      return null;
+  }
+};
 
 const parseEntries = (raw: string | null): ServedMealEntry[] => {
   if (!raw) {
@@ -22,15 +39,32 @@ const parseEntries = (raw: string | null): ServedMealEntry[] => {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.filter((item): item is ServedMealEntry => {
-      return (
-        item &&
-        typeof item === "object" &&
-        typeof (item as ServedMealEntry).id === "string" &&
-        typeof (item as ServedMealEntry).dayKey === "string" &&
-        typeof (item as ServedMealEntry).servedAtISO === "string"
-      );
-    });
+    return parsed
+      .map((item) => {
+        if (
+          !item ||
+          typeof item !== "object" ||
+          typeof (item as ServedMealEntry).id !== "string" ||
+          typeof (item as ServedMealEntry).dayKey !== "string" ||
+          typeof (item as ServedMealEntry).servedAtISO !== "string"
+        ) {
+          return null;
+        }
+
+        const normalizedOutcome = normalizeOutcome(
+          (item as { outcome?: string }).outcome
+        );
+
+        if (!normalizedOutcome) {
+          return null;
+        }
+
+        return {
+          ...(item as ServedMealEntry),
+          outcome: normalizedOutcome,
+        };
+      })
+      .filter((entry): entry is ServedMealEntry => Boolean(entry));
   } catch (error) {
     console.warn("[servedMealsStorage] Failed to parse entries", error);
     return [];

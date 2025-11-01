@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   LayoutAnimation,
   Platform,
@@ -15,12 +15,17 @@ import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import WeekDayListItem from "./WeekDayListItem";
 import RatingStars from "../meals/RatingStars";
+import { useMeals } from "../../hooks/useMeals";
 
 type ExpandedPanel = "rating" | "freezer" | "notes" | null;
 
 type Props = {
   dayLabel: string;
   meal?: Meal;
+  labelOverride?: string;
+  emojiOverride?: string;
+  iconOverride?: string;
+  hideActions?: boolean;
 };
 
 if (
@@ -30,13 +35,46 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-export default function ServedListItem({ dayLabel, meal }: Props) {
+export default function ServedListItem({
+  dayLabel,
+  meal,
+  labelOverride,
+  emojiOverride,
+  iconOverride,
+  hideActions = false,
+}: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const { updateMeal } = useMeals();
   const [expanded, setExpanded] = useState<ExpandedPanel>(null);
   const [rating, setRating] = useState(meal?.rating ?? 0);
   const [inFreezer, setInFreezer] = useState(Boolean(meal?.isFavorite));
   const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (hideActions && expanded) {
+      setExpanded(null);
+    }
+  }, [expanded, hideActions]);
+
+  useEffect(() => {
+    setInFreezer(Boolean(meal?.isFavorite));
+  }, [meal?.isFavorite]);
+
+  const handleToggleFreezer = useCallback(() => {
+    if (!meal) {
+      return;
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setInFreezer((prev) => {
+      const next = !prev;
+      updateMeal({
+        id: meal.id,
+        isFavorite: next,
+      });
+      return next;
+    });
+  }, [meal, updateMeal]);
 
   const togglePanel = (panel: Exclude<ExpandedPanel, null>) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -67,21 +105,30 @@ export default function ServedListItem({ dayLabel, meal }: Props) {
     </Pressable>
   );
 
-  const rightSlot = (
-    <>
-      {renderIconButton("star", "Rate meal", "rating")}
-      {renderIconButton(
-        inFreezer ? "check-circle" : "snowflake",
-        inFreezer ? "Added to freezer" : "Add to freezer",
-        "freezer"
-      )}
-      {renderIconButton("pencil", "Edit notes", "notes")}
-    </>
-  );
+  const rightSlot = hideActions
+    ? null
+    : (
+        <>
+          {renderIconButton("star", "Rate meal", "rating")}
+          {renderIconButton(
+            inFreezer ? "check-circle" : "snowflake",
+            inFreezer ? "Added to freezer" : "Add to freezer",
+            "freezer"
+          )}
+          {renderIconButton("pencil", "Edit notes", "notes")}
+        </>
+      );
 
   return (
     <View>
-      <WeekDayListItem dayLabel={dayLabel} meal={meal} rightSlot={rightSlot} />
+      <WeekDayListItem
+        dayLabel={dayLabel}
+        meal={meal}
+        rightSlot={rightSlot ?? undefined}
+        labelOverride={labelOverride}
+        emojiOverride={emojiOverride}
+        iconOverride={iconOverride}
+      />
       {expanded ? (
         <View style={styles.drawer}>
           {expanded === "rating" ? (
@@ -104,7 +151,7 @@ export default function ServedListItem({ dayLabel, meal }: Props) {
                   inFreezer && styles.toggleButtonActive,
                   pressed && styles.toggleButtonPressed,
                 ]}
-                onPress={() => setInFreezer((prev) => !prev)}
+                onPress={handleToggleFreezer}
                 accessibilityRole="button"
                 accessibilityLabel="Toggle freezer favorite"
               >

@@ -11,6 +11,7 @@ import { useMemo } from "react";
 import { Meal } from "../../types/meals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
+import { FlexGrid } from "../../styles/flex-grid";
 
 type DifficultyKey = "easy" | "medium" | "hard";
 
@@ -79,7 +80,8 @@ export default function DayMealPlannerCard({
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) =>
-          Math.abs(gesture.dx) > Math.abs(gesture.dy) && Math.abs(gesture.dx) > 12,
+          Math.abs(gesture.dx) > Math.abs(gesture.dy) &&
+          Math.abs(gesture.dx) > 12,
         onPanResponderRelease: (_, gesture) => {
           if (gesture.dx > 40) {
             onPreviousSuggestion();
@@ -101,51 +103,63 @@ export default function DayMealPlannerCard({
   return (
     <View style={styles.container}>
       <View style={styles.dayTabs}>
-        <Text style={styles.dayTabActive}>{dayLabel}</Text>
+        {/* <Text style={styles.dayTabActive}>{dayLabel}</Text> */}
       </View>
 
       <Text style={styles.dayTitle}>{dayDisplayName}</Text>
 
-      <View style={styles.difficultyRow}>
-        {difficultyOptions.map((option) => (
-          <Pressable
-            key={option}
-            onPress={() => onDifficultyChange(option)}
-            style={[
-              styles.difficultyChip,
-              difficulty === option && styles.difficultyChipActive,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`Show ${option} meals`}
-          >
-            <Text
-              style={[
-                styles.difficultyChipText,
-                difficulty === option && styles.difficultyChipTextActive,
-              ]}
-            >
-              {difficultyToLabel[option]}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <FlexGrid gutterWidth={theme.space.sm}>
+        <FlexGrid.Row justifyContent="center">
+          {difficultyOptions.map((option) => (
+            <FlexGrid.Col key={option} style={styles.gridAutoCol} grow={0}>
+              <Pressable
+                onPress={() => onDifficultyChange(option)}
+                style={[
+                  styles.difficultyChip,
+                  difficulty === option && styles.difficultyChipActive,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Show ${option} meals`}
+              >
+                <Text
+                  style={[
+                    styles.difficultyChipText,
+                    difficulty === option && styles.difficultyChipTextActive,
+                  ]}
+                >
+                  {difficultyToLabel[option]}
+                </Text>
+              </Pressable>
+            </FlexGrid.Col>
+          ))}
+        </FlexGrid.Row>
+      </FlexGrid>
 
-      <View style={styles.searchRow}>
-        <MaterialCommunityIcons
-          name="magnify"
-          size={20}
-          color={theme.color.subtleInk}
-        />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search meals"
-          placeholderTextColor={theme.color.subtleInk}
-          value={searchQuery}
-          onChangeText={onSearchQueryChange}
-          returnKeyType="search"
-          accessibilityLabel="Search meals"
-        />
-      </View>
+      <FlexGrid gutterWidth={theme.space.sm} style={styles.searchRow}>
+        <FlexGrid.Row alignItems="center">
+          <FlexGrid.Col
+            grow={0}
+            style={[styles.gridAutoCol, styles.searchIconCell]}
+          >
+            <MaterialCommunityIcons
+              name="magnify"
+              size={20}
+              color={theme.color.subtleInk}
+            />
+          </FlexGrid.Col>
+          <FlexGrid.Col>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search meals"
+              placeholderTextColor={theme.color.subtleInk}
+              value={searchQuery}
+              onChangeText={onSearchQueryChange}
+              returnKeyType="search"
+              accessibilityLabel="Search meals"
+            />
+          </FlexGrid.Col>
+        </FlexGrid.Row>
+      </FlexGrid>
 
       <View style={styles.mealCard} {...panResponder.panHandlers}>
         <View style={styles.mealHero}>
@@ -161,60 +175,84 @@ export default function DayMealPlannerCard({
               : "Use search or shuffle to pick a meal"}
           </Text>
 
-          <View style={styles.metaRow}>
-            <View style={styles.metaItem}>
-              <MaterialCommunityIcons
-                name="star"
-                size={16}
-                color={theme.color.accent}
-              />
-              <Text style={styles.metaText}>{ratingLabel}</Text>
-            </View>
-            <View style={styles.metaItem}>
-              <MaterialCommunityIcons
-                name="currency-usd"
-                size={16}
-                color={theme.color.success}
-              />
-              <Text style={styles.metaText}>{costLabel}</Text>
-            </View>
-            <View style={styles.metaItem}>
-              <MaterialCommunityIcons
-                name="circle"
-                size={14}
-                color={theme.color[difficultyToThemeColor(mealDifficulty ?? "medium")]}
-              />
-              <Text style={styles.metaText}>{mealDifficulty ? difficultyToLabel[mealDifficulty] : "--"}</Text>
-            </View>
-          </View>
+          <FlexGrid gutterWidth={theme.space.md}>
+            <FlexGrid.Row alignItems="center">
+              <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                <View style={styles.metaItem}>
+                  <MaterialCommunityIcons
+                    name="star"
+                    size={16}
+                    color={theme.color.accent}
+                  />
+                  <Text style={styles.metaText}>{ratingLabel}</Text>
+                </View>
+              </FlexGrid.Col>
+              <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                <View style={styles.metaItem}>
+                  <MaterialCommunityIcons
+                    name="currency-usd"
+                    size={16}
+                    color={theme.color.success}
+                  />
+                  <Text style={styles.metaText}>{costLabel}</Text>
+                </View>
+              </FlexGrid.Col>
+              <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                <View style={styles.metaItem}>
+                  <MaterialCommunityIcons
+                    name="circle"
+                    size={14}
+                    color={
+                      theme.color[
+                        difficultyToThemeColor(mealDifficulty ?? "medium")
+                      ]
+                    }
+                  />
+                  <Text style={styles.metaText}>
+                    {mealDifficulty ? difficultyToLabel[mealDifficulty] : "--"}
+                  </Text>
+                </View>
+              </FlexGrid.Col>
+            </FlexGrid.Row>
+          </FlexGrid>
 
-          <Text style={styles.lastServed}>{formatLastServed(meal?.updatedAt)}</Text>
+          <Text style={styles.lastServed}>
+            {formatLastServed(meal?.updatedAt)}
+          </Text>
         </View>
       </View>
 
-      <View style={styles.actionRow}>
-        <PlannerActionButton
-          icon="check"
-          label="Add"
-          onPress={onAdd}
-          disabled={!meal}
-          styles={styles}
-        />
-        <PlannerActionButton
-          icon="shuffle"
-          label="Shuffle"
-          onPress={onShuffle}
-          disabled={!meal}
-          styles={styles}
-        />
-        <PlannerActionButton
-          icon="silverware-fork-knife"
-          label="Eat"
-          onPress={onEat}
-          disabled={!meal}
-          styles={styles}
-        />
-      </View>
+      <FlexGrid gutterWidth={theme.space.sm}>
+        <FlexGrid.Row alignItems="center">
+          <FlexGrid.Col span={4}>
+            <PlannerActionButton
+              icon="check"
+              label="Add"
+              onPress={onAdd}
+              disabled={!meal}
+              styles={styles}
+            />
+          </FlexGrid.Col>
+          <FlexGrid.Col span={4}>
+            <PlannerActionButton
+              icon="shuffle"
+              label="Shuffle"
+              onPress={onShuffle}
+              disabled={!meal}
+              styles={styles}
+            />
+          </FlexGrid.Col>
+          <FlexGrid.Col span={4}>
+            <PlannerActionButton
+              icon="silverware-fork-knife"
+              label="Eat"
+              onPress={onEat}
+              disabled={!meal}
+              styles={styles}
+            />
+          </FlexGrid.Col>
+        </FlexGrid.Row>
+      </FlexGrid>
     </View>
   );
 }
@@ -227,7 +265,13 @@ type PlannerActionButtonProps = {
   styles: ReturnType<typeof createStyles>;
 };
 
-const PlannerActionButton = ({ icon, label, onPress, disabled, styles }: PlannerActionButtonProps) => {
+const PlannerActionButton = ({
+  icon,
+  label,
+  onPress,
+  disabled,
+  styles,
+}: PlannerActionButtonProps) => {
   const { theme } = useThemeController();
   return (
     <Pressable
@@ -247,7 +291,10 @@ const PlannerActionButton = ({ icon, label, onPress, disabled, styles }: Planner
         color={disabled ? theme.color.subtleInk : theme.color.ink}
       />
       <Text
-        style={[styles.actionButtonText, disabled && styles.actionButtonTextDisabled]}
+        style={[
+          styles.actionButtonText,
+          disabled && styles.actionButtonTextDisabled,
+        ]}
       >
         {label}
       </Text>
@@ -274,7 +321,6 @@ const createStyles = (theme: WeeklyTheme) =>
     dayTabs: {
       flexDirection: "row",
       justifyContent: "center",
-      gap: theme.space.sm,
     },
     dayTabActive: {
       color: theme.color.ink,
@@ -288,10 +334,9 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.h1,
       fontWeight: theme.type.weight.bold,
     },
-    difficultyRow: {
-      flexDirection: "row",
-      justifyContent: "center",
-      gap: theme.space.sm,
+    gridAutoCol: {
+      flexBasis: "auto",
+      flexGrow: 0,
     },
     difficultyChip: {
       paddingHorizontal: theme.space.md,
@@ -313,16 +358,17 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.accent,
     },
     searchRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.sm,
       borderRadius: theme.radius.md,
       backgroundColor: theme.color.surfaceAlt,
       paddingHorizontal: theme.space.md,
       paddingVertical: theme.space.sm,
     },
+    searchIconCell: {
+      justifyContent: "center",
+    },
     searchInput: {
       flex: 1,
+      width: "100%",
       color: theme.color.ink,
       fontSize: theme.type.size.base,
     },
@@ -356,11 +402,6 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
     },
-    metaRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.md,
-    },
     metaItem: {
       flexDirection: "row",
       alignItems: "center",
@@ -375,14 +416,9 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.xs,
     },
-    actionRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: theme.space.sm,
-    },
     actionButton: {
       flex: 1,
+      width: "100%",
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",

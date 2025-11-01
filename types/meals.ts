@@ -5,6 +5,8 @@ export type Meal = {
   title: string;
   emoji: string;
   rating: number;
+  servedCount: number;
+  showServedCount: boolean;
   plannedCostTier: CostTier;
   locked: boolean;
   isFavorite: boolean;
@@ -25,6 +27,8 @@ export const createEmptyMealDraft = (): MealDraft => ({
   title: "",
   emoji: "🍽️",
   rating: 3,
+  servedCount: 0,
+  showServedCount: false,
   plannedCostTier: 2,
   locked: false,
   isFavorite: false,

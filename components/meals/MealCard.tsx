@@ -78,6 +78,11 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   title: meal.title ?? "",
   emoji: meal.emoji ?? "🍽️",
   rating: meal.rating ?? 0,
+  servedCount:
+    typeof meal.servedCount === "number" && meal.servedCount >= 0
+      ? meal.servedCount
+      : 0,
+  showServedCount: Boolean(meal.showServedCount),
   plannedCostTier: meal.plannedCostTier ?? 2,
   locked: meal.locked ?? false,
   isFavorite: meal.isFavorite ?? false,
@@ -130,7 +135,17 @@ export default function MealCard({
     });
 
   useEffect(() => {
-    const mealKey = `${mode}-${initialMeal.id ?? "draft"}`;
+    const servedKey =
+      "servedCount" in initialMeal && typeof initialMeal.servedCount === "number"
+        ? initialMeal.servedCount
+        : 0;
+    const showKey =
+      "showServedCount" in initialMeal && initialMeal.showServedCount ? "1" : "0";
+    const updatedKey =
+      "updatedAt" in initialMeal && initialMeal.updatedAt
+        ? initialMeal.updatedAt
+        : "na";
+    const mealKey = `${mode}-${initialMeal.id ?? "draft"}-${updatedKey}-${servedKey}-${showKey}`;
     if (prevMealKeyRef.current === mealKey) {
       return;
     }
@@ -537,6 +552,31 @@ export default function MealCard({
           </View>
 
           <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Served Count</Text>
+            <Text style={styles.helperText}>
+              Track how often this meal makes it to the table.
+            </Text>
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>Show on meal list</Text>
+              <Switch
+                value={Boolean(form.showServedCount)}
+                onValueChange={(value) => updateField("showServedCount", value)}
+                trackColor={{
+                  false: theme.color.surfaceAlt,
+                  true: theme.color.accent,
+                }}
+                thumbColor={
+                  form.showServedCount ? theme.color.ink : theme.color.surface
+                }
+              />
+            </View>
+            <Text style={styles.servedCountValue}>
+              Served {form.servedCount ?? 0}{" "}
+              {form.servedCount === 1 ? "time" : "times"}
+            </Text>
+          </View>
+
+          <View style={styles.section}>
             <Text style={styles.sectionLabel}>Difficulty</Text>
             <View style={styles.levelChipRow}>
               {DIFFICULTY_LEVELS.map(({ label, value, colorKey }) => {
@@ -792,6 +832,32 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.medium,
       textTransform: "uppercase",
       letterSpacing: 0.8,
+    },
+    helperText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+    },
+    toggleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: theme.color.surface,
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.sm,
+    },
+    toggleLabel: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+    },
+    servedCountValue: {
+      marginTop: theme.space.xs,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
     },
     input: {
       backgroundColor: theme.color.surface,

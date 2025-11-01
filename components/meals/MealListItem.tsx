@@ -100,6 +100,8 @@ const MealListItem = memo(function MealListItem({
   const difficultyColor = difficultyColorKey
     ? theme.color[difficultyColorKey]
     : undefined;
+  const servedCount = typeof meal.servedCount === "number" ? meal.servedCount : 0;
+  const shouldShowServedCount = meal.showServedCount;
 
   const combinedStyle = ({
     pressed,
@@ -157,6 +159,11 @@ const MealListItem = memo(function MealListItem({
                     <Text style={styles.title}>{meal.title}</Text>
                     {meal.rating ? (
                       <RatingStars value={meal.rating} size={16} gap={0} />
+                    ) : null}
+                    {shouldShowServedCount ? (
+                      <Text style={styles.servedCount}>
+                        Served {servedCount} {servedCount === 1 ? "time" : "times"}
+                      </Text>
                     ) : null}
                   </View>
                 </FlexGrid.Col>
@@ -226,6 +233,12 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: 18,
       fontWeight: theme.type.weight.bold,
       marginBottom: theme.space.xs,
+    },
+    servedCount: {
+      marginTop: theme.space.xs,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
     },
     meta: {
       alignItems: "flex-end",

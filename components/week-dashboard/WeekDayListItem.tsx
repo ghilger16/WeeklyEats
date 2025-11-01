@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ReactNode, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { Meal } from "../../types/meals";
@@ -8,22 +9,57 @@ type Props = {
   dayLabel: string;
   meal?: Meal;
   rightSlot?: ReactNode;
+  labelOverride?: string;
+  emojiOverride?: string;
+  iconOverride?: string;
+  isFreezer?: boolean;
 };
 
-export default function WeekDayListItem({ dayLabel, meal, rightSlot }: Props) {
+export default function WeekDayListItem({
+  dayLabel,
+  meal,
+  rightSlot,
+  labelOverride,
+  emojiOverride,
+  iconOverride,
+  isFreezer = false,
+}: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const title = labelOverride ?? meal?.title ?? "Unassigned";
+  const emoji = emojiOverride ?? meal?.emoji ?? "🍽️";
+
+  const leadingVisual = iconOverride ? (
+    <MaterialCommunityIcons
+      name={iconOverride as any}
+      size={20}
+      color={theme.color.ink}
+      style={styles.icon}
+      accessibilityLabel={`${title} status icon`}
+    />
+  ) : (
+    <Text style={styles.emoji} accessibilityLabel={`${title} meal`}>
+      {emoji}
+    </Text>
+  );
 
   return (
     <View style={styles.row}>
       <Text style={styles.day}>{dayLabel}</Text>
       <View style={styles.mealInfo}>
-        <Text style={styles.emoji} accessibilityLabel={`${meal?.title} meal`}>
-          {meal?.emoji ?? "🍽️"}
-        </Text>
-        <Text style={styles.title} numberOfLines={1}>
-          {meal?.title ?? "Unassigned"}
-        </Text>
+        {leadingVisual}
+        <View style={styles.titleRow}>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+          {isFreezer ? (
+            <MaterialCommunityIcons
+              name="snowflake"
+              size={14}
+              color={theme.color.accent}
+            />
+          ) : null}
+        </View>
       </View>
       {rightSlot ? <View style={styles.rightSlot}>{rightSlot}</View> : null}
     </View>
@@ -56,11 +92,21 @@ const createStyles = (theme: WeeklyTheme) =>
     emoji: {
       fontSize: 20,
     },
+    icon: {
+      width: 20,
+      textAlign: "center",
+    },
     title: {
       flex: 1,
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.medium,
+    },
+    titleRow: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs,
     },
     rightSlot: {
       flexDirection: "row",
@@ -68,4 +114,3 @@ const createStyles = (theme: WeeklyTheme) =>
       gap: theme.space.sm,
     },
   });
-

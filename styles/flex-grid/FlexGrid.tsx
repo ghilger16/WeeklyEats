@@ -1,6 +1,7 @@
 import { forwardRef, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import type { View as RNView } from "react-native";
+import type { ForwardRefExoticComponent, RefAttributes } from "react";
 import { FlexGridContext, defaultGridContext } from "./FlexGridContext";
 import type { FlexGridProps, GridPadding } from "./types";
 import { FlexRow } from "./FlexRow";
@@ -70,9 +71,18 @@ const FlexGridBase = forwardRef<RNView, FlexGridProps>(function FlexGridBase(
   );
 });
 
-export const FlexGrid = Object.assign(FlexGridBase, {
+type FlexGridComponent = ForwardRefExoticComponent<
+  FlexGridProps & RefAttributes<RNView>
+> & {
+  Row: typeof FlexRow;
+  Col: typeof FlexCol;
+};
+
+const FlexGridWithStatics = Object.assign(FlexGridBase, {
   Row: FlexRow,
   Col: FlexCol,
 });
+
+export const FlexGrid = FlexGridWithStatics as FlexGridComponent;
 
 export default FlexGrid;

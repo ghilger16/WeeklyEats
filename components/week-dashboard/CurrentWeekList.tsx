@@ -268,6 +268,7 @@ export default function CurrentWeekList({
           <WeekDayListItem
             dayLabel={day.label}
             meal={day.meal}
+            isFreezer={Boolean(day.meal?.isFavorite)}
             rightSlot={
               isEditing ? (
                 <Pressable
@@ -360,6 +361,7 @@ export default function CurrentWeekList({
             <WeekDayListItem
               dayLabel={overlayLabel}
               meal={overlayMeal}
+              isFreezer={Boolean(overlayMeal?.isFavorite)}
             />
           </Animated.View>
         ) : null}

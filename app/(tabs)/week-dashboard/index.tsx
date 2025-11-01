@@ -13,6 +13,8 @@ import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 import CurrentWeekList from "../../../components/week-dashboard/CurrentWeekList";
 import TodayCard from "../../../components/week-dashboard/TodayCard";
+import UnmarkedCard from "../../../components/week-dashboard/UnmarkedCard";
+import DateControls from "../../../components/week-dashboard/DateControls";
 import ServedList, {
   ServedWeek,
 } from "../../../components/week-dashboard/ServedList";
@@ -27,19 +29,27 @@ import {
   getNextWeekStartForDate,
   startOfDay,
 } from "../../../utils/weekDays";
-import { PLANNED_WEEK_LABELS } from "../../../types/weekPlan";
+import {
+  PLANNED_WEEK_LABELS,
+  createEmptyCurrentPlannedWeek,
+  PlannedWeekDayKey,
+} from "../../../types/weekPlan";
 import { setCurrentWeekPlan } from "../../../stores/weekPlanStorage";
+import { clearServedMeals } from "../../../stores/servedMealsStorage";
+import type { ServedOutcome } from "../../../components/week-dashboard/servedActions";
+import { getRandomCelebrationMessage } from "../../../components/week-dashboard/celebrations";
 
 export default function WeekDashboardScreen() {
   const router = useRouter();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { meals } = useMeals();
+  const { meals, updateMeal } = useMeals();
   const { startDay } = useWeekStartController();
   const dateControlsEnabled = useFeatureFlag(
     "weekDashboardDateControlsEnabled"
   );
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
+  const [isPreviewVisible, setPreviewVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollEnabledRef = useRef(true);
 
@@ -64,6 +74,7 @@ export default function WeekDashboardScreen() {
   useEffect(() => {
     if (!dateControlsEnabled) {
       setOverrideDate(null);
+      setPreviewVisible(false);
     } else if (!overrideDate) {
       setOverrideDate(new Date());
     }
@@ -100,8 +111,10 @@ export default function WeekDashboardScreen() {
   const servedWeek = useMemo<ServedWeek>(
     () =>
       servedEntries.slice(0, 7).map((entry) => ({
+        id: entry.id,
         dayLabel: PLANNED_WEEK_LABELS[entry.dayKey],
         mealId: entry.mealId,
+        outcome: entry.outcome,
       })),
     [servedEntries]
   );
@@ -125,8 +138,24 @@ export default function WeekDashboardScreen() {
     });
   }, [servedEntries, today]);
 
-  const handleMarkServed = useCallback(
-    async (message: string) => {
+  const unmarkedDays = useMemo(
+    () =>
+      days
+        .filter(
+          (day) =>
+            day.status === "past" &&
+            Boolean(day.meal && day.mealId) &&
+            !servedEntries.some((entry) => entry.dayKey === day.key)
+        )
+        .sort(
+          (a, b) =>
+            b.plannedDate.getTime() - a.plannedDate.getTime()
+        ),
+    [days, servedEntries]
+  );
+
+  const logTodayOutcome = useCallback(
+    async (outcome: ServedOutcome, celebrationMessage?: string) => {
       if (!today?.meal) {
         return;
       }
@@ -134,17 +163,95 @@ export default function WeekDashboardScreen() {
         dayKey: today.key,
         mealId: today.mealId,
         servedAtISO: new Date().toISOString(),
-        outcome: "cookedAsPlanned",
-        celebrationMessage: message,
+        outcome,
+        celebrationMessage,
       });
+
+      if (outcome === "served" && today.mealId) {
+        const currentMeal = meals.find((item) => item.id === today.mealId);
+        if (currentMeal) {
+          updateMeal({
+            id: currentMeal.id,
+            servedCount:
+              (typeof currentMeal.servedCount === "number"
+                ? currentMeal.servedCount
+                : 0) + 1,
+          });
+        }
+      }
     },
-    [logServedMeal, today]
+    [logServedMeal, meals, today, updateMeal]
+  );
+
+  const handleMarkServed = useCallback(
+    async (message: string) => {
+      await logTodayOutcome("served", message);
+    },
+    [logTodayOutcome]
+  );
+
+  const handleTodayAlternateOutcome = useCallback(
+    async (outcome: ServedOutcome) => {
+      await logTodayOutcome(outcome);
+    },
+    [logTodayOutcome]
+  );
+
+  const handleUnmarkedOutcome = useCallback(
+    async (
+      dayKey: PlannedWeekDayKey,
+      mealId: string,
+      plannedDate: Date,
+      outcome: ServedOutcome
+    ) => {
+      await logServedMeal({
+        dayKey,
+        mealId,
+        servedAtISO: new Date(plannedDate).toISOString(),
+        outcome,
+        celebrationMessage:
+          outcome === "served"
+            ? getRandomCelebrationMessage()
+            : undefined,
+      });
+
+      if (outcome === "served") {
+        const currentMeal = meals.find((item) => item.id === mealId);
+        if (currentMeal) {
+          updateMeal({
+            id: currentMeal.id,
+            servedCount:
+              (typeof currentMeal.servedCount === "number"
+                ? currentMeal.servedCount
+                : 0) + 1,
+          });
+        }
+      }
+    },
+    [getRandomCelebrationMessage, logServedMeal, meals, updateMeal]
   );
 
   const formattedDate = useMemo(
     () => formatWeekdayDate(effectiveDate),
     [effectiveDate]
   );
+
+  const previewContent = useMemo(
+    () =>
+      JSON.stringify(
+        {
+          currentWeekPlan: plan,
+          servedEntries,
+        },
+        null,
+        2
+      ),
+    [plan, servedEntries]
+  );
+
+  const togglePreview = useCallback(() => {
+    setPreviewVisible((prev) => !prev);
+  }, []);
 
   const showPlanButton = useMemo(() => {
     const reference = startOfDay(effectiveDate);
@@ -168,48 +275,44 @@ export default function WeekDashboardScreen() {
     setOverrideDate((prev) => addDays(prev ?? effectiveDate, 1));
   }, [dateControlsEnabled, effectiveDate]);
 
+  const handleClearWeekPlan = useCallback(async () => {
+    const emptyPlan = createEmptyCurrentPlannedWeek();
+    setPlanState(emptyPlan);
+    await setCurrentWeekPlan(emptyPlan);
+    await refreshWeekPlan();
+  }, [refreshWeekPlan, setPlanState]);
+
+  const handleClearServedMeals = useCallback(async () => {
+    await clearServedMeals();
+    await refreshServedMeals();
+  }, [refreshServedMeals]);
+
   const header = useMemo(
     () => (
-      <View style={styles.headerMeta}>
-        <Text style={styles.dateLabel}>
-          {dateControlsEnabled && overrideDate ? "Simulated Date" : "Today"}
-        </Text>
-        <Text style={styles.dateValue}>{formattedDate}</Text>
-        {dateControlsEnabled ? (
-          <View style={styles.dateControls}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="View previous day"
-              style={({ pressed }) => [
-                styles.dateControlButton,
-                pressed && styles.dateControlButtonPressed,
-              ]}
-              onPress={handlePrevDay}
-            >
-              <Text style={styles.dateControlButtonText}>Prev Day</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="View next day"
-              style={({ pressed }) => [
-                styles.dateControlButton,
-                pressed && styles.dateControlButtonPressed,
-              ]}
-              onPress={handleNextDay}
-            >
-              <Text style={styles.dateControlButtonText}>Next Day</Text>
-            </Pressable>
-          </View>
-        ) : null}
-      </View>
+      <DateControls
+        formattedDate={formattedDate}
+        isSimulatedDate={dateControlsEnabled && Boolean(overrideDate)}
+        showControls={dateControlsEnabled}
+        onPrevDay={handlePrevDay}
+        onNextDay={handleNextDay}
+        onClearWeekPlan={handleClearWeekPlan}
+        onClearServedMeals={handleClearServedMeals}
+        onTogglePreview={togglePreview}
+        isPreviewVisible={isPreviewVisible}
+        previewContent={previewContent}
+      />
     ),
     [
       dateControlsEnabled,
       formattedDate,
+      isPreviewVisible,
+      previewContent,
+      handleClearServedMeals,
+      handleClearWeekPlan,
       handleNextDay,
       handlePrevDay,
       overrideDate,
-      styles,
+      togglePreview,
     ]
   );
 
@@ -229,6 +332,7 @@ export default function WeekDashboardScreen() {
           dateLabel={formatWeekdayDate(today.plannedDate)}
           servedEntry={todayServedEntry}
           onMarkServed={handleMarkServed}
+          onSelectOutcome={handleTodayAlternateOutcome}
         />
       );
     }
@@ -241,7 +345,27 @@ export default function WeekDashboardScreen() {
         </Text>
       </View>
     );
-  }, [formattedDate, isLoading, styles, theme.color.accent, today]);
+  }, [
+    formattedDate,
+    handleMarkServed,
+    handleTodayAlternateOutcome,
+    isLoading,
+    styles,
+    theme.color.accent,
+    today,
+    todayServedEntry,
+  ]);
+
+  const unmarkedCards = unmarkedDays.map((day) => (
+    <UnmarkedCard
+      key={day.key}
+      meal={day.meal!}
+      dateLabel={formatWeekdayDate(day.plannedDate)}
+      onSelectOutcome={(outcome) =>
+        handleUnmarkedOutcome(day.key, day.mealId!, day.plannedDate, outcome)
+      }
+    />
+  ));
 
   return (
     <TabParent title="Week Dashboard" header={header}>
@@ -266,6 +390,7 @@ export default function WeekDashboardScreen() {
 
         <View style={styles.stack}>
           {todayCard}
+          {unmarkedCards}
           <CurrentWeekList
             days={upcomingDays}
             title="Current Week Plan"
@@ -324,42 +449,6 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     stack: {
       gap: theme.space["2xl"],
-    },
-    headerMeta: {
-      gap: theme.space.xs,
-    },
-    dateLabel: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
-      textTransform: "uppercase",
-      letterSpacing: 0.8,
-    },
-    dateValue: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.bold,
-    },
-    dateControls: {
-      flexDirection: "row",
-      gap: theme.space.sm,
-      marginTop: theme.space.sm,
-    },
-    dateControlButton: {
-      paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.sm,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    dateControlButtonPressed: {
-      opacity: 0.85,
-    },
-    dateControlButtonText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
     },
     loadingCard: {
       backgroundColor: theme.color.surface,

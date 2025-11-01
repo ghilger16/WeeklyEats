@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { getMeals, setMeals as persistMeals } from "../stores/mealsStorage";
 import { Meal } from "../types/meals";
 
@@ -22,38 +29,86 @@ const delay = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
+type MealsListener = () => void;
+
+let storeMeals: Meal[] = [];
+let hydrationPromise: Promise<void> | null = null;
+const listeners = new Set<MealsListener>();
+
+const emitMealsChange = () => {
+  listeners.forEach((listener) => {
+    try {
+      listener();
+    } catch (error) {
+      console.warn("[useMeals] Listener failed", error);
+    }
+  });
+};
+
+const subscribe = (listener: MealsListener) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+
+const hydrateMeals = async () => {
+  if (!hydrationPromise) {
+    hydrationPromise = (async () => {
+      try {
+        const storedMeals = await getMeals();
+        if (storedMeals.length > 0) {
+          if (storeMeals.length === 0) {
+            storeMeals = storedMeals;
+          } else {
+            const existingIds = new Set(storeMeals.map((meal) => meal.id));
+            const merged = [...storeMeals];
+            storedMeals.forEach((meal) => {
+              if (!existingIds.has(meal.id)) {
+                merged.push(meal);
+              }
+            });
+            storeMeals = merged;
+          }
+          emitMealsChange();
+        }
+      } catch (error) {
+        console.warn("[useMeals] Failed to hydrate meals", error);
+      }
+    })();
+  }
+  await hydrationPromise;
+};
+
+const getSnapshot = () => storeMeals;
+const getServerSnapshot = () => storeMeals;
+
 export const useMeals = (): UseMealsResult => {
-  const [meals, setMealsState] = useState<Meal[]>([]);
   const [isRefreshing, setRefreshing] = useState(false);
+  const hasHydratedRef = useRef(false);
+  const meals = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const hydrateMeals = async () => {
-      const storedMeals = await getMeals();
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (storedMeals.length > 0) {
-        setMealsState(storedMeals);
-      }
-    };
-
-    hydrateMeals();
-
+    let mounted = true;
+    if (!hasHydratedRef.current) {
+      hydrateMeals().finally(() => {
+        if (mounted) {
+          hasHydratedRef.current = true;
+          emitMealsChange();
+        }
+      });
+    }
     return () => {
-      isMounted = false;
+      mounted = false;
     };
   }, []);
 
   const applyAndPersist = useCallback((transform: (prev: Meal[]) => Meal[]) => {
-    setMealsState((prev) => {
-      const next = transform(prev);
-      persistMeals(next);
-      return next;
-    });
+    const base = storeMeals;
+    const next = transform(base);
+    storeMeals = next;
+    persistMeals(next);
+    emitMealsChange();
   }, []);
 
   const favorites = useMemo(
@@ -65,9 +120,8 @@ export const useMeals = (): UseMealsResult => {
     setRefreshing(true);
     await delay(300);
     const storedMeals = await getMeals();
-    if (storedMeals.length > 0) {
-      setMealsState(storedMeals);
-    }
+    storeMeals = storedMeals;
+    emitMealsChange();
     setRefreshing(false);
   }, []);
 

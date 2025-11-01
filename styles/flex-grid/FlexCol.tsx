@@ -1,10 +1,10 @@
 import { forwardRef, useContext, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
-import type { View as RNView } from "react-native";
+import type { StyleProp, View as RNView, ViewStyle } from "react-native";
 import { FlexGridContext } from "./FlexGridContext";
 import type { FlexColProps } from "./types";
 
-const toPercent = (value: number) => `${value * 100}%`;
+const toPercent = (value: number): `${number}%` => `${value * 100}%` as `${number}%`;
 
 const FlexColBase = forwardRef<RNView, FlexColProps>(function FlexColBase(
   { span, offset, grow, shrink, alignSelf, style, children, ...rest },
@@ -14,58 +14,70 @@ const FlexColBase = forwardRef<RNView, FlexColProps>(function FlexColBase(
   const halfGutterX = context.gutterHorizontal / 2;
   const halfGutterY = context.gutterVertical / 2;
 
-  const columnStyle = useMemo(() => {
-    const stylesArray = [
-      baseStyles.column,
-      halfGutterX
-        ? {
-            paddingLeft: halfGutterX,
-            paddingRight: halfGutterX,
-          }
-        : null,
-      halfGutterY
-        ? {
-            paddingTop: halfGutterY,
-            paddingBottom: halfGutterY,
-          }
-        : null,
-    ];
+  const columnStyle = useMemo<StyleProp<ViewStyle>>(() => {
+    const dynamicStyles: ViewStyle[] = [];
+
+    if (halfGutterX) {
+      dynamicStyles.push({
+        paddingLeft: halfGutterX,
+        paddingRight: halfGutterX,
+      });
+    }
+
+    if (halfGutterY) {
+      dynamicStyles.push({
+        paddingTop: halfGutterY,
+        paddingBottom: halfGutterY,
+      });
+    }
 
     if (typeof span === "number") {
       const clampSpan = Math.max(0, Math.min(span, context.columns));
       const percent =
         clampSpan === 0 ? undefined : toPercent(clampSpan / context.columns);
-      stylesArray.push({
-        flexBasis: percent ?? "auto",
-        maxWidth: percent ?? "100%",
-        flexGrow: percent ? 0 : 0,
-      });
+      if (percent) {
+        dynamicStyles.push({
+          flexBasis: percent,
+          maxWidth: percent,
+          flexGrow: 0,
+        });
+      } else {
+        dynamicStyles.push({
+          flexGrow: 0,
+        });
+      }
     }
 
     if (typeof offset === "number" && offset > 0) {
       const clampedOffset = Math.min(offset, context.columns);
-      stylesArray.push({
+      dynamicStyles.push({
         marginLeft: toPercent(clampedOffset / context.columns),
       });
     }
 
     if (typeof grow === "number") {
-      stylesArray.push({ flexGrow: grow });
+      dynamicStyles.push({ flexGrow: grow });
     }
 
     if (typeof shrink === "number") {
-      stylesArray.push({ flexShrink: shrink });
+      dynamicStyles.push({ flexShrink: shrink });
     }
 
     if (alignSelf) {
-      stylesArray.push({ alignSelf });
+      dynamicStyles.push({ alignSelf });
+    }
+
+    let composed: StyleProp<ViewStyle> = baseStyles.column;
+
+    if (dynamicStyles.length) {
+      composed = StyleSheet.compose(composed, dynamicStyles);
     }
 
     if (style) {
-      stylesArray.push(style);
+      composed = StyleSheet.compose(composed, style);
     }
 
-    return stylesArray;
+    return composed;
   }, [
     alignSelf,
     context.columns,

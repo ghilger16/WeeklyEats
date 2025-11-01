@@ -12,6 +12,11 @@ import { Meal } from "../../types/meals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
+import {
+  SERVED_ACTIONS,
+  type ServedAction,
+} from "./servedActions";
+import { getRandomCelebrationMessage } from "./celebrations";
 
 type TodayCardProps = {
   meal: Meal;
@@ -19,33 +24,8 @@ type TodayCardProps = {
   notes?: string;
   servedEntry?: ServedMealEntry;
   onMarkServed?: (message: string) => Promise<void> | void;
+  onSelectOutcome?: (outcome: ServedAction["value"]) => Promise<void> | void;
 };
-
-type ServedAction = {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  value: "cookedAsPlanned" | "cookedAlt" | "ateOut" | "skipped";
-};
-
-const SERVED_ACTIONS: ServedAction[] = [
-  { icon: "check-circle", label: "Cooked as planned", value: "cookedAsPlanned" },
-  { icon: "refresh", label: "Cooked something else", value: "cookedAlt" },
-  { icon: "silverware-fork-knife", label: "Ate out", value: "ateOut" },
-  { icon: "close-circle", label: "Skipped dinner", value: "skipped" },
-];
-
-const CELEBRATION_MESSAGES = [
-  "Dinner goals unlocked! Keep the streak going.",
-  "Chef’s kiss! Your future self thanks you.",
-  "Apron legend. The kitchen is proud of you.",
-  "Meal mastered. Enjoy the victory bites!",
-  "Look at you, crushing dinner like a pro.",
-] as const;
-
-const getRandomCelebration = () =>
-  CELEBRATION_MESSAGES[
-    Math.floor(Math.random() * CELEBRATION_MESSAGES.length)
-  ];
 
 export default function TodayCard({
   meal,
@@ -53,6 +33,7 @@ export default function TodayCard({
   notes,
   servedEntry,
   onMarkServed,
+  onSelectOutcome,
 }: TodayCardProps) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -61,7 +42,7 @@ export default function TodayCard({
     servedEntry?.celebrationMessage ?? null
   );
 
-  const isServed = servedEntry?.outcome === "cookedAsPlanned";
+  const isServed = servedEntry?.outcome === "served";
   const prepNotesToShow = notes ?? meal.prepNotes ?? "";
 
   useEffect(() => {
@@ -89,13 +70,18 @@ export default function TodayCard({
   };
 
   const handleSelectAction = async (action: ServedAction["value"]) => {
-    if (action !== "cookedAsPlanned") {
+    if (action !== "served") {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setExpanded(false);
+      try {
+        await onSelectOutcome?.(action);
+      } catch (error) {
+        console.warn("[TodayCard] Failed to log outcome", error);
+      }
       return;
     }
 
-    const message = celebrationMessage ?? getRandomCelebration();
+    const message = celebrationMessage ?? getRandomCelebrationMessage();
     setCelebrationMessage(message);
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded(false);
@@ -129,8 +115,21 @@ export default function TodayCard({
           >
             <View style={styles.topRow}>
               <Text style={styles.date}>{dateLabel}</Text>
-              <View style={styles.recipeTag}>
-                <Text style={styles.recipeTagText}>Recipe</Text>
+              <View style={styles.topRowMeta}>
+                {meal.isFavorite ? (
+                  <View style={styles.freezerBadge}>
+                    <MaterialCommunityIcons
+                      name="snowflake"
+                      size={14}
+                      color={theme.color.accent}
+                    />
+                    <Text style={styles.freezerBadgeText}>Freezer</Text>
+                  </View>
+                ) : (
+                  <View style={styles.recipeTag}>
+                    <Text style={styles.recipeTagText}>Recipe</Text>
+                  </View>
+                )}
               </View>
             </View>
 
@@ -263,6 +262,29 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.medium,
       textTransform: "uppercase",
       letterSpacing: 1,
+    },
+    topRowMeta: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs,
+    },
+    freezerBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: theme.space.xs,
+      paddingVertical: 2,
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    freezerBadgeText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.medium,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
     },
     emoji: {
       fontSize: 48,

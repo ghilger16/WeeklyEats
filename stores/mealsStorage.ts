@@ -3,6 +3,15 @@ import { Meal } from "../types/meals";
 
 const MEALS_STORAGE_KEY = "@weeklyeats/meals";
 
+const applyMealDefaults = (meal: Meal): Meal => ({
+  ...meal,
+  servedCount:
+    typeof meal.servedCount === "number" && meal.servedCount >= 0
+      ? meal.servedCount
+      : 0,
+  showServedCount: Boolean(meal.showServedCount),
+});
+
 const parseMeals = (raw: string | null): Meal[] => {
   if (!raw) {
     return [];
@@ -14,12 +23,14 @@ const parseMeals = (raw: string | null): Meal[] => {
       return [];
     }
 
-    return parsed.filter(
-      (item): item is Meal =>
-        item !== null &&
-        typeof item === "object" &&
-        typeof (item as Meal).id === "string"
-    );
+    return parsed
+      .filter(
+        (item): item is Meal =>
+          item !== null &&
+          typeof item === "object" &&
+          typeof (item as Meal).id === "string"
+      )
+      .map(applyMealDefaults);
   } catch (error) {
     console.warn("[mealsStorage] Failed to parse meals from storage", error);
     return [];
@@ -55,7 +66,11 @@ export const setMeals = async (meals: Meal[]): Promise<void> => {
 
 export const addMeal = async (meal: Meal): Promise<Meal[]> => {
   const meals = await getMeals();
-  const next = [meal, ...meals.filter((existing) => existing.id !== meal.id)];
+  const normalized = applyMealDefaults(meal);
+  const next = [
+    normalized,
+    ...meals.filter((existing) => existing.id !== normalized.id),
+  ];
   await setMeals(next);
   return next;
 };
@@ -63,7 +78,9 @@ export const addMeal = async (meal: Meal): Promise<Meal[]> => {
 export const updateMeal = async (meal: Meal): Promise<Meal[]> => {
   const meals = await getMeals();
   const next = meals.map((existing) =>
-    existing.id === meal.id ? { ...existing, ...meal } : existing
+    existing.id === meal.id
+      ? applyMealDefaults({ ...existing, ...meal })
+      : existing
   );
   await setMeals(next);
   return next;
