@@ -29,6 +29,10 @@ export default function MoreScreen() {
     router.push("/modals/week-start");
   };
 
+  const openFamilyModal = () => {
+    router.push("/modals/family-members");
+  };
+
   const weekStartLabel = PLANNED_WEEK_DISPLAY_NAMES[startDay];
 
   return (
@@ -66,6 +70,7 @@ export default function MoreScreen() {
           <SettingsRow
             icon="account-multiple-outline"
             label="Manage Family Members"
+            onPress={openFamilyModal}
           />
         </View>
       </ScrollView>

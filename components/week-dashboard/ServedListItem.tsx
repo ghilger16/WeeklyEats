@@ -48,16 +48,25 @@ export default function ServedListItem({
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { updateMeal } = useMeals();
   const [expanded, setExpanded] = useState<ExpandedPanel>(null);
+  const [isActionDrawerOpen, setActionDrawerOpen] = useState(false);
   const [rating, setRating] = useState(meal?.rating ?? 0);
   const [inFreezer, setInFreezer] = useState(Boolean(meal?.isFavorite));
   const [notes, setNotes] = useState("");
   const [isFreezerModalVisible, setFreezerModalVisible] = useState(false);
 
   useEffect(() => {
-    if (hideActions && expanded) {
+    if (hideActions) {
       setExpanded(null);
+      setActionDrawerOpen(false);
     }
-  }, [expanded, hideActions]);
+  }, [hideActions]);
+
+  useEffect(() => {
+    if (!meal) {
+      setExpanded(null);
+      setActionDrawerOpen(false);
+    }
+  }, [meal]);
 
   useEffect(() => {
     setInFreezer(Boolean(meal?.isFavorite));
@@ -101,8 +110,28 @@ export default function ServedListItem({
     [updateMeal]
   );
 
-  const togglePanel = (panel: Exclude<ExpandedPanel, null>) => {
+  const canToggleDrawer = !hideActions && Boolean(meal);
+
+  const handleToggleDrawer = useCallback(() => {
+    if (!canToggleDrawer) {
+      return;
+    }
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setActionDrawerOpen((prev) => {
+      const next = !prev;
+      if (!next) {
+        setExpanded(null);
+      }
+      return next;
+    });
+  }, [canToggleDrawer]);
+
+  const togglePanel = (panel: Exclude<ExpandedPanel, null>) => {
+    if (!canToggleDrawer) {
+      return;
+    }
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setActionDrawerOpen(true);
     setExpanded((prev) => (prev === panel ? null : panel));
   };
 
@@ -117,9 +146,9 @@ export default function ServedListItem({
       accessibilityRole="button"
       accessibilityLabel={label}
       style={({ pressed }) => [
-        styles.iconButton,
-        expanded === panel && styles.iconButtonActive,
-        pressed && styles.iconButtonPressed,
+        styles.actionButton,
+        expanded === panel && styles.actionButtonActive,
+        pressed && styles.actionButtonPressed,
       ]}
     >
       <MaterialCommunityIcons
@@ -130,32 +159,52 @@ export default function ServedListItem({
     </Pressable>
   );
 
-  const rightSlot = hideActions
-    ? null
-    : (
-        <>
-          {renderIconButton("star", "Rate meal", "rating")}
-          {renderIconButton(
-            inFreezer ? "check-circle" : "snowflake",
-            inFreezer ? "Added to freezer" : "Add to freezer",
-            "freezer"
-          )}
-          {renderIconButton("pencil", "Edit notes", "notes")}
-        </>
-      );
+  const actionIndicator = canToggleDrawer ? (
+    <MaterialCommunityIcons
+      name={isActionDrawerOpen ? "chevron-up" : "chevron-down"}
+      size={20}
+      color={theme.color.subtleInk}
+    />
+  ) : null;
+
+  const accessibilityLabel = meal
+    ? `View actions for ${meal.title}`
+    : `View actions for ${dayLabel}`;
 
   return (
     <View>
-      <WeekDayListItem
-        dayLabel={dayLabel}
-        meal={meal}
-        rightSlot={rightSlot ?? undefined}
-        labelOverride={labelOverride}
-        emojiOverride={emojiOverride}
-        iconOverride={iconOverride}
-      />
-      {expanded ? (
+      <Pressable
+        onPress={handleToggleDrawer}
+        disabled={!canToggleDrawer}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel}
+        style={({ pressed }) => [
+          styles.rowPressable,
+          pressed && !hideActions && styles.rowPressablePressed,
+        ]}
+      >
+        <WeekDayListItem
+          dayLabel={dayLabel}
+          meal={meal}
+          rightSlot={actionIndicator ?? undefined}
+          labelOverride={labelOverride}
+          emojiOverride={emojiOverride}
+          iconOverride={iconOverride}
+        />
+      </Pressable>
+      {isActionDrawerOpen && canToggleDrawer ? (
         <View style={styles.drawer}>
+          {!hideActions ? (
+            <View style={styles.actionRow}>
+              {renderIconButton("star", "Rate meal", "rating")}
+              {renderIconButton(
+                inFreezer ? "check-circle" : "snowflake",
+                inFreezer ? "Added to freezer" : "Add to freezer",
+                "freezer"
+              )}
+              {renderIconButton("pencil", "Edit notes", "notes")}
+            </View>
+          ) : null}
           {expanded === "rating" ? (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Rate this meal</Text>
@@ -222,7 +271,21 @@ export default function ServedListItem({
 
 const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
-    iconButton: {
+    rowPressable: {
+      width: "100%",
+    },
+    rowPressablePressed: {
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    actionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+      alignSelf: "center",
+      width: "100%",
+    },
+    actionButton: {
       width: 32,
       height: 32,
       borderRadius: theme.radius.full,
@@ -232,16 +295,16 @@ const createStyles = (theme: WeeklyTheme) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
     },
-    iconButtonActive: {
+    actionButtonActive: {
       backgroundColor: theme.color.accent,
       borderColor: theme.color.accent,
     },
-    iconButtonPressed: {
+    actionButtonPressed: {
       opacity: 0.9,
     },
     drawer: {
       paddingVertical: theme.space.md,
-      paddingLeft: theme.space.md,
+      paddingHorizontal: theme.space.md,
       gap: theme.space.md,
     },
     section: {

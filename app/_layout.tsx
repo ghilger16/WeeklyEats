@@ -32,6 +32,14 @@ export default function RootLayout() {
               headerShown: false,
             }}
           />
+          <Stack.Screen
+            name="modals/family-members"
+            options={{
+              presentation: "transparentModal",
+              animation: "fade",
+              headerShown: false,
+            }}
+          />
         </Stack>
       </WeekStartControllerProvider>
     </ThemeControllerProvider>
