@@ -13,6 +13,23 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 
+type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+type AddButtonProps = {
+  onPress: () => void;
+  testID?: string;
+  accessibilityLabel?: string;
+  variant?: "icon" | "badge";
+  label?: string;
+  iconName?: IconName;
+};
+
+type MenuButtonProps = {
+  onPress: () => void;
+  testID?: string;
+  accessibilityLabel?: string;
+};
+
 type Props = {
   title?: string;
   header?: ReactNode;
@@ -20,16 +37,8 @@ type Props = {
   backgroundColor?: string;
   headerStyle?: StyleProp<ViewStyle>;
   titleStyle?: StyleProp<TextStyle>;
-  addBtn?: {
-    onPress: () => void;
-    testID?: string;
-    accessibilityLabel?: string;
-  };
-  menuBtn?: {
-    onPress: () => void;
-    testID?: string;
-    accessibilityLabel?: string;
-  };
+  addBtn?: AddButtonProps;
+  menuBtn?: MenuButtonProps;
 };
 
 /**
@@ -66,24 +75,49 @@ export default function TabParent({
           </View>
           <View style={styles.actions}>
             {addBtn ? (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.iconButton,
-                  styles.addButton,
-                  pressed && styles.iconButtonPressed,
-                ]}
-                hitSlop={theme.space.xs}
-                accessibilityRole="button"
-                accessibilityLabel={addBtn.accessibilityLabel ?? "Add"}
-                onPress={addBtn.onPress}
-                testID={addBtn.testID}
-              >
-                <MaterialCommunityIcons
-                  name="plus-circle"
-                  size={22}
-                  color={theme.color.accent}
-                />
-              </Pressable>
+              addBtn.variant === "badge" ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.badgeButton,
+                    pressed && styles.badgeButtonPressed,
+                  ]}
+                  hitSlop={theme.space.xs}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    addBtn.accessibilityLabel ?? addBtn.label ?? "Add to freezer"
+                  }
+                  onPress={addBtn.onPress}
+                  testID={addBtn.testID}
+                >
+                  <MaterialCommunityIcons
+                    name={addBtn.iconName ?? ("snowflake" as IconName)}
+                    size={18}
+                    color={theme.color.accent}
+                  />
+                  <Text style={styles.badgeButtonText}>
+                    {addBtn.label ?? "Add to freezer"}
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    styles.addButton,
+                    pressed && styles.iconButtonPressed,
+                  ]}
+                  hitSlop={theme.space.xs}
+                  accessibilityRole="button"
+                  accessibilityLabel={addBtn.accessibilityLabel ?? "Add"}
+                  onPress={addBtn.onPress}
+                  testID={addBtn.testID}
+                >
+                  <MaterialCommunityIcons
+                    name={addBtn.iconName ?? ("plus-circle" as IconName)}
+                    size={22}
+                    color={theme.color.accent}
+                  />
+                </Pressable>
+              )
             ) : null}
             {menuBtn ? (
               <Pressable
@@ -157,6 +191,28 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     addButton: {
       backgroundColor: theme.color.surface,
+    },
+    badgeButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.xs,
+      paddingHorizontal: theme.space.md,
+      height: 40,
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    badgeButtonPressed: {
+      opacity: 0.85,
+    },
+    badgeButtonText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.medium,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
     },
     iconButtonPressed: {
       opacity: 0.85,

@@ -10,6 +10,10 @@ export type Meal = {
   plannedCostTier: CostTier;
   locked: boolean;
   isFavorite: boolean;
+  freezerQuantity?: string;
+  freezerAmount?: string;
+  freezerUnit?: string;
+  freezerAddedAt?: string;
   recipeUrl?: string;
   ingredients?: string[];
   difficulty?: number;
@@ -32,6 +36,9 @@ export const createEmptyMealDraft = (): MealDraft => ({
   plannedCostTier: 2,
   locked: false,
   isFavorite: false,
+  freezerQuantity: "",
+  freezerAmount: "",
+  freezerUnit: "",
   recipeUrl: "",
   ingredients: [],
   difficulty: 3,

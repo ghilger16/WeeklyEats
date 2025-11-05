@@ -26,6 +26,9 @@ type Props = {
   onPress: () => void;
   onDelete: () => void;
   style?: StyleProp<ViewStyle>;
+  isFreezer?: boolean;
+  onFreezerPress?: () => void;
+  onRemoveFromFreezer?: () => void;
 };
 
 type DifficultyColorKey = "success" | "warning" | "danger";
@@ -55,12 +58,38 @@ const MealListItem = memo(function MealListItem({
   onPress,
   onDelete,
   style,
+  isFreezer = false,
+  onFreezerPress,
+  onRemoveFromFreezer,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const scale = useRef(new Animated.Value(1)).current;
   const swipeableRef = useRef<Swipeable | null>(null);
   const pressDuration = theme.motion.duration.fast;
+
+  const freezerAmountRaw = meal.freezerAmount ?? meal.freezerQuantity ?? "";
+  const freezerAmount = freezerAmountRaw.trim();
+  const freezerUnit = meal.freezerUnit ?? "";
+  const hasFreezerAmount = freezerAmount.length > 0;
+  const freezerDisplay = hasFreezerAmount
+    ? `${freezerAmount}${freezerUnit ? ` ${freezerUnit}` : ""}`
+    : "";
+
+  const formatFreezerDate = (iso?: string) => {
+    if (!iso) return null;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return date.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const freezerDateLabel = formatFreezerDate(meal.freezerAddedAt);
 
   const animateTo = (value: number) => {
     Animated.timing(scale, {
@@ -70,12 +99,35 @@ const MealListItem = memo(function MealListItem({
     }).start();
   };
 
-  const handlePressIn = () => animateTo(0.98);
-  const handlePressOut = () => animateTo(1);
+  const handlePressIn = () => {
+    if (!isFreezer) {
+      animateTo(0.98);
+    }
+  };
+
+  const handlePressOut = () => {
+    if (!isFreezer) {
+      animateTo(1);
+    }
+  };
 
   const handleDeletePress = () => {
     swipeableRef.current?.close();
+    if (isFreezer && onRemoveFromFreezer) {
+      onRemoveFromFreezer();
+      return;
+    }
     onDelete();
+  };
+
+  const handlePress = () => {
+    if (isFreezer) {
+      if (onFreezerPress) {
+        onFreezerPress();
+        return;
+      }
+    }
+    onPress();
   };
 
   const resolveExpenseTier = () => {
@@ -105,21 +157,31 @@ const MealListItem = memo(function MealListItem({
 
   const combinedStyle = ({
     pressed,
-  }: PressableStateCallbackType): StyleProp<ViewStyle> => [styles.card, style];
+  }: PressableStateCallbackType): StyleProp<ViewStyle> => [
+    styles.card,
+    isFreezer && styles.freezerCard,
+    style,
+  ];
 
   const renderRightActions = () => (
     <RectButton
       style={styles.deleteAction}
       onPress={handleDeletePress}
       accessibilityRole="button"
-      accessibilityLabel={`Delete ${meal.title}`}
+      accessibilityLabel={
+        isFreezer
+          ? `Remove ${meal.title} from freezer`
+          : `Delete ${meal.title}`
+      }
     >
       <MaterialCommunityIcons
-        name="trash-can"
+        name={isFreezer ? "close-circle" : "trash-can"}
         size={24}
         color={theme.color.ink}
       />
-      <Text style={styles.deleteActionText}>Delete</Text>
+      <Text style={styles.deleteActionText}>
+        {isFreezer ? "Remove" : "Delete"}
+      </Text>
     </RectButton>
   );
 
@@ -136,11 +198,11 @@ const MealListItem = memo(function MealListItem({
         <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${meal.title} meal`}
+            accessibilityLabel={`${meal.title} ${isFreezer ? "freezer item" : "meal"}`}
             testID={`meal-item-${meal.id}`}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
-            onPress={onPress}
+            onPress={handlePress}
             style={combinedStyle}
           >
             <FlexGrid gutterWidth={theme.space.lg}>
@@ -154,47 +216,76 @@ const MealListItem = memo(function MealListItem({
                     {meal.emoji}
                   </Text>
                 </FlexGrid.Col>
-                <FlexGrid.Col span={7} grow={1}>
-                  <View style={styles.details}>
-                    <Text style={styles.title}>{meal.title}</Text>
-                    {meal.rating ? (
-                      <RatingStars value={meal.rating} size={16} gap={0} />
-                    ) : null}
-                    {shouldShowServedCount ? (
-                      <Text style={styles.servedCount}>
-                        Served {servedCount} {servedCount === 1 ? "time" : "times"}
+                {isFreezer ? (
+                  <FlexGrid.Col grow={1}>
+                    <View style={styles.freezerDetails}>
+                      {hasFreezerAmount ? (
+                        <Text
+                          style={styles.freezerAmount}
+                          accessibilityLabel={`Freezer amount ${freezerDisplay}`}
+                        >
+                          {freezerDisplay}
+                        </Text>
+                      ) : null}
+                      <Text
+                        style={[styles.title, styles.freezerTitle]}
+                        numberOfLines={2}
+                      >
+                        {meal.title}
                       </Text>
-                    ) : null}
-                  </View>
-                </FlexGrid.Col>
-                <FlexGrid.Col span={3} grow={0}>
-                  <View style={styles.meta}>
-                    {difficultyColor ? (
-                      <View
-                        style={[
-                          styles.difficultyDot,
-                          { backgroundColor: difficultyColor },
-                        ]}
-                        accessibilityLabel="Meal difficulty indicator"
-                        accessible
-                      />
-                    ) : null}
-                    <Text
-                      style={styles.cost}
-                      accessibilityLabel={`Expense ${expenseLabel}`}
-                    >
-                      {costLabel}
-                    </Text>
-                    {meal.locked ? (
-                      <MaterialCommunityIcons
-                        name="lock"
-                        size={18}
-                        color={theme.color.subtleInk}
-                        accessibilityLabel="Meal locked"
-                      />
-                    ) : null}
-                  </View>
-                </FlexGrid.Col>
+                      {freezerDateLabel ? (
+                        <Text style={styles.freezerDate}>
+                          Added {freezerDateLabel}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </FlexGrid.Col>
+                ) : (
+                  <>
+                    <FlexGrid.Col span={7} grow={1}>
+                      <View style={styles.details}>
+                        <Text style={styles.title}>{meal.title}</Text>
+                        {meal.rating ? (
+                          <RatingStars value={meal.rating} size={16} gap={0} />
+                        ) : null}
+                        {shouldShowServedCount ? (
+                          <Text style={styles.servedCount}>
+                            Served {servedCount} {" "}
+                            {servedCount === 1 ? "time" : "times"}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </FlexGrid.Col>
+                    <FlexGrid.Col span={3} grow={0}>
+                      <View style={styles.meta}>
+                        {difficultyColor ? (
+                          <View
+                            style={[
+                              styles.difficultyDot,
+                              { backgroundColor: difficultyColor },
+                            ]}
+                            accessibilityLabel="Meal difficulty indicator"
+                            accessible
+                          />
+                        ) : null}
+                        <Text
+                          style={styles.cost}
+                          accessibilityLabel={`Expense ${expenseLabel}`}
+                        >
+                          {costLabel}
+                        </Text>
+                        {meal.locked ? (
+                          <MaterialCommunityIcons
+                            name="lock"
+                            size={18}
+                            color={theme.color.subtleInk}
+                            accessibilityLabel="Meal locked"
+                          />
+                        ) : null}
+                      </View>
+                    </FlexGrid.Col>
+                  </>
+                )}
               </FlexGrid.Row>
             </FlexGrid>
           </Pressable>
@@ -246,6 +337,27 @@ const createStyles = (theme: WeeklyTheme) =>
       gap: theme.space.xs,
       minWidth: 48,
     },
+    freezerCard: {
+      paddingVertical: theme.space.md,
+    },
+    freezerDetails: {
+      alignItems: "center",
+      gap: theme.space.xs,
+      width: "100%",
+    },
+    freezerAmount: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+    },
+    freezerTitle: {
+      textAlign: "center",
+      marginBottom: 0,
+    },
+    freezerDate: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
+    },
     difficultyDot: {
       width: 8,
       height: 8,
@@ -258,17 +370,19 @@ const createStyles = (theme: WeeklyTheme) =>
       textAlign: "right",
     },
     deleteAction: {
-      backgroundColor: theme.color.danger,
+      backgroundColor: theme.color.surface,
       justifyContent: "center",
       alignItems: "center",
-      width: 88,
+      width: 104,
       borderRadius: theme.radius.lg,
       marginLeft: theme.space.sm,
       paddingVertical: theme.space.sm,
       gap: theme.space.xs,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
     },
     deleteActionText: {
-      color: theme.color.ink,
+      color: theme.color.danger,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,
       textTransform: "uppercase",

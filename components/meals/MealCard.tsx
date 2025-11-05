@@ -96,6 +96,12 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   difficulty: clampSliderValue(meal.difficulty ?? 3),
   expense: clampSliderValue(meal.expense ?? 3),
   prepNotes: meal.prepNotes ?? "",
+  freezerAmount:
+    "freezerAmount" in meal && meal.freezerAmount !== undefined
+      ? meal.freezerAmount ?? ""
+      : meal.freezerQuantity ?? "",
+  freezerUnit: meal.freezerUnit ?? "",
+  freezerAddedAt: meal.freezerAddedAt,
   createdAt: meal.createdAt,
   updatedAt: meal.updatedAt,
 });
@@ -223,6 +229,20 @@ export default function MealCard({
     updateField("ingredients", [...(form.ingredients ?? []), trimmed]);
     setNewIngredient("");
   }, [form.ingredients, newIngredient, updateField]);
+
+  const handleAddToFreezer = useCallback(() => {
+    const now = new Date().toISOString();
+    setForm((prev) => {
+      if (prev.isFavorite && prev.freezerAddedAt) {
+        return prev;
+      }
+      return {
+        ...prev,
+        isFavorite: true,
+        freezerAddedAt: prev.freezerAddedAt ?? now,
+      };
+    });
+  }, []);
 
   const handleOpenEmojiPicker = useCallback(() => {
     Keyboard.dismiss();
@@ -466,6 +486,35 @@ export default function MealCard({
                         : theme.color.accent
                     }
                   />
+                </Pressable>
+              )}
+            </FlexGrid.Col>
+            <FlexGrid.Col span={6} grow={0} style={styles.headerFreezerCol}>
+              {form.isFavorite ? (
+                <View style={styles.freezerBadge}>
+                  <MaterialCommunityIcons
+                    name="snowflake"
+                    size={18}
+                    color={theme.color.accent}
+                  />
+                  <Text style={styles.freezerBadgeText}>Freezer</Text>
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Add meal to freezer"
+                  onPress={handleAddToFreezer}
+                  style={({ pressed }) => [
+                    styles.freezerToggleButton,
+                    pressed && styles.freezerToggleButtonPressed,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="snowflake"
+                    size={18}
+                    color={theme.color.accent}
+                  />
+                  <Text style={styles.freezerToggleText}>Add to freezer</Text>
                 </Pressable>
               )}
             </FlexGrid.Col>
@@ -900,6 +949,49 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     addIconButtonDisabled: {
       opacity: 0.6,
+    },
+    headerFreezerCol: {
+      alignItems: "flex-end",
+      paddingRight: theme.space.md,
+    },
+    freezerToggleButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs,
+      paddingHorizontal: theme.space.sm,
+      paddingVertical: 6,
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    freezerToggleButtonPressed: {
+      opacity: 0.85,
+    },
+    freezerToggleText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.medium,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+    },
+    freezerBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs,
+      paddingHorizontal: theme.space.sm,
+      paddingVertical: 6,
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.accent,
+    },
+    freezerBadgeText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
     },
     scrollContent: {
       paddingHorizontal: theme.space.xl,

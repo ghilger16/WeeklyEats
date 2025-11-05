@@ -36,3 +36,25 @@ declare module "react-native-gesture-handler" {
     openRight(): void;
   }
 }
+
+declare module "@react-native-community/datetimepicker" {
+  import * as React from "react";
+  import { ViewProps } from "react-native";
+
+  export interface DateTimePickerEvent {
+    type: "set" | "dismissed";
+    nativeEvent: {
+      timestamp: number;
+    };
+  }
+
+  export interface DateTimePickerProps extends ViewProps {
+    mode?: "date" | "time" | "datetime";
+    display?: "default" | "spinner" | "calendar" | "clock";
+    value: Date;
+    onChange?: (event: DateTimePickerEvent, date?: Date) => void;
+  }
+
+  const DateTimePicker: React.ComponentType<DateTimePickerProps>;
+  export default DateTimePicker;
+}

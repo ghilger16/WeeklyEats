@@ -14,6 +14,7 @@ import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { useMeals } from "../../hooks/useMeals";
 import DayMealPlannerCard from "../../components/plan-week/DayMealPlannerCard";
+import { Meal } from "../../types/meals";
 import {
   CurrentPlannedWeek,
   PLANNED_WEEK_DISPLAY_NAMES,
@@ -27,6 +28,14 @@ import { setCurrentWeekPlan } from "../../stores/weekPlanStorage";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
 
 type DifficultyKey = "easy" | "medium" | "hard";
+type ExpenseFilterKey = "cheap" | "medium" | "expensive";
+
+const DIFFICULTY_SEQUENCE: DifficultyKey[] = ["easy", "medium", "hard"];
+const EXPENSE_SEQUENCE: ExpenseFilterKey[] = [
+  "cheap",
+  "medium",
+  "expensive",
+];
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>((acc, key) => {
@@ -43,6 +52,15 @@ const mapDifficultyToKey = (value: number | undefined): DifficultyKey => {
   return "medium";
 };
 
+const mapExpenseToKey = (meal: Meal): ExpenseFilterKey => {
+  const tier = meal.expense
+    ? Math.max(1, Math.min(3, Math.round(meal.expense / 2)))
+    : meal.plannedCostTier ?? 2;
+  if (tier <= 1) return "cheap";
+  if (tier === 2) return "medium";
+  return "expensive";
+};
+
 export default function PlanWeekModal() {
   const router = useRouter();
   const { theme } = useThemeController();
@@ -56,8 +74,12 @@ export default function PlanWeekModal() {
     createEmptyCurrentPlannedWeek()
   );
   const [activeDayIndex, setActiveDayIndex] = useState(0);
-  const [difficultyFilter, setDifficultyFilter] =
-    useState<DifficultyKey>("medium");
+  const [activeDifficultyFilters, setActiveDifficultyFilters] = useState<
+    DifficultyKey[]
+  >([]);
+  const [activeExpenseFilters, setActiveExpenseFilters] = useState<
+    ExpenseFilterKey[]
+  >([]);
   const [suggestionIndexMap, setSuggestionIndexMap] = useState(
     createInitialSuggestionIndex
   );
@@ -66,6 +88,10 @@ export default function PlanWeekModal() {
 
   const activeDay =
     orderedDays[activeDayIndex] ?? orderedDays[0] ?? PLANNED_WEEK_ORDER[0];
+  const isWeekComplete = useMemo(
+    () => orderedDays.every((day) => Boolean(plannedWeek[day])),
+    [orderedDays, plannedWeek]
+  );
 
   useEffect(() => {
     setActiveDayIndex(0);
@@ -80,15 +106,28 @@ export default function PlanWeekModal() {
 
   const filteredMeals = useMemo(() => {
     const difficultyMatches = (mealDifficulty: DifficultyKey) => {
-      if (!difficultyFilter) return true;
-      return mealDifficulty === difficultyFilter;
+      if (!activeDifficultyFilters.length) {
+        return true;
+      }
+      return activeDifficultyFilters.includes(mealDifficulty);
+    };
+
+    const expenseMatches = (mealExpense: ExpenseFilterKey) => {
+      if (!activeExpenseFilters.length) {
+        return true;
+      }
+      return activeExpenseFilters.includes(mealExpense);
     };
 
     const query = searchQuery.trim().toLowerCase();
     return meals
       .filter((meal) => {
         const mealDifficulty = mapDifficultyToKey(meal.difficulty);
+        const mealExpense = mapExpenseToKey(meal);
         if (!difficultyMatches(mealDifficulty)) {
+          return false;
+        }
+        if (!expenseMatches(mealExpense)) {
           return false;
         }
         if (!query) {
@@ -97,7 +136,7 @@ export default function PlanWeekModal() {
         return meal.title.toLowerCase().includes(query);
       })
       .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
-  }, [difficultyFilter, meals, searchQuery]);
+  }, [activeDifficultyFilters, activeExpenseFilters, meals, searchQuery]);
 
   const activeSuggestion = useMemo(() => {
     if (!filteredMeals.length) {
@@ -143,6 +182,28 @@ export default function PlanWeekModal() {
     [activeDay, filteredMeals.length]
   );
 
+  const handleAdvanceDifficultyFilters = useCallback(() => {
+    setActiveDifficultyFilters((prev) => {
+      const nextCount = (prev.length + 1) % (DIFFICULTY_SEQUENCE.length + 1);
+      if (nextCount === 0) {
+        return [];
+      }
+      return DIFFICULTY_SEQUENCE.slice(0, nextCount);
+    });
+    setSuggestionIndexMap(createInitialSuggestionIndex());
+  }, []);
+
+  const handleAdvanceExpenseFilters = useCallback(() => {
+    setActiveExpenseFilters((prev) => {
+      const nextCount = (prev.length + 1) % (EXPENSE_SEQUENCE.length + 1);
+      if (nextCount === 0) {
+        return [];
+      }
+      return EXPENSE_SEQUENCE.slice(0, nextCount);
+    });
+    setSuggestionIndexMap(createInitialSuggestionIndex());
+  }, []);
+
   const handleSavePlan = useCallback(async () => {
     setIsSaving(true);
     try {
@@ -155,6 +216,8 @@ export default function PlanWeekModal() {
 
   const handleReset = useCallback(() => {
     setPlannedWeek(createEmptyCurrentPlannedWeek());
+    setActiveDifficultyFilters([]);
+    setActiveExpenseFilters([]);
     setSuggestionIndexMap(createInitialSuggestionIndex());
     setSearchQuery("");
   }, []);
@@ -230,11 +293,10 @@ export default function PlanWeekModal() {
             dayLabel={PLANNED_WEEK_LABELS[activeDay]}
             dayDisplayName={PLANNED_WEEK_DISPLAY_NAMES[activeDay]}
             meal={activeSuggestion}
-            difficulty={difficultyFilter}
-            onDifficultyChange={(next) => {
-              setDifficultyFilter(next);
-              setSuggestionIndexMap(createInitialSuggestionIndex());
-            }}
+            activeDifficultyFilters={activeDifficultyFilters}
+            onAdvanceDifficultyFilter={handleAdvanceDifficultyFilters}
+            activeExpenseFilters={activeExpenseFilters}
+            onAdvanceExpenseFilter={handleAdvanceExpenseFilters}
             onAdd={handleAddMeal}
             onShuffle={() => stepSuggestion(1)}
             onEat={handleAddMeal}
@@ -265,22 +327,24 @@ export default function PlanWeekModal() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <Pressable
-          onPress={handleSavePlan}
-          disabled={isSaving}
-          style={({ pressed }) => [
-            styles.saveButton,
-            pressed && styles.saveButtonPressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Save planned week"
-        >
-          {isSaving ? (
-            <ActivityIndicator color={theme.color.ink} />
-          ) : (
-            <Text style={styles.saveButtonText}>Save Plan</Text>
-          )}
-        </Pressable>
+        {isWeekComplete && (
+          <Pressable
+            onPress={handleSavePlan}
+            disabled={isSaving}
+            style={({ pressed }) => [
+              styles.saveButton,
+              pressed && styles.saveButtonPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Save planned week"
+          >
+            {isSaving ? (
+              <ActivityIndicator color={theme.color.ink} />
+            ) : (
+              <Text style={styles.saveButtonText}>Save Plan</Text>
+            )}
+          </Pressable>
+        )}
       </View>
     </SafeAreaView>
   );

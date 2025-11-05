@@ -16,6 +16,7 @@ import { WeeklyTheme } from "../../styles/theme";
 import WeekDayListItem from "./WeekDayListItem";
 import RatingStars from "../meals/RatingStars";
 import { useMeals } from "../../hooks/useMeals";
+import FreezerAmountModal from "../meals/FreezerAmountModal";
 
 type ExpandedPanel = "rating" | "freezer" | "notes" | null;
 
@@ -50,6 +51,7 @@ export default function ServedListItem({
   const [rating, setRating] = useState(meal?.rating ?? 0);
   const [inFreezer, setInFreezer] = useState(Boolean(meal?.isFavorite));
   const [notes, setNotes] = useState("");
+  const [isFreezerModalVisible, setFreezerModalVisible] = useState(false);
 
   useEffect(() => {
     if (hideActions && expanded) {
@@ -65,16 +67,39 @@ export default function ServedListItem({
     if (!meal) {
       return;
     }
+    if (!inFreezer) {
+      setFreezerModalVisible(true);
+      return;
+    }
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setInFreezer((prev) => {
-      const next = !prev;
-      updateMeal({
-        id: meal.id,
-        isFavorite: next,
-      });
-      return next;
+    setInFreezer(false);
+    updateMeal({
+      id: meal.id,
+      isFavorite: false,
     });
-  }, [meal, updateMeal]);
+  }, [inFreezer, meal, updateMeal]);
+
+  const handleFreezerModalClose = useCallback(() => {
+    setFreezerModalVisible(false);
+  }, []);
+
+  const handleFreezerModalSave = useCallback(
+    (targetMeal: Meal, amount: string, unit: string, addedAt: string) => {
+      if (!targetMeal) {
+        return;
+      }
+      updateMeal({
+        id: targetMeal.id,
+        isFavorite: true,
+        freezerAmount: amount,
+        freezerUnit: unit,
+        freezerAddedAt: addedAt,
+      });
+      setInFreezer(true);
+      setFreezerModalVisible(false);
+    },
+    [updateMeal]
+  );
 
   const togglePanel = (panel: Exclude<ExpandedPanel, null>) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -181,6 +206,16 @@ export default function ServedListItem({
           ) : null}
         </View>
       ) : null}
+      <FreezerAmountModal
+        mode="edit"
+        visible={isFreezerModalVisible}
+        initialMeal={meal}
+        initialAmount={meal?.freezerAmount ?? meal?.freezerQuantity ?? ""}
+        initialUnit={meal?.freezerUnit}
+        initialAddedAt={meal?.freezerAddedAt}
+        onDismiss={handleFreezerModalClose}
+        onComplete={handleFreezerModalSave}
+      />
     </View>
   );
 }
