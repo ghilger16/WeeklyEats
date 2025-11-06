@@ -4,7 +4,8 @@ import {
   Animated,
   Dimensions,
   Easing,
-  KeyboardAvoidingView,
+  Keyboard,
+  KeyboardEvent,
   PanResponder,
   Platform,
   Pressable,
@@ -31,6 +32,42 @@ export default function FamilyMembersModal() {
   const translateY = useRef(new Animated.Value(SHEET_MAX_TRANSLATE)).current;
   const closingRef = useRef(false);
   const initialsMap = useMemo(() => deriveFamilyInitials(members), [members]);
+  const kbHeight = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const onShow = (e: KeyboardEvent) => {
+      const h = e.endCoordinates?.height ?? 0;
+      const duration = (e as any).duration ?? 220;
+      Animated.timing(kbHeight, {
+        toValue: h,
+        duration,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: false, // height layout change
+      }).start();
+    };
+    const onHide = (e: KeyboardEvent) => {
+      const duration = (e as any).duration ?? 200;
+      Animated.timing(kbHeight, {
+        toValue: 0,
+        duration,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const showEvt =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const subShow = Keyboard.addListener(showEvt, onShow);
+    const subHide = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [kbHeight]);
+
   const animateTo = useCallback(
     (toValue: number, duration: number, easing: (value: number) => number) =>
       new Promise<void>((resolve) => {
@@ -126,98 +163,95 @@ export default function FamilyMembersModal() {
       >
         <SafeAreaView edges={["bottom"]} style={styles.sheetSafeArea}>
           <View style={styles.handle} />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.content}
-          >
-            <View style={styles.header}>
-              <Text style={styles.headerEmoji}>🧑‍🍳</Text>
-              <Text style={styles.headerTitle}>Family Table</Text>
-              <Text style={styles.headerSubtitle}>
-                Add the people you cook for. We’ll keep their initials handy.
-              </Text>
-            </View>
-            <View style={styles.chipSection}>
-              {isLoading ? (
-                <Text style={styles.emptyText}>Loading family members…</Text>
-              ) : (
-                <View style={styles.chipGrid}>
-                  {members.map((member) => (
-                    <Pressable
-                      key={member.id}
-                      onPress={() => {
-                        if (isDeleteMode) {
-                          handleRemoveMember(member.id);
-                        }
-                      }}
-                      accessibilityRole={isDeleteMode ? "button" : undefined}
-                      accessibilityLabel={
-                        isDeleteMode
-                          ? `Remove ${member.name}`
-                          : `Family member ${member.name}`
+
+          <View style={styles.header}>
+            <Text style={styles.headerEmoji}>🧑‍🍳</Text>
+            <Text style={styles.headerTitle}>Family Table</Text>
+            <Text style={styles.headerSubtitle}>
+              Add the people you cook for. We’ll keep their initials handy.
+            </Text>
+          </View>
+          <View style={styles.chipSection}>
+            {isLoading ? (
+              <Text style={styles.emptyText}>Loading family members…</Text>
+            ) : (
+              <View style={styles.chipGrid}>
+                {members.map((member) => (
+                  <Pressable
+                    key={member.id}
+                    onPress={() => {
+                      if (isDeleteMode) {
+                        handleRemoveMember(member.id);
                       }
-                      style={({ pressed }) => [
-                        styles.chip,
-                        pressed && styles.chipPressed,
-                        isDeleteMode && styles.chipDeleteMode,
-                      ]}
-                    >
-                      <View style={styles.chipInitial}>
-                        <Text style={styles.chipInitialText}>
-                          {initialsMap[member.id] ?? "?"}
-                        </Text>
-                      </View>
-                      <Text style={styles.chipName} numberOfLines={1}>
-                        {member.name}
+                    }}
+                    accessibilityRole={isDeleteMode ? "button" : undefined}
+                    accessibilityLabel={
+                      isDeleteMode
+                        ? `Remove ${member.name}`
+                        : `Family member ${member.name}`
+                    }
+                    style={({ pressed }) => [
+                      styles.chip,
+                      pressed && styles.chipPressed,
+                      isDeleteMode && styles.chipDeleteMode,
+                    ]}
+                  >
+                    <View style={styles.chipInitial}>
+                      <Text style={styles.chipInitialText}>
+                        {initialsMap[member.id] ?? "?"}
                       </Text>
-                      {isDeleteMode ? (
-                        <View style={styles.chipRemoveGlyph}>
-                          <MaterialCommunityIcons
-                            name="close"
-                            size={16}
-                            color={theme.color.subtleInk}
-                          />
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-            <View style={styles.inputRow}>
-              <TextInput
-                value={inputValue}
-                onChangeText={setInputValue}
-                placeholder="Add a family member"
-                placeholderTextColor={theme.color.subtleInk}
-                style={styles.textInput}
-                autoCapitalize="words"
-                returnKeyType="done"
-                onSubmitEditing={handleAddMember}
+                    </View>
+                    <Text style={styles.chipName} numberOfLines={1}>
+                      {member.name}
+                    </Text>
+                    {isDeleteMode ? (
+                      <View style={styles.chipRemoveGlyph}>
+                        <MaterialCommunityIcons
+                          name="close"
+                          size={16}
+                          color={theme.color.subtleInk}
+                        />
+                      </View>
+                    ) : null}
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+          <View style={styles.inputRow}>
+            <TextInput
+              value={inputValue}
+              onChangeText={setInputValue}
+              placeholder="Add a family member"
+              placeholderTextColor={theme.color.subtleInk}
+              style={styles.textInput}
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={handleAddMember}
+            />
+            <Pressable
+              onPress={(event) => {
+                event.stopPropagation();
+                toggleDeleteMode();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isDeleteMode ? "Exit delete mode" : "Delete family members"
+              }
+              style={({ pressed }) => [
+                styles.trashButton,
+                pressed && styles.trashButtonPressed,
+                isDeleteMode && styles.trashButtonActive,
+              ]}
+            >
+              <MaterialCommunityIcons
+                name={isDeleteMode ? "trash-can" : "trash-can-outline"}
+                size={22}
+                color={isDeleteMode ? theme.color.ink : theme.color.subtleInk}
               />
-              <Pressable
-                onPress={(event) => {
-                  event.stopPropagation();
-                  toggleDeleteMode();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isDeleteMode ? "Exit delete mode" : "Delete family members"
-                }
-                style={({ pressed }) => [
-                  styles.trashButton,
-                  pressed && styles.trashButtonPressed,
-                  isDeleteMode && styles.trashButtonActive,
-                ]}
-              >
-                <MaterialCommunityIcons
-                  name={isDeleteMode ? "trash-can" : "trash-can-outline"}
-                  size={22}
-                  color={isDeleteMode ? theme.color.ink : theme.color.subtleInk}
-                />
-              </Pressable>
-            </View>
-          </KeyboardAvoidingView>
+            </Pressable>
+          </View>
+          <Animated.View style={{ height: kbHeight }} />
         </SafeAreaView>
       </Animated.View>
     </View>
