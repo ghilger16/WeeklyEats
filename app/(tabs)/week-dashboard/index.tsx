@@ -38,6 +38,8 @@ import { setCurrentWeekPlan } from "../../../stores/weekPlanStorage";
 import { clearServedMeals } from "../../../stores/servedMealsStorage";
 import type { ServedOutcome } from "../../../components/week-dashboard/servedActions";
 import { getRandomCelebrationMessage } from "../../../components/week-dashboard/celebrations";
+import { FamilyRatingValue } from "../../../types/meals";
+import { setFamilyRatingValue } from "../../../utils/familyRatings";
 
 export default function WeekDashboardScreen() {
   const router = useRouter();
@@ -106,6 +108,25 @@ export default function WeekDashboardScreen() {
       refreshWeekPlan();
       refreshServedMeals();
     }, [refreshServedMeals, refreshWeekPlan])
+  );
+
+  const handleFamilyRatingChange = useCallback(
+    (mealId: string, memberId: string, rating: FamilyRatingValue) => {
+      const meal = meals.find((m) => m.id === mealId);
+      if (!meal) {
+        return;
+      }
+      const nextRatings = setFamilyRatingValue(
+        meal.familyRatings,
+        memberId,
+        rating
+      );
+      updateMeal({
+        id: mealId,
+        familyRatings: nextRatings,
+      });
+    },
+    [meals, updateMeal]
   );
 
   const servedWeek = useMemo<ServedWeek>(
@@ -415,6 +436,7 @@ export default function WeekDashboardScreen() {
             servedWeek={servedWeek}
             meals={meals}
             title="Served Meals"
+            onFamilyRatingChange={handleFamilyRatingChange}
           />
         </View>
       </ScrollView>

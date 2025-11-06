@@ -20,6 +20,8 @@ import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
 import { FlexGrid } from "../../styles/flex-grid";
 import RatingStars from "./RatingStars";
+import FamilyRatingIcons from "./FamilyRatingIcons";
+import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 
 type Props = {
   meal: Meal;
@@ -64,6 +66,8 @@ const MealListItem = memo(function MealListItem({
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const { members } = useFamilyMembers();
+  const hasFamilyMembers = members.length > 0;
   const scale = useRef(new Animated.Value(1)).current;
   const swipeableRef = useRef<Swipeable | null>(null);
   const pressDuration = theme.motion.duration.fast;
@@ -152,7 +156,8 @@ const MealListItem = memo(function MealListItem({
   const difficultyColor = difficultyColorKey
     ? theme.color[difficultyColorKey]
     : undefined;
-  const servedCount = typeof meal.servedCount === "number" ? meal.servedCount : 0;
+  const servedCount =
+    typeof meal.servedCount === "number" ? meal.servedCount : 0;
   const shouldShowServedCount = meal.showServedCount;
 
   const combinedStyle = ({
@@ -169,9 +174,7 @@ const MealListItem = memo(function MealListItem({
       onPress={handleDeletePress}
       accessibilityRole="button"
       accessibilityLabel={
-        isFreezer
-          ? `Remove ${meal.title} from freezer`
-          : `Delete ${meal.title}`
+        isFreezer ? `Remove ${meal.title} from freezer` : `Delete ${meal.title}`
       }
     >
       <MaterialCommunityIcons
@@ -184,6 +187,16 @@ const MealListItem = memo(function MealListItem({
       </Text>
     </RectButton>
   );
+
+  const familyRatingsNode = hasFamilyMembers ? (
+    <FamilyRatingIcons
+      ratings={meal.familyRatings}
+      showNames={false}
+      size={24}
+      singleRow
+      gap={theme.space.xs}
+    />
+  ) : null;
 
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
@@ -198,7 +211,9 @@ const MealListItem = memo(function MealListItem({
         <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${meal.title} ${isFreezer ? "freezer item" : "meal"}`}
+            accessibilityLabel={`${meal.title} ${
+              isFreezer ? "freezer item" : "meal"
+            }`}
             testID={`meal-item-${meal.id}`}
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
@@ -245,12 +260,16 @@ const MealListItem = memo(function MealListItem({
                     <FlexGrid.Col span={7} grow={1}>
                       <View style={styles.details}>
                         <Text style={styles.title}>{meal.title}</Text>
-                        {meal.rating ? (
-                          <RatingStars value={meal.rating} size={16} gap={0} />
-                        ) : null}
+                        {familyRatingsNode ?? (
+                          <RatingStars
+                            value={meal.rating ?? 0}
+                            size={16}
+                            gap={0}
+                          />
+                        )}
                         {shouldShowServedCount ? (
                           <Text style={styles.servedCount}>
-                            Served {servedCount} {" "}
+                            Served {servedCount}{" "}
                             {servedCount === 1 ? "time" : "times"}
                           </Text>
                         ) : null}

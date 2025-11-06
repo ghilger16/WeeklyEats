@@ -17,16 +17,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
-import { Meal, MealDraft } from "../../types/meals";
+import { FamilyRatingValue, Meal, MealDraft } from "../../types/meals";
 import { useFeatureFlag } from "../../hooks/useFeatureFlags";
 import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
 import { supportsRecipeAutoFill } from "../../utils/recipeAutoFillCapability";
 import RatingStars from "./RatingStars";
+import FamilyRatingIcons from "./FamilyRatingIcons";
 import EmojiPickerModal from "../emoji/EmojiPickerModal";
 import {
   DEFAULT_MEAL_EMOJI,
   suggestEmojiForTitle,
 } from "../../utils/emojiCatalog";
+import { useFamilyMembers } from "../../hooks/useFamilyMembers";
+import { setFamilyRatingValue } from "../../utils/familyRatings";
 
 type MealCardProps = {
   mode: "create" | "edit";
@@ -83,6 +86,10 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   title: meal.title ?? "",
   emoji: meal.emoji ?? "🍽️",
   rating: meal.rating ?? 0,
+  familyRatings:
+    meal.familyRatings && Object.keys(meal.familyRatings).length > 0
+      ? { ...meal.familyRatings }
+      : undefined,
   servedCount:
     typeof meal.servedCount === "number" && meal.servedCount >= 0
       ? meal.servedCount
@@ -130,6 +137,8 @@ export default function MealCard({
   const autoFillFeatureFlag = useFeatureFlag("recipeAutoFillEnabled");
   const isAutoFillSupported = useMemo(() => supportsRecipeAutoFill(), []);
   const isAutoFillEnabled = autoFillFeatureFlag && isAutoFillSupported;
+  const { members } = useFamilyMembers();
+  const hasFamilyMembers = members.length > 0;
   const {
     isLoading: isAutoFillLoading,
     error: autoFillError,
@@ -215,6 +224,16 @@ export default function MealCard({
       setForm((prev) => ({
         ...prev,
         [key]: value,
+      }));
+    },
+    []
+  );
+
+  const handleFamilyRatingChange = useCallback(
+    (memberId: string, rating: FamilyRatingValue) => {
+      setForm((prev) => ({
+        ...prev,
+        familyRatings: setFamilyRatingValue(prev.familyRatings, memberId, rating),
       }));
     },
     []
@@ -430,6 +449,10 @@ export default function MealCard({
       ingredient.trim()
     );
     const sanitizedPrepNotes = prepNotesDraft.trim();
+    const normalizedFamilyRatings =
+      rest.familyRatings && Object.keys(rest.familyRatings).length > 0
+        ? rest.familyRatings
+        : undefined;
 
     onCreateMeal({
       ...rest,
@@ -437,6 +460,7 @@ export default function MealCard({
       recipeUrl: rest.recipeUrl?.trim() ?? "",
       ingredients: sanitizedIngredients,
       prepNotes: sanitizedPrepNotes,
+      familyRatings: normalizedFamilyRatings,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -668,12 +692,19 @@ export default function MealCard({
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Rating</Text>
             <FlexGrid.Row justifyContent="center">
-              <RatingStars
-                value={form.rating ?? 0}
-                size={32}
-                onChange={(next) => updateField("rating", next)}
-                gap={theme.space.xl}
-              />
+              {hasFamilyMembers ? (
+                <FamilyRatingIcons
+                  ratings={form.familyRatings}
+                  onChange={handleFamilyRatingChange}
+                />
+              ) : (
+                <RatingStars
+                  value={form.rating ?? 0}
+                  size={32}
+                  onChange={(next) => updateField("rating", next)}
+                  gap={theme.space.xl}
+                />
+              )}
             </FlexGrid.Row>
           </View>
 

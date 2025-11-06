@@ -10,13 +10,14 @@ import {
   UIManager,
   View,
 } from "react-native";
-import { Meal } from "../../types/meals";
+import { FamilyRatingValue, Meal } from "../../types/meals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import WeekDayListItem from "./WeekDayListItem";
 import RatingStars from "../meals/RatingStars";
 import { useMeals } from "../../hooks/useMeals";
 import FreezerAmountModal from "../meals/FreezerAmountModal";
+import FamilyRatingIcons from "../meals/FamilyRatingIcons";
 
 type ExpandedPanel = "rating" | "freezer" | "notes" | null;
 
@@ -27,6 +28,11 @@ type Props = {
   emojiOverride?: string;
   iconOverride?: string;
   hideActions?: boolean;
+  onFamilyRatingChange?: (
+    mealId: Meal["id"],
+    memberId: string,
+    rating: FamilyRatingValue
+  ) => void;
 };
 
 if (
@@ -43,6 +49,7 @@ export default function ServedListItem({
   emojiOverride,
   iconOverride,
   hideActions = false,
+  onFamilyRatingChange,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -53,6 +60,18 @@ export default function ServedListItem({
   const [inFreezer, setInFreezer] = useState(Boolean(meal?.isFavorite));
   const [notes, setNotes] = useState("");
   const [isFreezerModalVisible, setFreezerModalVisible] = useState(false);
+  const familyRatingsNode =
+    meal !== undefined ? (
+      <FamilyRatingIcons
+        ratings={meal.familyRatings}
+        onChange={
+          onFamilyRatingChange && meal
+            ? (memberId, value) =>
+                onFamilyRatingChange(meal.id, memberId, value)
+            : undefined
+        }
+      />
+    ) : null;
 
   useEffect(() => {
     if (hideActions) {
@@ -208,12 +227,15 @@ export default function ServedListItem({
           {expanded === "rating" ? (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Rate this meal</Text>
-              <RatingStars
-                value={rating}
-                size={28}
-                gap={theme.space.sm}
-                onChange={setRating}
-              />
+              {familyRatingsNode ??
+                (meal ? (
+                  <RatingStars
+                    value={rating}
+                    size={28}
+                    gap={theme.space.sm}
+                    onChange={setRating}
+                  />
+                ) : null)}
             </View>
           ) : null}
           {expanded === "freezer" ? (

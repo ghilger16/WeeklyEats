@@ -4,14 +4,14 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { useThemeController } from "../../providers/theme/ThemeController";
 
 type Props = {
-  value: number;
+  value?: number;
   size?: number;
   onChange?: (value: number) => void;
   gap?: number;
 };
 
 const RatingStars = memo(function RatingStars({
-  value,
+  value = 0,
   size = 18,
   onChange,
   gap,

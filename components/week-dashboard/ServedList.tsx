@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Meal } from "../../types/meals";
+import { FamilyRatingValue, Meal } from "../../types/meals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import ServedListItem from "./ServedListItem";
@@ -18,9 +18,19 @@ type Props = {
   servedWeek: ServedWeek;
   meals: Meal[];
   title?: string;
+  onFamilyRatingChange?: (
+    mealId: Meal["id"],
+    memberId: string,
+    rating: FamilyRatingValue
+  ) => void;
 };
 
-export default function ServedList({ servedWeek, meals, title = "Served Meals" }: Props) {
+export default function ServedList({
+  servedWeek,
+  meals,
+  title = "Served Meals",
+  onFamilyRatingChange,
+}: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
@@ -79,6 +89,7 @@ export default function ServedList({ servedWeek, meals, title = "Served Meals" }
               labelOverride={labelOverride}
               iconOverride={iconOverride}
               hideActions={!showActions}
+              onFamilyRatingChange={onFamilyRatingChange}
             />
           );
         })}

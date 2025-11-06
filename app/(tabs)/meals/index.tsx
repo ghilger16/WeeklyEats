@@ -374,7 +374,13 @@ export default function MealsScreen() {
         />
       );
     },
-    [activeTab, deleteMeal, handleRemoveFromFreezer, onOpenMeal, openFreezerModal]
+    [
+      activeTab,
+      deleteMeal,
+      handleRemoveFromFreezer,
+      onOpenMeal,
+      openFreezerModal,
+    ]
   );
 
   const keyExtractor = useCallback((item: Meal) => item.id, []);

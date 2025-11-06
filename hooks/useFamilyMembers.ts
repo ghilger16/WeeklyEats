@@ -1,57 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  FamilyMemberRecord,
-  addFamilyMember,
-  getFamilyMembers,
-  removeFamilyMember,
-  updateFamilyMemberName,
-} from "../stores/familyMembersStorage";
+import { useContext } from "react";
+import { FamilyMembersContext } from "../providers/family-members/FamilyMembersProvider";
 
-export type UseFamilyMembersResult = {
-  members: FamilyMemberRecord[];
-  isLoading: boolean;
-  refresh: () => Promise<void>;
-  addMember: (name: string) => Promise<void>;
-  removeMember: (id: string) => Promise<void>;
-  renameMember: (id: string, name: string) => Promise<void>;
-};
-
-export const useFamilyMembers = (): UseFamilyMembersResult => {
-  const [members, setMembers] = useState<FamilyMemberRecord[]>([]);
-  const [isLoading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const stored = await getFamilyMembers();
-    setMembers(stored);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const addMember = useCallback(async (name: string) => {
-    const next = await addFamilyMember(name);
-    setMembers(next);
-  }, []);
-
-  const removeMemberHandler = useCallback(async (id: string) => {
-    const next = await removeFamilyMember(id);
-    setMembers(next);
-  }, []);
-
-  const renameMemberHandler = useCallback(async (id: string, name: string) => {
-    const next = await updateFamilyMemberName(id, name);
-    setMembers(next);
-  }, []);
-
-  return {
-    members,
-    isLoading,
-    refresh: load,
-    addMember,
-    removeMember: removeMemberHandler,
-    renameMember: renameMemberHandler,
-  };
+export const useFamilyMembers = () => {
+  const context = useContext(FamilyMembersContext);
+  if (!context) {
+    throw new Error(
+      "useFamilyMembers must be used within a FamilyMembersProvider"
+    );
+  }
+  return context;
 };

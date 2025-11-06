@@ -5,6 +5,7 @@ export type Meal = {
   title: string;
   emoji: string;
   rating: number;
+  familyRatings?: Record<string, FamilyRatingValue>;
   servedCount: number;
   showServedCount: boolean;
   plannedCostTier: CostTier;
@@ -27,10 +28,13 @@ export type MealDraft = Omit<Meal, "id"> & {
   id?: string;
 };
 
+export type FamilyRatingValue = 0 | 1 | 2 | 3;
+
 export const createEmptyMealDraft = (): MealDraft => ({
   title: "",
   emoji: "🍽️",
-  rating: 3,
+  rating: 0,
+  familyRatings: {},
   servedCount: 0,
   showServedCount: false,
   plannedCostTier: 2,

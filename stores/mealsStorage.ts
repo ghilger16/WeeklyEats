@@ -3,6 +3,31 @@ import { Meal } from "../types/meals";
 
 const MEALS_STORAGE_KEY = "@weeklyeats/meals";
 
+const sanitizeFamilyRatings = (
+  ratings: Meal["familyRatings"]
+): Meal["familyRatings"] => {
+  if (!ratings || typeof ratings !== "object") {
+    return undefined;
+  }
+
+  const entries = Object.entries(ratings).filter(
+    ([key, value]) =>
+      typeof key === "string" &&
+      typeof value === "number" &&
+      value >= 0 &&
+      value <= 3
+  );
+
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return entries.reduce<Record<string, number>>((acc, [key, value]) => {
+    acc[key] = value;
+    return acc;
+  }, {});
+};
+
 const applyMealDefaults = (meal: Meal): Meal => ({
   ...meal,
   servedCount:
@@ -10,6 +35,7 @@ const applyMealDefaults = (meal: Meal): Meal => ({
       ? meal.servedCount
       : 0,
   showServedCount: Boolean(meal.showServedCount),
+  familyRatings: sanitizeFamilyRatings(meal.familyRatings),
 });
 
 const parseMeals = (raw: string | null): Meal[] => {
