@@ -139,6 +139,27 @@ export default function MealCard({
   const isAutoFillEnabled = autoFillFeatureFlag && isAutoFillSupported;
   const { members } = useFamilyMembers();
   const hasFamilyMembers = members.length > 0;
+  const { familyAverageStars, familyCount } = useMemo(() => {
+    if (!form.familyRatings) {
+      return { familyAverageStars: null, familyCount: 0 };
+    }
+    const mapped = Object.values(form.familyRatings)
+      .map((value) => {
+        if (value === 3) return 5;
+        if (value === 2) return 3;
+        if (value === 1) return 1;
+        return 0;
+      })
+      .filter((value) => value > 0);
+    if (mapped.length === 0) {
+      return { familyAverageStars: null, familyCount: 0 };
+    }
+    const total = mapped.reduce<number>((sum, value) => sum + value, 0);
+    return {
+      familyAverageStars: total / mapped.length,
+      familyCount: mapped.length,
+    };
+  }, [form.familyRatings]);
   const {
     isLoading: isAutoFillLoading,
     error: autoFillError,
@@ -172,16 +193,21 @@ export default function MealCard({
 
   useEffect(() => {
     const servedKey =
-      "servedCount" in initialMeal && typeof initialMeal.servedCount === "number"
+      "servedCount" in initialMeal &&
+      typeof initialMeal.servedCount === "number"
         ? initialMeal.servedCount
         : 0;
     const showKey =
-      "showServedCount" in initialMeal && initialMeal.showServedCount ? "1" : "0";
+      "showServedCount" in initialMeal && initialMeal.showServedCount
+        ? "1"
+        : "0";
     const updatedKey =
       "updatedAt" in initialMeal && initialMeal.updatedAt
         ? initialMeal.updatedAt
         : "na";
-    const mealKey = `${mode}-${initialMeal.id ?? "draft"}-${updatedKey}-${servedKey}-${showKey}`;
+    const mealKey = `${mode}-${
+      initialMeal.id ?? "draft"
+    }-${updatedKey}-${servedKey}-${showKey}`;
     if (prevMealKeyRef.current === mealKey) {
       return;
     }
@@ -233,7 +259,11 @@ export default function MealCard({
     (memberId: string, rating: FamilyRatingValue) => {
       setForm((prev) => ({
         ...prev,
-        familyRatings: setFamilyRatingValue(prev.familyRatings, memberId, rating),
+        familyRatings: setFamilyRatingValue(
+          prev.familyRatings,
+          memberId,
+          rating
+        ),
       }));
     },
     []
@@ -706,6 +736,12 @@ export default function MealCard({
                 />
               )}
             </FlexGrid.Row>
+            {hasFamilyMembers && familyAverageStars !== null ? (
+              <Text style={styles.familyScore}>
+                ⭐ {familyAverageStars.toFixed(1)} — rated by {familyCount}{" "}
+                family {familyCount === 1 ? "member" : "members"}
+              </Text>
+            ) : null}
           </View>
 
           <View style={styles.section}>
@@ -1322,5 +1358,11 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     autoFillModalButtonTextDisabled: {
       color: theme.color.subtleInk,
+    },
+    familyScore: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      textAlign: "center",
+      marginTop: theme.space.sm,
     },
   });

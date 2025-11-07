@@ -318,6 +318,19 @@ export default function MealsScreen() {
     [meals]
   );
 
+  const servedRankMap = useMemo(() => {
+    const sorted = meals
+      .filter((meal) => (meal.servedCount ?? 0) > 0)
+      .sort(
+        (a, b) => (b.servedCount ?? 0) - (a.servedCount ?? 0)
+      );
+    const map = new Map<string, number>();
+    sorted.forEach((meal, index) => {
+      map.set(meal.id, index + 1);
+    });
+    return map;
+  }, [meals]);
+
   const openFreezerModal = useCallback((meal: Meal) => {
     setFreezerModalMeal(meal);
   }, []);
@@ -371,6 +384,7 @@ export default function MealsScreen() {
               ? () => handleRemoveFromFreezer(item.id)
               : undefined
           }
+          servedRank={servedRankMap.get(item.id)}
         />
       );
     },
@@ -380,6 +394,7 @@ export default function MealsScreen() {
       handleRemoveFromFreezer,
       onOpenMeal,
       openFreezerModal,
+      servedRankMap,
     ]
   );
 

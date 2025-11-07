@@ -21,6 +21,7 @@ import { Meal } from "../../types/meals";
 import { FlexGrid } from "../../styles/flex-grid";
 import RatingStars from "./RatingStars";
 import FamilyRatingIcons from "./FamilyRatingIcons";
+import { MealBadge } from "./MealBadge";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 
 type Props = {
@@ -31,6 +32,7 @@ type Props = {
   isFreezer?: boolean;
   onFreezerPress?: () => void;
   onRemoveFromFreezer?: () => void;
+  servedRank?: number;
 };
 
 type DifficultyColorKey = "success" | "warning" | "danger";
@@ -63,6 +65,7 @@ const MealListItem = memo(function MealListItem({
   isFreezer = false,
   onFreezerPress,
   onRemoveFromFreezer,
+  servedRank,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -165,6 +168,7 @@ const MealListItem = memo(function MealListItem({
   }: PressableStateCallbackType): StyleProp<ViewStyle> => [
     styles.card,
     isFreezer && styles.freezerCard,
+    isFamilyStar && styles.familyStarCard,
     style,
   ];
 
@@ -188,6 +192,32 @@ const MealListItem = memo(function MealListItem({
     </RectButton>
   );
 
+  const { isFamilyStar } = useMemo(() => {
+    if (!hasFamilyMembers || !meal.familyRatings) {
+      return { isFamilyStar: false };
+    }
+    const mapped = Object.values(meal.familyRatings)
+      .map((value) => {
+        if (value === 3) return 5;
+        if (value === 2) return 3;
+        if (value === 1) return 1;
+        return 0;
+      })
+      .filter((value) => value > 0);
+    if (mapped.length === 0) {
+      return { isFamilyStar: false };
+    }
+    return {
+      isFamilyStar: mapped.every((value) => value === 5),
+    };
+  }, [hasFamilyMembers, meal.familyRatings]);
+
+  const isGalaxyMeal =
+    isFamilyStar &&
+    typeof servedRank === "number" &&
+    servedRank > 0 &&
+    servedRank <= 5;
+
   const familyRatingsNode = hasFamilyMembers ? (
     <FamilyRatingIcons
       ratings={meal.familyRatings}
@@ -197,6 +227,107 @@ const MealListItem = memo(function MealListItem({
       gap={theme.space.xs}
     />
   ) : null;
+
+  const cardBody = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${meal.title} ${
+        isFreezer ? "freezer item" : "meal"
+      }`}
+      testID={`meal-item-${meal.id}`}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={handlePress}
+      style={combinedStyle}
+    >
+      <FlexGrid gutterWidth={theme.space.lg}>
+        <FlexGrid.Row alignItems="center" wrap={false}>
+          <FlexGrid.Col span={2} grow={0}>
+            <Text style={styles.emoji} accessible accessibilityRole="image">
+              {meal.emoji}
+            </Text>
+          </FlexGrid.Col>
+          {isFreezer ? (
+            <FlexGrid.Col grow={1}>
+              <View style={styles.freezerDetails}>
+                {hasFreezerAmount ? (
+                  <Text
+                    style={styles.freezerAmount}
+                    accessibilityLabel={`Freezer amount ${freezerDisplay}`}
+                  >
+                    {freezerDisplay}
+                  </Text>
+                ) : null}
+                <Text
+                  style={[styles.title, styles.freezerTitle]}
+                  numberOfLines={2}
+                >
+                  {meal.title}
+                </Text>
+                {freezerDateLabel ? (
+                  <Text style={styles.freezerDate}>
+                    Added {freezerDateLabel}
+                  </Text>
+                ) : null}
+              </View>
+            </FlexGrid.Col>
+          ) : (
+            <>
+              <FlexGrid.Col span={7} grow={1}>
+                <View style={styles.details}>
+                  <Text style={styles.title}>{meal.title}</Text>
+                  {isFamilyStar ? (
+                    <MealBadge
+                      variant={isGalaxyMeal ? "galaxy" : "family"}
+                      style={styles.badge}
+                    />
+                  ) : (
+                    familyRatingsNode ?? (
+                      <RatingStars value={meal.rating ?? 0} size={16} gap={0} />
+                    )
+                  )}
+                  {shouldShowServedCount ? (
+                    <Text style={styles.servedCount}>
+                      Served {servedCount}{" "}
+                      {servedCount === 1 ? "time" : "times"}
+                    </Text>
+                  ) : null}
+                </View>
+              </FlexGrid.Col>
+              <FlexGrid.Col span={3} grow={0}>
+                <View style={styles.meta}>
+                  {difficultyColor ? (
+                    <View
+                      style={[
+                        styles.difficultyDot,
+                        { backgroundColor: difficultyColor },
+                      ]}
+                      accessibilityLabel="Meal difficulty indicator"
+                      accessible
+                    />
+                  ) : null}
+                  <Text
+                    style={styles.cost}
+                    accessibilityLabel={`Expense ${expenseLabel}`}
+                  >
+                    {costLabel}
+                  </Text>
+                  {meal.locked ? (
+                    <MaterialCommunityIcons
+                      name="lock"
+                      size={18}
+                      color={theme.color.subtleInk}
+                      accessibilityLabel="Meal locked"
+                    />
+                  ) : null}
+                </View>
+              </FlexGrid.Col>
+            </>
+          )}
+        </FlexGrid.Row>
+      </FlexGrid>
+    </Pressable>
+  );
 
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
@@ -209,105 +340,11 @@ const MealListItem = memo(function MealListItem({
         renderRightActions={renderRightActions}
       >
         <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${meal.title} ${
-              isFreezer ? "freezer item" : "meal"
-            }`}
-            testID={`meal-item-${meal.id}`}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            onPress={handlePress}
-            style={combinedStyle}
-          >
-            <FlexGrid gutterWidth={theme.space.lg}>
-              <FlexGrid.Row alignItems="center" wrap={false}>
-                <FlexGrid.Col span={2} grow={0}>
-                  <Text
-                    style={styles.emoji}
-                    accessible
-                    accessibilityRole="image"
-                  >
-                    {meal.emoji}
-                  </Text>
-                </FlexGrid.Col>
-                {isFreezer ? (
-                  <FlexGrid.Col grow={1}>
-                    <View style={styles.freezerDetails}>
-                      {hasFreezerAmount ? (
-                        <Text
-                          style={styles.freezerAmount}
-                          accessibilityLabel={`Freezer amount ${freezerDisplay}`}
-                        >
-                          {freezerDisplay}
-                        </Text>
-                      ) : null}
-                      <Text
-                        style={[styles.title, styles.freezerTitle]}
-                        numberOfLines={2}
-                      >
-                        {meal.title}
-                      </Text>
-                      {freezerDateLabel ? (
-                        <Text style={styles.freezerDate}>
-                          Added {freezerDateLabel}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </FlexGrid.Col>
-                ) : (
-                  <>
-                    <FlexGrid.Col span={7} grow={1}>
-                      <View style={styles.details}>
-                        <Text style={styles.title}>{meal.title}</Text>
-                        {familyRatingsNode ?? (
-                          <RatingStars
-                            value={meal.rating ?? 0}
-                            size={16}
-                            gap={0}
-                          />
-                        )}
-                        {shouldShowServedCount ? (
-                          <Text style={styles.servedCount}>
-                            Served {servedCount}{" "}
-                            {servedCount === 1 ? "time" : "times"}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </FlexGrid.Col>
-                    <FlexGrid.Col span={3} grow={0}>
-                      <View style={styles.meta}>
-                        {difficultyColor ? (
-                          <View
-                            style={[
-                              styles.difficultyDot,
-                              { backgroundColor: difficultyColor },
-                            ]}
-                            accessibilityLabel="Meal difficulty indicator"
-                            accessible
-                          />
-                        ) : null}
-                        <Text
-                          style={styles.cost}
-                          accessibilityLabel={`Expense ${expenseLabel}`}
-                        >
-                          {costLabel}
-                        </Text>
-                        {meal.locked ? (
-                          <MaterialCommunityIcons
-                            name="lock"
-                            size={18}
-                            color={theme.color.subtleInk}
-                            accessibilityLabel="Meal locked"
-                          />
-                        ) : null}
-                      </View>
-                    </FlexGrid.Col>
-                  </>
-                )}
-              </FlexGrid.Row>
-            </FlexGrid>
-          </Pressable>
+          {isFamilyStar ? (
+            <View style={styles.starBorder}>{cardBody}</View>
+          ) : (
+            cardBody
+          )}
         </Animated.View>
       </Swipeable>
     </GestureHandlerRootView>
@@ -332,11 +369,24 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingVertical: theme.space.md,
       minHeight: 72,
     },
+    familyStarCard: {
+      borderWidth: 0,
+    },
     emoji: {
       fontSize: 28,
     },
     details: {
       flex: 1,
+    },
+    badge: {
+      alignSelf: "flex-start",
+      marginTop: theme.space.xs,
+    },
+    starBorder: {
+      borderRadius: theme.radius.lg + 6,
+      padding: 2,
+      borderWidth: 2,
+      borderColor: "#f3c977",
     },
     title: {
       color: theme.color.ink,
