@@ -251,7 +251,8 @@ export default function PlanWeekModal() {
       ...prev,
       [activeDay]: activeSuggestion.id,
     }));
-  }, [activeDay, activeSuggestion]);
+    handleOpenSummary();
+  }, [activeDay, activeSuggestion, handleOpenSummary]);
 
   const stepSuggestion = useCallback(
     (delta: number) => {

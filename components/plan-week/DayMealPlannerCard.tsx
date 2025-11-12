@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import {
   AccessibilityInfo,
   Animated,
@@ -10,7 +11,7 @@ import {
   View,
   findNodeHandle,
 } from "react-native";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentRef, RefObject } from "react";
 import { Meal } from "../../types/meals";
 import { PlannedWeekDayKey } from "../../types/weekPlan";
@@ -20,6 +21,10 @@ import { FlexGrid } from "../../styles/flex-grid";
 import PinBoard from "./PinBoard";
 import { DayPinsState } from "../../types/dayPins";
 import StartPlanningCard from "./StartPlanningCard";
+import {
+  SuggestionBannerContext,
+  getSuggestionBanner,
+} from "./suggestionBanners";
 
 type DifficultyKey = "easy" | "medium" | "hard";
 
@@ -75,6 +80,9 @@ type PlannerTabValue = (typeof TOGGLE_ITEMS)[number]["value"];
 const getTabIndex = (value: PlannerTabValue) =>
   TOGGLE_ITEMS.findIndex((item) => item.value === value);
 
+const BANNER_FADE_IN_MS = 140;
+const BANNER_FADE_OUT_MS = 120;
+
 export default function DayMealPlannerCard({
   dayKey,
   dayDisplayName,
@@ -99,9 +107,14 @@ export default function DayMealPlannerCard({
   const mealTitleRef = useRef<ComponentRef<typeof Text> | null>(null);
   const pinsTitleRef = useRef<ComponentRef<typeof Text> | null>(null);
   const searchInputRef = useRef<ComponentRef<typeof TextInput> | null>(null);
+  const bannerOpacity = useRef(new Animated.Value(0)).current;
+  const lastMealIdRef = useRef<string | null>(null);
   const [dismissedStartCardMap, setDismissedStartCardMap] = useState<
     Record<string, boolean>
   >({});
+  const [bannerMessage, setBannerMessage] = useState<string | null>(null);
+  const [bannerContext, setBannerContext] =
+    useState<SuggestionBannerContext>("general");
 
   const mealDifficulty = meal ? getDifficultyLabel(meal.difficulty) : null;
   const ratingLabel = meal && meal.rating ? meal.rating.toFixed(1) : "--";
@@ -138,6 +151,66 @@ export default function DayMealPlannerCard({
       AccessibilityInfo.setAccessibilityFocus(node);
     }
   }, []);
+
+  const hideBanner = useCallback(
+    (animate = true) => {
+      if (!bannerMessage) {
+        bannerOpacity.setValue(0);
+        setBannerMessage(null);
+        return;
+      }
+      if (!animate) {
+        bannerOpacity.setValue(0);
+        setBannerMessage(null);
+        return;
+      }
+      Animated.timing(bannerOpacity, {
+        toValue: 0,
+        duration: BANNER_FADE_OUT_MS,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          setBannerMessage(null);
+        }
+      });
+    },
+    [bannerMessage, bannerOpacity]
+  );
+
+  const displayBanner = useCallback(
+    (message: string, context: SuggestionBannerContext) => {
+      setBannerContext(context);
+      setBannerMessage(message);
+      Haptics.selectionAsync().catch(() => {});
+      Animated.timing(bannerOpacity, {
+        toValue: 1,
+        duration: BANNER_FADE_IN_MS,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    },
+    [bannerOpacity]
+  );
+
+  const showBannerMessage = useCallback(
+    (context: SuggestionBannerContext) => {
+      const { message } = getSuggestionBanner({ context });
+      if (bannerMessage) {
+        Animated.timing(bannerOpacity, {
+          toValue: 0,
+          duration: BANNER_FADE_OUT_MS,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }).start(() => {
+          displayBanner(message, context);
+        });
+        return;
+      }
+      displayBanner(message, context);
+    },
+    [bannerMessage, bannerOpacity, displayBanner]
+  );
 
   const animateToTab = useCallback(
     (target: PlannerTabValue) => {
@@ -188,6 +261,26 @@ export default function DayMealPlannerCard({
     [activeTab, animateToTab, onOpenPins, onPinsChange, pins]
   );
 
+  const resolveBannerContext = useCallback((): SuggestionBannerContext => {
+    if (
+      pins.freezerNight ||
+      Boolean(meal?.freezerQuantity) ||
+      Boolean(meal?.freezerAmount)
+    ) {
+      return "freezer";
+    }
+    if (pins.familyStar === "include" || meal?.isFavorite) {
+      return "favorite";
+    }
+    if (pins.reuseWeeks) {
+      return "reuse";
+    }
+    if (pins.effort) {
+      return "difficulty";
+    }
+    return "general";
+  }, [meal, pins]);
+
   const handleDismissStartCard = useCallback(() => {
     setDismissedStartCardMap((prev) => ({
       ...prev,
@@ -195,6 +288,47 @@ export default function DayMealPlannerCard({
     }));
     handleSelectTab("suggestions");
   }, [dayDisplayName, handleSelectTab]);
+
+  useEffect(() => {
+    if (
+      !meal ||
+      !meal.id ||
+      showStartPlanningCard ||
+      activeTab !== "suggestions"
+    ) {
+      return;
+    }
+    if (lastMealIdRef.current === meal.id) {
+      return;
+    }
+    lastMealIdRef.current = meal.id;
+    showBannerMessage(resolveBannerContext());
+  }, [
+    activeTab,
+    meal,
+    resolveBannerContext,
+    showBannerMessage,
+    showStartPlanningCard,
+  ]);
+
+  useEffect(() => {
+    if (activeTab !== "suggestions") {
+      hideBanner();
+    }
+  }, [activeTab, hideBanner]);
+
+  useEffect(() => {
+    if (showStartPlanningCard) {
+      hideBanner(false);
+    }
+  }, [hideBanner, showStartPlanningCard]);
+
+  useEffect(() => {
+    if (!meal) {
+      lastMealIdRef.current = null;
+      hideBanner(false);
+    }
+  }, [hideBanner, meal]);
 
   return (
     <View style={styles.container}>
@@ -261,12 +395,22 @@ export default function DayMealPlannerCard({
         >
           {!showStartPlanningCard ? (
             <>
-              <View style={styles.mealCard}>
-                <View style={styles.suggestionBanner}>
-                  <Text style={styles.suggestionBannerText}>
-                    Suggested because uses ingredients in your fridge
+              {bannerMessage ? (
+                <Animated.View
+                  style={[styles.suggestionBanner, { opacity: bannerOpacity }]}
+                  accessibilityRole="text"
+                  accessibilityLabel={`Suggestion: ${bannerMessage}`}
+                  accessibilityLiveRegion="polite"
+                >
+                  <Text
+                    style={styles.suggestionBannerText}
+                    numberOfLines={1}
+                  >
+                    {bannerMessage}
                   </Text>
-                </View>
+                </Animated.View>
+              ) : null}
+              <View style={styles.mealCard}>
                 <View style={styles.mealHero}>
                   <Text style={styles.mealEmoji}>{meal?.emoji ?? "🍽️"}</Text>
                   <View style={styles.mealHeroDetails}>
@@ -592,11 +736,15 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: "#075a4f",
       paddingHorizontal: theme.space.lg,
       paddingVertical: theme.space.md,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
     },
     suggestionBannerText: {
       color: "#3fe2c3",
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.medium,
+      flex: 1,
     },
     gridAutoCol: {
       flexBasis: "auto",
