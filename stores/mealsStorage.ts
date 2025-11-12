@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Meal } from "../types/meals";
+import { Meal, FamilyRatingValue } from "../types/meals";
 
 const MEALS_STORAGE_KEY = "@weeklyeats/meals";
 
@@ -22,10 +22,13 @@ const sanitizeFamilyRatings = (
     return undefined;
   }
 
-  return entries.reduce<Record<string, number>>((acc, [key, value]) => {
-    acc[key] = value;
-    return acc;
-  }, {});
+  return entries.reduce<Record<string, FamilyRatingValue>>(
+    (acc, [key, value]) => {
+      acc[key] = value as FamilyRatingValue;
+      return acc;
+    },
+    {}
+  );
 };
 
 const applyMealDefaults = (meal: Meal): Meal => ({

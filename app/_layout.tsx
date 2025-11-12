@@ -21,8 +21,8 @@ export default function RootLayout() {
             <Stack.Screen
               name="modals/plan-week"
               options={{
-                presentation: "modal",
-                animation: "fade",
+                presentation: "card",
+                animation: "slide_from_right",
                 headerShown: false,
               }}
             />

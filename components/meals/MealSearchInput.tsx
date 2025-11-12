@@ -13,18 +13,11 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
-
-export type MealSortDirection =
-  | "asc"
-  | "desc"
-  | "easy"
-  | "medium"
-  | "hard"
-  | "cheap"
-  | "mediumCost"
-  | "expensive";
-
-export type MealSortBadgeType = "default" | "difficulty" | "expense";
+import { renderPin } from "../pins/renderPin";
+import {
+  MealSortBadgeType,
+  MealSortDirection,
+} from "../pins/types";
 
 export type MealSortOption = {
   id: string;
@@ -252,77 +245,6 @@ const MealSearchInputComponent = ({
     return selectedSort.option.label;
   }, [selectedSort]);
 
-  const renderIndicator = useCallback(
-    (
-      option: MealSortOption,
-      direction: MealSortDirection,
-      color: string,
-      size: "badge" | "menu" = "badge"
-    ) => {
-      if (option.badgeType === "difficulty") {
-        const difficultyColors: Record<
-          MealSortDirection,
-          string
-        > = {
-          easy: theme.color.success,
-          medium: theme.color.warning,
-          hard: theme.color.danger,
-          asc: theme.color.success,
-          desc: theme.color.danger,
-          cheap: theme.color.success,
-          mediumCost: theme.color.warning,
-          expensive: theme.color.danger,
-        };
-        const dotSize = size === "badge" ? 10 : 12;
-        const dotColor =
-          difficultyColors[direction] ?? theme.color.success;
-        return (
-          <View
-            style={[
-              styles.difficultyDot,
-              {
-                width: dotSize,
-                height: dotSize,
-                backgroundColor: dotColor,
-              },
-            ]}
-          />
-        );
-      }
-      if (option.badgeType === "expense") {
-        const costLabels: Record<MealSortDirection, string> = {
-          cheap: "$",
-          mediumCost: "$$",
-          expensive: "$$$",
-          asc: "$",
-          desc: "$$$",
-          easy: "$",
-          medium: "$$",
-          hard: "$$$",
-        };
-        const label = costLabels[direction] ?? "$";
-        return (
-          <Text
-            style={[
-              styles.expenseBadgeText,
-              size === "menu" ? styles.expenseBadgeTextMenu : null,
-            ]}
-          >
-            {label}
-          </Text>
-        );
-      }
-      return (
-        <MaterialCommunityIcons
-          name={direction === "asc" ? "arrow-up" : "arrow-down"}
-          size={size === "badge" ? 16 : 18}
-          color={color}
-        />
-      );
-    },
-    [styles, theme.color.danger, theme.color.success, theme.color.warning]
-  );
-
   return (
     <View
       style={styles.wrapper}
@@ -363,12 +285,14 @@ const MealSearchInputComponent = ({
             >
               <FlexGrid.Row alignItems="center" style={styles.sortBadgeContent}>
                 <Text style={styles.sortBadgeText}>{badgeText}</Text>
-                {renderIndicator(
-                  selectedSort.option,
-                  selectedSort.direction,
-                  theme.color.ink,
-                  "badge"
-                )}
+                {renderPin({
+                  context: "sort",
+                  badgeType: selectedSort.option.badgeType,
+                  direction: selectedSort.direction,
+                  color: theme.color.ink,
+                  size: "badge",
+                  theme,
+                })}
               </FlexGrid.Row>
             </Pressable>
           ) : null}
@@ -458,12 +382,14 @@ const MealSearchInputComponent = ({
                       </View>
                       <View style={styles.dropdownItemArrow}>
                         {isSelected && selectedSort ? (
-                          renderIndicator(
-                            option,
-                            selectedSort.direction,
-                            theme.color.accent,
-                            "menu"
-                          )
+                          renderPin({
+                            context: "sort",
+                            badgeType: option.badgeType,
+                            direction: selectedSort.direction,
+                            color: theme.color.accent,
+                            size: "menu",
+                            theme,
+                          })
                         ) : null}
                       </View>
                     </FlexGrid.Row>
@@ -522,9 +448,6 @@ const createStyles = (theme: WeeklyTheme) =>
     sortBadgeContent: {
       gap: theme.space.xs,
       alignItems: "center",
-    },
-    difficultyDot: {
-      borderRadius: theme.radius.full,
     },
     sortBadgeText: {
       color: theme.color.ink,
@@ -605,14 +528,6 @@ const createStyles = (theme: WeeklyTheme) =>
       width: 24,
       alignItems: "center",
       justifyContent: "center",
-    },
-    expenseBadgeText: {
-      color: theme.color.success,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
-    },
-    expenseBadgeTextMenu: {
-      fontSize: theme.type.size.base,
     },
   });
 
