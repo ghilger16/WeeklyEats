@@ -19,7 +19,7 @@ import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
 import PinBoard from "./PinBoard";
-import { DayPinsState } from "../../types/dayPins";
+import { DayPinsState, EffortOption } from "../../types/dayPins";
 import StartPlanningCard from "./StartPlanningCard";
 import {
   SuggestionBannerContext,
@@ -32,14 +32,19 @@ type Props = {
   dayKey: PlannedWeekDayKey;
   dayDisplayName: string;
   meal?: Meal;
+  suggestionContext?: SuggestionBannerContext;
+  plannedMeal?: Meal;
   onAdd: () => void;
   onShuffle: () => void;
-  onEat: () => void;
+  onSelectEatOut: () => void;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   onOpenPins?: () => void;
   pins: DayPinsState;
   onPinsChange: (next: DayPinsState) => void;
+  sides: string[];
+  onAddSide: (value: string) => void;
+  onRemoveSide: (index: number) => void;
 };
 
 const difficultyToLabel: Record<DifficultyKey, string> = {
@@ -82,19 +87,25 @@ const getTabIndex = (value: PlannerTabValue) =>
 
 const BANNER_FADE_IN_MS = 140;
 const BANNER_FADE_OUT_MS = 120;
+const DIFFICULTY_ORDER: EffortOption[] = ["easy", "medium", "hard"];
 
 export default function DayMealPlannerCard({
   dayKey,
   dayDisplayName,
   meal,
+  suggestionContext,
+  plannedMeal,
   onAdd,
   onShuffle,
-  onEat,
+  onSelectEatOut,
   searchQuery,
   onSearchQueryChange,
   onOpenPins,
   pins,
   onPinsChange,
+  sides,
+  onAddSide,
+  onRemoveSide,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -104,6 +115,7 @@ export default function DayMealPlannerCard({
   const indicatorProgress = useRef(
     new Animated.Value(getTabIndex("suggestions"))
   ).current;
+  const [isSwapping, setIsSwapping] = useState(false);
   const mealTitleRef = useRef<ComponentRef<typeof Text> | null>(null);
   const pinsTitleRef = useRef<ComponentRef<typeof Text> | null>(null);
   const searchInputRef = useRef<ComponentRef<typeof TextInput> | null>(null);
@@ -115,6 +127,8 @@ export default function DayMealPlannerCard({
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
   const [bannerContext, setBannerContext] =
     useState<SuggestionBannerContext>("general");
+  const [sideInput, setSideInput] = useState("");
+  const [isSideDeleteMode, setSideDeleteMode] = useState(false);
 
   const mealDifficulty = meal ? getDifficultyLabel(meal.difficulty) : null;
   const ratingLabel = meal && meal.rating ? meal.rating.toFixed(1) : "--";
@@ -123,7 +137,56 @@ export default function DayMealPlannerCard({
     : meal?.plannedCostTier ?? 1;
   const costLabel = meal ? "$".repeat(costTier) : "--";
 
+  const plannedCostTier = plannedMeal?.expense
+    ? Math.max(1, Math.min(3, Math.round(plannedMeal.expense / 2)))
+    : plannedMeal?.plannedCostTier ?? 1;
+  const plannedCostLabel = plannedMeal ? "$".repeat(plannedCostTier) : null;
+  const plannedDifficulty = plannedMeal
+    ? getDifficultyLabel(plannedMeal.difficulty)
+    : null;
+  const plannedDifficultyText = plannedDifficulty
+    ? difficultyToLabel[plannedDifficulty]
+    : null;
+  const plannedLastServed = plannedMeal
+    ? formatLastServed(plannedMeal.updatedAt)
+    : null;
+  const plannedDifficultyColor = plannedDifficulty
+    ? theme.color[difficultyToThemeColor(plannedDifficulty)]
+    : undefined;
+  const currentDifficulty = useMemo(() => {
+    if (
+      pins.effort === "easy" ||
+      pins.effort === "medium" ||
+      pins.effort === "hard"
+    ) {
+      return pins.effort as EffortOption;
+    }
+    return null;
+  }, [pins.effort]);
+  const difficultyLabel = currentDifficulty
+    ? difficultyToLabel[currentDifficulty as DifficultyKey]
+    : "Tap to set difficulty";
+  const difficultyDotColor = currentDifficulty
+    ? {
+        easy: theme.color.success,
+        medium: theme.color.warning,
+        hard: theme.color.danger,
+      }[currentDifficulty]
+    : theme.color.cardOutline;
+  const handleCycleDifficulty = useCallback(() => {
+    const currentIndex = currentDifficulty
+      ? DIFFICULTY_ORDER.indexOf(currentDifficulty)
+      : -1;
+    const next =
+      DIFFICULTY_ORDER[(currentIndex + 1) % DIFFICULTY_ORDER.length];
+    Haptics.selectionAsync().catch(() => {});
+    onPinsChange({
+      ...pins,
+      effort: next,
+    });
+  }, [currentDifficulty, onPinsChange, pins]);
   const showStartPlanningCard = !dismissedStartCardMap[dayDisplayName];
+  const hasPlannedMeal = Boolean(plannedMeal);
   const indicatorSegment = useMemo(
     () => (toggleWidth ? toggleWidth / TOGGLE_ITEMS.length : 0),
     [toggleWidth]
@@ -262,6 +325,9 @@ export default function DayMealPlannerCard({
   );
 
   const resolveBannerContext = useCallback((): SuggestionBannerContext => {
+    if (suggestionContext) {
+      return suggestionContext;
+    }
     if (
       pins.freezerNight ||
       Boolean(meal?.freezerQuantity) ||
@@ -279,7 +345,7 @@ export default function DayMealPlannerCard({
       return "difficulty";
     }
     return "general";
-  }, [meal, pins]);
+  }, [meal, pins, suggestionContext]);
 
   const handleDismissStartCard = useCallback(() => {
     setDismissedStartCardMap((prev) => ({
@@ -288,6 +354,40 @@ export default function DayMealPlannerCard({
     }));
     handleSelectTab("suggestions");
   }, [dayDisplayName, handleSelectTab]);
+
+  const formatSideLabel = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+    return trimmed
+      .split(/\s+/)
+      .map(
+        (segment) =>
+          segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase()
+      )
+      .join(" ");
+  }, []);
+
+  const handleSubmitSide = useCallback(() => {
+    const formatted = formatSideLabel(sideInput);
+    if (!formatted) {
+      setSideInput("");
+      return;
+    }
+    onAddSide(formatted);
+    setSideInput("");
+  }, [formatSideLabel, onAddSide, sideInput]);
+
+  const toggleSideDeleteMode = useCallback(() => {
+    setSideDeleteMode((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    if (!sides.length && isSideDeleteMode) {
+      setSideDeleteMode(false);
+    }
+  }, [isSideDeleteMode, sides.length]);
 
   useEffect(() => {
     if (
@@ -330,141 +430,258 @@ export default function DayMealPlannerCard({
     }
   }, [hideBanner, meal]);
 
+  useEffect(() => {
+    if (!hasPlannedMeal) {
+      setIsSwapping(false);
+    }
+  }, [hasPlannedMeal]);
+
+  useEffect(() => {
+    if (hasPlannedMeal) {
+      setIsSwapping(false);
+    }
+  }, [plannedMeal?.id, hasPlannedMeal]);
+
+  if (hasPlannedMeal && !isSwapping) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.dayTitle}>{dayDisplayName}</Text>
+        <View style={styles.plannedCardWrapper}>
+          <View style={styles.plannedCard}>
+            <Pressable
+              onPress={() => {
+                setIsSwapping(true);
+                setActiveTab("suggestions");
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Change meal"
+              style={({ pressed }) => [
+                styles.plannedSwapButton,
+                pressed && styles.plannedSwapButtonPressed,
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="swap-horizontal"
+                size={20}
+                color="#FFE6C7"
+              />
+            </Pressable>
+            <View style={styles.plannedBadge}>
+              <Text style={styles.plannedBadgeText}>DAY PLANNED</Text>
+            </View>
+            <Text style={styles.plannedEmoji}>{plannedMeal?.emoji ?? "🍽️"}</Text>
+            <View style={styles.plannedMetaRow}>
+              {plannedCostLabel ? (
+                <Text style={[styles.plannedMetaText, styles.plannedMetaAccent]}>
+                  {plannedCostLabel}
+                </Text>
+              ) : null}
+              {plannedDifficultyText ? (
+                <View style={styles.plannedDifficultyMeta}>
+                  <View
+                    style={[
+                      styles.plannedDifficultyDot,
+                      plannedDifficultyColor
+                        ? { backgroundColor: plannedDifficultyColor }
+                        : null,
+                    ]}
+                  />
+                  <Text style={styles.plannedMetaText}>{plannedDifficultyText}</Text>
+                </View>
+              ) : null}
+            </View>
+            {plannedLastServed ? (
+              <Text style={styles.plannedLastServed}>{plannedLastServed}</Text>
+            ) : null}
+            <Text style={styles.plannedTitle}>
+              {plannedMeal?.title ?? "Meal planned"}
+            </Text>
+            <Text style={styles.plannedSubtitle}>Saved from your collection.</Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  const showPlannerUI = !hasPlannedMeal || isSwapping;
+
   return (
     <View style={styles.container}>
       <View style={styles.dayTabs}></View>
 
       <Text style={styles.dayTitle}>{dayDisplayName}</Text>
 
-      <View
-        style={styles.toggleWrapper}
-        accessibilityRole="tablist"
-        accessibilityLabel="Planning view switcher"
-        onLayout={({ nativeEvent }) => setToggleWidth(nativeEvent.layout.width)}
-      >
-        <Animated.View
-          style={[
-            styles.toggleIndicator,
-            {
-              width: indicatorSegment,
-              opacity: toggleWidth ? 1 : 0,
-              transform: [{ translateX: indicatorTranslate }],
-            },
-          ]}
-          pointerEvents="none"
-        />
-        {TOGGLE_ITEMS.map((item) => {
-          const isSelected = activeTab === item.value;
-          return (
-            <Pressable
-              key={item.value}
-              onPress={() => handleSelectTab(item.value)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: isSelected }}
-              style={({ pressed }) => [
-                styles.toggleOption,
-                isSelected && styles.toggleOptionActive,
-                pressed && !isSelected && styles.toggleOptionPressed,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.toggleOptionLabel,
-                  isSelected && styles.toggleOptionLabelActive,
+      {showPlannerUI ? (
+        <View
+          style={styles.toggleWrapper}
+          accessibilityRole="tablist"
+          accessibilityLabel="Planning view switcher"
+          onLayout={({ nativeEvent }) => setToggleWidth(nativeEvent.layout.width)}
+        >
+          <Animated.View
+            style={[
+              styles.toggleIndicator,
+              {
+                width: indicatorSegment,
+                opacity: toggleWidth ? 1 : 0,
+                transform: [{ translateX: indicatorTranslate }],
+              },
+            ]}
+            pointerEvents="none"
+          />
+          {TOGGLE_ITEMS.map((item) => {
+            const isSelected = activeTab === item.value;
+            return (
+              <Pressable
+                key={item.value}
+                onPress={() => handleSelectTab(item.value)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isSelected }}
+                style={({ pressed }) => [
+                  styles.toggleOption,
+                  isSelected && styles.toggleOptionActive,
+                  pressed && !isSelected && styles.toggleOptionPressed,
                 ]}
               >
-                {item.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+                <Text
+                  style={[
+                    styles.toggleOptionLabel,
+                    isSelected && styles.toggleOptionLabelActive,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
 
       <View style={styles.toggleContent}>
-        <Animated.View
-          style={[
-            styles.tabScene,
-            styles.suggestionsContainer,
-            activeTab !== "suggestions" && styles.tabSceneFloating,
-            {
-              opacity: tabProgress,
-              transform: [{ translateY: suggestionsTranslate }],
-            },
-          ]}
-          pointerEvents={activeTab === "suggestions" ? "auto" : "none"}
-        >
-          {!showStartPlanningCard ? (
-            <>
-              {bannerMessage ? (
-                <Animated.View
-                  style={[styles.suggestionBanner, { opacity: bannerOpacity }]}
-                  accessibilityRole="text"
-                  accessibilityLabel={`Suggestion: ${bannerMessage}`}
-                  accessibilityLiveRegion="polite"
-                >
-                  <Text
-                    style={styles.suggestionBannerText}
-                    numberOfLines={1}
-                  >
-                    {bannerMessage}
+        {hasPlannedMeal && !isSwapping ? (
+          <View style={styles.plannedCardWrapper}>
+            <View style={styles.plannedCard}>
+              <View style={styles.plannedBadge}>
+                <Text style={styles.plannedBadgeText}>DAY PLANNED</Text>
+              </View>
+              <Text style={styles.plannedEmoji}>
+                {plannedMeal?.emoji ?? "🍽️"}
+              </Text>
+              <View style={styles.plannedMetaRow}>
+                {plannedCostLabel ? (
+                  <Text style={[styles.plannedMetaText, styles.plannedMetaAccent]}>
+                    {plannedCostLabel}
                   </Text>
-                </Animated.View>
-              ) : null}
-              <View style={styles.mealCard}>
-                <View style={styles.mealHero}>
-                  <Text style={styles.mealEmoji}>{meal?.emoji ?? "🍽️"}</Text>
-                  <View style={styles.mealHeroDetails}>
-                    <FlexGrid
-                      gutterWidth={theme.space.md}
-                      style={styles.mealHeroMetaGrid}
-                    >
-                      <FlexGrid.Row
-                        alignItems="center"
-                        justifyContent="flex-start"
-                        style={styles.mealHeroMetaRow}
-                      >
-                        <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
-                          <View style={styles.metaItem}>
-                            <MaterialCommunityIcons
-                              name="star"
-                              size={16}
-                              color={theme.color.accent}
-                            />
-                            <Text style={styles.metaText}>{ratingLabel}</Text>
-                          </View>
-                        </FlexGrid.Col>
-                        <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
-                          <View style={styles.metaItem}>
-                            <Text style={styles.metaText}>{costLabel}</Text>
-                          </View>
-                        </FlexGrid.Col>
-                        <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
-                          <View style={styles.metaItem}>
-                            <MaterialCommunityIcons
-                              name="circle"
-                              size={14}
-                              color={
-                                theme.color[
-                                  difficultyToThemeColor(
-                                    mealDifficulty ?? "medium"
-                                  )
-                                ]
-                              }
-                            />
-                            <Text style={styles.metaText}>
-                              {mealDifficulty
-                                ? difficultyToLabel[mealDifficulty]
-                                : "--"}
-                            </Text>
-                          </View>
-                        </FlexGrid.Col>
-                      </FlexGrid.Row>
-                    </FlexGrid>
-                    <Text style={styles.lastServed}>
-                      {formatLastServed(meal?.updatedAt)}
+                ) : null}
+                {plannedDifficultyText ? (
+                  <View style={styles.plannedDifficultyMeta}>
+                    <View
+                      style={[
+                        styles.plannedDifficultyDot,
+                        plannedDifficultyColor
+                          ? { backgroundColor: plannedDifficultyColor }
+                          : null,
+                      ]}
+                    />
+                    <Text style={styles.plannedMetaText}>
+                      {plannedDifficultyText}
                     </Text>
                   </View>
-                </View>
+                ) : null}
+              </View>
+              {plannedLastServed ? (
+                <Text style={styles.plannedLastServed}>{plannedLastServed}</Text>
+              ) : null}
+              <Text style={styles.plannedTitle}>
+                {plannedMeal?.title ?? "Meal planned"}
+              </Text>
+              <Text style={styles.plannedSubtitle}>
+                Saved from your collection.
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <Animated.View
+            style={[
+              styles.tabScene,
+              styles.suggestionsContainer,
+              activeTab !== "suggestions" && styles.tabSceneFloating,
+              {
+                opacity: tabProgress,
+                transform: [{ translateY: suggestionsTranslate }],
+              },
+            ]}
+            pointerEvents={activeTab === "suggestions" ? "auto" : "none"}
+          >
+            {!showStartPlanningCard ? (
+              <>
+                {bannerMessage ? (
+                  <Animated.View
+                    style={[styles.suggestionBanner, { opacity: bannerOpacity }]}
+                    accessibilityRole="text"
+                    accessibilityLabel={`Suggestion: ${bannerMessage}`}
+                    accessibilityLiveRegion="polite"
+                  >
+                    <Text style={styles.suggestionBannerText} numberOfLines={1}>
+                      {bannerMessage}
+                    </Text>
+                  </Animated.View>
+                ) : null}
+                <View style={styles.mealCard}>
+                  <View style={styles.mealHero}>
+                    <Text style={styles.mealEmoji}>{meal?.emoji ?? "🍽️"}</Text>
+                    <View style={styles.mealHeroDetails}>
+                      <FlexGrid
+                        gutterWidth={theme.space.md}
+                        style={styles.mealHeroMetaGrid}
+                      >
+                        <FlexGrid.Row
+                          alignItems="center"
+                          justifyContent="flex-start"
+                          style={styles.mealHeroMetaRow}
+                        >
+                          <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                            <View style={styles.metaItem}>
+                              <MaterialCommunityIcons
+                                name="star"
+                                size={16}
+                                color={theme.color.accent}
+                              />
+                              <Text style={styles.metaText}>{ratingLabel}</Text>
+                            </View>
+                          </FlexGrid.Col>
+                          <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                            <View style={styles.metaItem}>
+                              <Text style={styles.metaText}>{costLabel}</Text>
+                            </View>
+                          </FlexGrid.Col>
+                          <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                            <View style={styles.metaItem}>
+                              <MaterialCommunityIcons
+                                name="circle"
+                                size={14}
+                                color={
+                                  theme.color[
+                                    difficultyToThemeColor(
+                                      mealDifficulty ?? "medium"
+                                    )
+                                  ]
+                                }
+                              />
+                              <Text style={styles.metaText}>
+                                {mealDifficulty
+                                  ? difficultyToLabel[mealDifficulty]
+                                  : "--"}
+                              </Text>
+                            </View>
+                          </FlexGrid.Col>
+                        </FlexGrid.Row>
+                      </FlexGrid>
+                      <Text style={styles.lastServed}>
+                        {formatLastServed(meal?.updatedAt)}
+                      </Text>
+                    </View>
+                  </View>
                 <View style={styles.mealContent}>
                   <Text
                     ref={mealTitleRef}
@@ -473,53 +690,117 @@ export default function DayMealPlannerCard({
                   >
                     {meal?.title ?? "No suggestion"}
                   </Text>
-                  <Text style={styles.mealSubtitle} numberOfLines={2}>
-                    {meal
-                      ? "Suggested meal from your collection"
-                      : "Use search or shuffle to pick a meal"}
-                  </Text>
+                  {sides.length ? (
+                    <View style={styles.sideList}>
+                      {sides.map((side, index) => (
+                        <Pressable
+                          key={`${side}-${index}`}
+                          onPress={() => {
+                            if (isSideDeleteMode) {
+                              onRemoveSide(index);
+                            }
+                          }}
+                          disabled={!isSideDeleteMode}
+                          accessibilityRole={isSideDeleteMode ? "button" : "text"}
+                          accessibilityLabel={
+                            isSideDeleteMode
+                              ? `Remove side ${side}`
+                              : `Side ${side}`
+                          }
+                          style={({ pressed }) => [
+                            styles.sideChip,
+                            isSideDeleteMode && styles.sideChipDeleteMode,
+                            pressed && isSideDeleteMode && styles.sideChipPressed,
+                          ]}
+                        >
+                          <Text style={styles.sideChipText}>w/ {side}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                  <View style={styles.sideInputRow}>
+                    <TextInput
+                      value={sideInput}
+                      onChangeText={setSideInput}
+                      onSubmitEditing={handleSubmitSide}
+                      placeholder="Add a side"
+                      placeholderTextColor={theme.color.subtleInk}
+                      autoCapitalize="words"
+                      returnKeyType="done"
+                      style={styles.sideInput}
+                      accessibilityLabel="Add a side dish"
+                    />
+                    <Pressable
+                      onPress={() => {
+                        toggleSideDeleteMode();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        isSideDeleteMode ? "Exit side delete mode" : "Delete sides"
+                      }
+                      style={({ pressed }) => [
+                        styles.sideTrashButton,
+                        pressed && styles.sideTrashButtonPressed,
+                        isSideDeleteMode && styles.sideTrashButtonActive,
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name={
+                          isSideDeleteMode ? "trash-can" : "trash-can-outline"
+                        }
+                        size={18}
+                        color={
+                          isSideDeleteMode
+                            ? theme.color.ink
+                            : theme.color.subtleInk
+                        }
+                      />
+                    </Pressable>
+                  </View>
                 </View>
               </View>
 
-              <FlexGrid gutterWidth={theme.space.sm}>
-                <FlexGrid.Row alignItems="center">
-                  <FlexGrid.Col span={4}>
-                    <PlannerActionButton
-                      icon="check"
-                      label="Add"
-                      onPress={onAdd}
-                      disabled={!meal}
-                      styles={styles}
-                    />
-                  </FlexGrid.Col>
-                  <FlexGrid.Col span={4}>
-                    <PlannerActionButton
-                      icon="shuffle"
-                      label="Shuffle"
-                      onPress={onShuffle}
-                      disabled={!meal}
-                      styles={styles}
-                    />
-                  </FlexGrid.Col>
-                  <FlexGrid.Col span={4}>
-                    <PlannerActionButton
-                      icon="silverware-fork-knife"
-                      label="Eat"
-                      onPress={onEat}
-                      disabled={!meal}
-                      styles={styles}
-                    />
-                  </FlexGrid.Col>
-                </FlexGrid.Row>
-              </FlexGrid>
-            </>
-          ) : (
-            <StartPlanningCard
-              dayDisplayName={dayDisplayName}
-              onGetSuggestions={handleDismissStartCard}
-            />
-          )}
-        </Animated.View>
+                <FlexGrid gutterWidth={theme.space.sm}>
+                  <FlexGrid.Row alignItems="center">
+                    <FlexGrid.Col span={4}>
+                      <PlannerActionButton
+                        icon="check"
+                        label="Add"
+                        onPress={onAdd}
+                        disabled={!meal}
+                        styles={styles}
+                      />
+                    </FlexGrid.Col>
+                    <FlexGrid.Col span={4}>
+                      <PlannerActionButton
+                        icon="shuffle"
+                        label="Shuffle"
+                        onPress={onShuffle}
+                        disabled={!meal}
+                        styles={styles}
+                      />
+                    </FlexGrid.Col>
+                    <FlexGrid.Col span={4}>
+                      <PlannerActionButton
+                        icon="silverware-fork-knife"
+                        label="Eat Out"
+                        onPress={onSelectEatOut}
+                        disabled={!meal}
+                        styles={styles}
+                        accessibilityLabel="Plan to eat out"
+                      />
+                    </FlexGrid.Col>
+                  </FlexGrid.Row>
+                </FlexGrid>
+              </>
+            ) : (
+              <StartPlanningCard
+                dayDisplayName={dayDisplayName}
+                onGetSuggestions={handleDismissStartCard}
+              />
+            )}
+          </Animated.View>
+        )}
 
         <Animated.View
           style={[
@@ -702,6 +983,84 @@ const createStyles = (theme: WeeklyTheme) =>
     pinsContainer: {
       gap: theme.space.lg,
     },
+    plannedCardWrapper: {
+      width: "100%",
+      position: "relative",
+    },
+    plannedCard: {
+      borderRadius: theme.radius.xl,
+      backgroundColor: theme.color.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      padding: theme.space.lg,
+      alignItems: "center",
+      gap: theme.space.sm,
+    },
+    plannedBadge: {
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.xs / 1.5,
+      borderRadius: theme.radius.full,
+      backgroundColor: "#C37D1D",
+    },
+    plannedBadgeText: {
+      color: "#FFE6C7",
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
+      letterSpacing: 1,
+    },
+    plannedEmoji: {
+      fontSize: 72,
+    },
+    plannedMetaRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+    },
+    plannedMetaText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    plannedMetaAccent: {
+      color: theme.color.accent,
+    },
+    plannedDifficultyMeta: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs / 2,
+    },
+    plannedDifficultyDot: {
+      width: 8,
+      height: 8,
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.warning,
+    },
+    plannedLastServed: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+    },
+    plannedTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.h2,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    plannedSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      textAlign: "center",
+    },
+    plannedSwapButton: {
+      position: "absolute",
+      top: theme.space.sm,
+      right: theme.space.sm,
+      padding: theme.space.sm,
+      borderRadius: theme.radius.full,
+      backgroundColor: "rgba(0,0,0,0.25)",
+    },
+    plannedSwapButtonPressed: {
+      opacity: 0.8,
+    },
     searchTabCard: {
       borderRadius: theme.radius.lg,
       backgroundColor: theme.color.surface,
@@ -789,9 +1148,58 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.title,
       fontWeight: theme.type.weight.bold,
     },
-    mealSubtitle: {
-      color: theme.color.subtleInk,
+    sideInputRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
+    },
+    sideInput: {
+      flex: 1,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      borderRadius: theme.radius.full,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.xs,
+      color: theme.color.ink,
       fontSize: theme.type.size.sm,
+      backgroundColor: theme.color.surface,
+    },
+    sideTrashButton: {
+      width: 32,
+      height: 32,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sideTrashButtonPressed: {
+      opacity: 0.7,
+    },
+    sideTrashButtonActive: {
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.accent,
+    },
+    sideList: {
+      gap: theme.space.xs,
+    },
+    sideChip: {
+      borderRadius: 0,
+      backgroundColor: theme.color.surfaceAlt,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: Math.max(4, theme.space.xs * 1.2),
+      alignSelf: "stretch",
+    },
+    sideChipDeleteMode: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.danger,
+    },
+    sideChipPressed: {
+      opacity: 0.8,
+    },
+    sideChipText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
     },
     metaItem: {
       flexDirection: "row",

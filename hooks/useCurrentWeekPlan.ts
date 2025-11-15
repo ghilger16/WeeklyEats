@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Meal } from "../types/meals";
+import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../types/specialMeals";
 import { useWeekStartController } from "../providers/week-start/WeekStartController";
 import {
   CurrentPlannedWeek,
@@ -18,8 +19,15 @@ import {
 
 const isSameDay = (a: Date, b: Date) => startOfDay(a).getTime() === startOfDay(b).getTime();
 
-const matchMeal = (meals: Meal[], mealId: string | null | undefined) =>
-  mealId ? meals.find((meal) => meal.id === mealId) : undefined;
+const matchMeal = (meals: Meal[], mealId: string | null | undefined) => {
+  if (!mealId) {
+    return undefined;
+  }
+  if (mealId === EAT_OUT_MEAL_ID) {
+    return EAT_OUT_MEAL;
+  }
+  return meals.find((meal) => meal.id === mealId);
+};
 
 export type WeekPlanDay = {
   key: PlannedWeekDayKey;

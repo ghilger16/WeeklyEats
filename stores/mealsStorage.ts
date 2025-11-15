@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Meal, FamilyRatingValue } from "../types/meals";
+import { mockMeals } from "./mockMeals";
 
 const MEALS_STORAGE_KEY = "@weeklyeats/meals";
 
@@ -78,7 +79,16 @@ const serializeMeals = (meals: Meal[]): string => {
 export const getMeals = async (): Promise<Meal[]> => {
   try {
     const raw = await AsyncStorage.getItem(MEALS_STORAGE_KEY);
-    return parseMeals(raw);
+    const parsed = parseMeals(raw);
+    if (parsed.length > 0) {
+      return parsed;
+    }
+    const seeded = mockMeals.map(applyMealDefaults);
+    await AsyncStorage.setItem(
+      MEALS_STORAGE_KEY,
+      serializeMeals(seeded)
+    );
+    return seeded;
   } catch (error) {
     console.warn("[mealsStorage] Failed to get meals", error);
     return [];
