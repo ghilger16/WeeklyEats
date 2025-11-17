@@ -704,11 +704,20 @@ export default function PlanWeekModal() {
                         {PLANNED_WEEK_LABELS[day]}
                       </Text>
                       <Text style={styles.summaryMeal} numberOfLines={1}>
-                        {isSelected && plannerSelection.meal
-                          ? `${plannerSelection.meal.emoji} ${plannerSelection.meal.title}`
-                          : plannedMeal
-                          ? `${plannedMeal.emoji} ${plannedMeal.title}`
-                          : "Unplanned"}
+                        {(() => {
+                          const title =
+                            isSelected && plannerSelection.meal
+                              ? `${plannerSelection.meal.emoji} ${plannerSelection.meal.title}`
+                              : plannedMeal
+                              ? `${plannedMeal.emoji} ${plannedMeal.title}`
+                              : "Unplanned";
+                          const sides = daySidesMap[day] ?? [];
+                          if (!sides.length) {
+                            return title;
+                          }
+                          const sidesLabel = sides.join(" • ");
+                          return `${title} • ${sidesLabel}`;
+                        })()}
                       </Text>
                       {savedIndicatorDay === day ? (
                         <MaterialCommunityIcons

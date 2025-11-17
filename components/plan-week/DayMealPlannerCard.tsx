@@ -496,7 +496,15 @@ export default function DayMealPlannerCard({
             <Text style={styles.plannedTitle}>
               {plannedMeal?.title ?? "Meal planned"}
             </Text>
-            <Text style={styles.plannedSubtitle}>Saved from your collection.</Text>
+            {sides.length ? (
+              <View style={styles.plannedSideList}>
+                {sides.map((side, index) => (
+                  <View style={styles.plannedSideChip} key={`${side}-${index}`}>
+                    <Text style={styles.plannedSideText}>w/ {side}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         </View>
       </View>
@@ -1049,6 +1057,21 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       textAlign: "center",
+    },
+    plannedSideList: {
+      gap: theme.space.xs,
+      alignItems: "center",
+    },
+    plannedSideChip: {
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surfaceAlt,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.xs,
+    },
+    plannedSideText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
     },
     plannedSwapButton: {
       position: "absolute",
