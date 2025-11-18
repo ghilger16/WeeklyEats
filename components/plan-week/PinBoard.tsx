@@ -21,6 +21,7 @@ import {
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
+import { PLANNED_WEEK_DISPLAY_NAMES } from "../../types/weekPlan";
 import {
   DayPinsState,
   EffortOption,
@@ -41,8 +42,7 @@ import {
 } from "../../types/dayPins";
 import { MealBadge } from "../meals/MealBadge";
 import { renderPin, PinIndicatorVariant } from "../pins/renderPin";
-
-type InventoryPinId = PinIndicatorVariant;
+import { MaterialCommunityIcons as CommunityIcons } from "@expo/vector-icons";
 
 type DifficultyIndicatorLevel = "easy" | "medium" | "hard";
 
@@ -50,38 +50,6 @@ type MoodBadgeDescriptor =
   | { id: string; kind: "difficulty"; levels: DifficultyIndicatorLevel[] }
   | { id: string; kind: "freezer" }
   | { id: string; kind: "family" };
-
-const PIN_INVENTORY_OPTIONS: Array<{
-  id: InventoryPinId;
-  title: string;
-  subtitle: string;
-}> = [
-  {
-    id: "difficulty",
-    title: "Difficulty",
-    subtitle: "Lock in effort targets.",
-  },
-  {
-    id: "expense",
-    title: "Expense",
-    subtitle: "Keep meals on budget.",
-  },
-  {
-    id: "reuse",
-    title: "Reuse",
-    subtitle: "Spread repeats every few weeks.",
-  },
-  {
-    id: "family",
-    title: "Family Star",
-    subtitle: "Flag crowd-pleasers.",
-  },
-  {
-    id: "freezer",
-    title: "Freezer Night",
-    subtitle: "Only suggest freezer-ready meals.",
-  },
-];
 
 const moodBadgeMap: Record<MoodOption, MoodBadgeDescriptor[]> = {
   low_effort: [
@@ -105,10 +73,10 @@ const moodBadgeMap: Record<MoodOption, MoodBadgeDescriptor[]> = {
 type Props = {
   value: DayPinsState;
   onChange: (next: DayPinsState) => void;
-  onReset?: () => void;
   dayKey?: string;
-  title?: string;
-  titleRef?: RefObject<Text | null>;
+  onRequestInventory?: () => void;
+  pulseChipTrigger?: { id: string; nonce: number } | null;
+  isInventoryOpen?: boolean;
 };
 
 type BoardChipDescriptor = {
@@ -127,10 +95,10 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const PinBoard = ({
   value,
   onChange,
-  onReset,
   dayKey,
-  title = "Day Pins",
-  titleRef,
+  onRequestInventory,
+  pulseChipTrigger,
+  isInventoryOpen,
 }: Props) => {
   const normalizedValue = useMemo(() => normalizeDayPinsState(value), [value]);
   const hasPins = hasAnyPins(normalizedValue);
@@ -152,6 +120,13 @@ const PinBoard = ({
     setPulsingChipId(id);
   }, []);
 
+  useEffect(() => {
+    if (!pulseChipTrigger) {
+      return;
+    }
+    triggerChipPulse(pulseChipTrigger.id);
+  }, [pulseChipTrigger, triggerChipPulse]);
+
   const updateState = useCallback(
     (patch: Partial<DayPinsState>) => {
       onChange({
@@ -161,14 +136,6 @@ const PinBoard = ({
     },
     [normalizedValue, onChange]
   );
-
-  const handleResetPins = useCallback(() => {
-    const cleared = createEmptyDayPinsState();
-    setPulsingChipId(null);
-    onChange(cleared);
-    onReset?.();
-    Haptics.selectionAsync().catch(() => {});
-  }, [onChange, onReset]);
 
   const handleFamilyStarChipPress = useCallback(() => {
     const next = normalizedValue.familyStar === "include" ? null : "include";
@@ -419,8 +386,8 @@ const PinBoard = ({
   const renderPinGrid = useCallback(
     (items: ReactNode[], keyPrefix: string) => (
       <FlexGrid
-        gutterWidth={theme.space.sm}
-        gutterHeight={theme.space.sm}
+        gutterWidth={theme.space.xs}
+        gutterHeight={theme.space.xs}
         hasGutterWidthAtBorders={false}
         hasGutterHeightAtBorders={false}
       >
@@ -442,131 +409,9 @@ const PinBoard = ({
     [styles.pinColumn, theme.space.sm]
   );
 
-  const isInventoryOptionActive = useCallback(
-    (pin: InventoryPinId) => {
-      switch (pin) {
-        case "difficulty":
-          return Boolean(normalizedValue.effort);
-        case "expense":
-          return Boolean(normalizedValue.expense);
-        case "reuse":
-          return Boolean(normalizedValue.reuseWeeks);
-        case "family":
-          return normalizedValue.familyStar === "include";
-        case "freezer":
-          return normalizedValue.freezerNight;
-        default:
-          return false;
-      }
-    },
-    [
-      normalizedValue.effort,
-      normalizedValue.expense,
-      normalizedValue.familyStar,
-      normalizedValue.freezerNight,
-      normalizedValue.reuseWeeks,
-    ]
-  );
-
-  const handleAddInventoryPin = useCallback(
-    (pin: InventoryPinId) => {
-      if (isInventoryOptionActive(pin)) {
-        return;
-      }
-      Haptics.selectionAsync().catch(() => {});
-      switch (pin) {
-        case "difficulty": {
-          updateState({ effort: "easy", completed: false });
-          triggerChipPulse("effort");
-          break;
-        }
-        case "expense": {
-          updateState({ expense: "$", completed: false });
-          triggerChipPulse("expense");
-          break;
-        }
-        case "reuse": {
-          updateState({ reuseWeeks: 1, completed: false });
-          triggerChipPulse("reuse");
-          break;
-        }
-        case "family": {
-          updateState({ familyStar: "include", completed: false });
-          triggerChipPulse("family-star");
-          break;
-        }
-        case "freezer": {
-          updateState({ freezerNight: true, completed: false });
-          triggerChipPulse("freezer");
-          break;
-        }
-        default:
-          break;
-      }
-    },
-    [isInventoryOptionActive, triggerChipPulse, updateState]
-  );
-
-  const renderPinInventory = () => {
-    const availableOptions = PIN_INVENTORY_OPTIONS.filter(
-      (option) => !isInventoryOptionActive(option.id)
-    );
-    if (!availableOptions.length) {
-      return (
-        <View style={styles.inventoryEmpty}>
-          <Text style={styles.inventoryEmptyText}>
-            All helper pins are active. Edit them from the board above.
-          </Text>
-        </View>
-      );
-    }
-    const nodes = availableOptions.map((option) => (
-      <Pressable
-        key={option.id}
-        onPress={() => handleAddInventoryPin(option.id)}
-        accessibilityRole="button"
-        accessibilityLabel={`Add ${option.title} pin`}
-        style={({ pressed }) => [
-          styles.inventoryChip,
-          pressed && styles.inventoryChipPressed,
-        ]}
-      >
-        <Text style={styles.inventoryChipLabel}>{option.title}</Text>
-        {renderPin({
-          context: "pin",
-          variant: option.id,
-          theme,
-        })}
-      </Pressable>
-    ));
-    return renderPinGrid(nodes, "inventory");
-  };
-
   return (
     <View style={styles.wrapper}>
-      <View
-        accessible
-        accessibilityLabel={`${title} board`}
-        style={styles.boardCard}
-      >
-        <View style={styles.boardHeader}>
-          <Text ref={titleRef} style={styles.boardTitle}>
-            {title}
-          </Text>
-          {hasPins ? (
-            <Pressable
-              onPress={handleResetPins}
-              accessibilityRole="button"
-              accessibilityLabel="Reset pins"
-              style={({ pressed }) => [
-                styles.resetInline,
-                pressed && styles.resetInlinePressed,
-              ]}
-            >
-              <Text style={styles.resetInlineText}>Reset</Text>
-            </Pressable>
-          ) : null}
-        </View>
+      <View style={styles.boardCard}>
         {moodBadges.length ? (
           <View style={styles.moodBadgeRow}>
             {moodBadges.map((badge) => {
@@ -597,6 +442,35 @@ const PinBoard = ({
             })}
           </View>
         ) : null}
+        <View style={styles.boardHeaderRow}>
+          <View>
+            <Text style={styles.boardTitle}>
+              {dayKey ? `${PLANNED_WEEK_DISPLAY_NAMES[dayKey]} Pins` : "Day Pins"}
+            </Text>
+            <Text style={styles.boardSubtitle}>
+              Pins tailor your meal suggestions.
+            </Text>
+          </View>
+          {onRequestInventory ? (
+            <Pressable
+              onPress={onRequestInventory}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isInventoryOpen ? "Close pin inventory" : "Open pin inventory"
+              }
+              style={({ pressed }) => [
+                styles.inventoryIconButton,
+                pressed && styles.inventoryIconButtonPressed,
+              ]}
+            >
+              <MaterialCommunityIcons
+                name={isInventoryOpen ? "chevron-up" : "warehouse"}
+                size={18}
+                color={theme.color.ink}
+              />
+            </Pressable>
+          ) : null}
+        </View>
         {hasPins ? (
           renderPinGrid(
             boardChips.map((chip) => (
@@ -615,16 +489,6 @@ const PinBoard = ({
             Pins you earn will live here for quick editing.
           </Text>
         )}
-      </View>
-
-      <View style={styles.inventoryCard}>
-        <View style={styles.inventoryHeader}>
-          <Text style={styles.inventoryTitle}>Pin Inventory</Text>
-          <Text style={styles.inventorySubtitle}>
-            Tap to add helper pins to your board.
-          </Text>
-        </View>
-        {renderPinInventory()}
       </View>
     </View>
   );
@@ -752,7 +616,7 @@ const BoardChip = ({
 const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
     wrapper: {
-      gap: theme.space.lg,
+      gap: theme.space.sm,
     },
     boardCard: {
       borderRadius: theme.radius.xl,
@@ -760,17 +624,16 @@ const createStyles = (theme: WeeklyTheme) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.cardOutline,
       padding: theme.space.lg,
-      gap: theme.space.md,
+      gap: theme.space.xs,
     },
     boardHeader: {
       flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
+      justifyContent: "flex-end",
     },
     moodBadgeRow: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: theme.space.sm,
+      gap: theme.space.xs,
     },
     moodBadgePill: {
       flexDirection: "row",
@@ -808,15 +671,10 @@ const createStyles = (theme: WeeklyTheme) =>
     boardFamilyBadge: {
       transform: [{ scale: 0.92 }],
     },
-    boardTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.bold,
-    },
     boardChipGrid: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: theme.space.sm,
+      gap: theme.space.xs,
     },
     boardChip: {
       borderRadius: theme.radius.full,
@@ -870,71 +728,30 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
     },
-    resetInline: {
-      paddingHorizontal: theme.space.sm,
-      paddingVertical: theme.space.xs,
+    inventoryIconButton: {
+      padding: theme.space.sm,
       borderRadius: theme.radius.full,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    resetInlinePressed: {
-      opacity: 0.8,
-    },
-    resetInlineText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.xs,
-      fontWeight: theme.type.weight.medium,
-    },
-    inventoryCard: {
-      borderRadius: theme.radius.xl,
-      backgroundColor: theme.color.surface,
-      borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.cardOutline,
-      padding: theme.space.lg,
-      gap: theme.space.md,
+      alignSelf: "flex-start",
     },
-    inventoryHeader: {
-      gap: theme.space.xs / 2,
+    inventoryIconButtonPressed: {
+      opacity: 0.85,
     },
-    inventoryTitle: {
+    boardHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: theme.space.sm,
+    },
+    boardTitle: {
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.bold,
     },
-    inventorySubtitle: {
+    boardSubtitle: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.xs,
-    },
-    inventoryChip: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "flex-start",
-      borderRadius: theme.radius.full,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-      backgroundColor: theme.color.surfaceAlt,
-      paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.xs,
-      gap: theme.space.sm,
-      alignSelf: "flex-start",
-    },
-    inventoryChipPressed: {
-      opacity: 0.85,
-    },
-    inventoryChipLabel: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.bold,
-    },
-    inventoryEmpty: {
-      paddingVertical: theme.space.lg,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    inventoryEmptyText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      textAlign: "center",
     },
     pinColumn: {
       flexGrow: 0,

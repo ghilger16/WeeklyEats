@@ -3,7 +3,7 @@ import {
   SuggestionBannerContext,
   getSuggestionBanner,
   resetSuggestionBannerHistory,
-} from "../components/plan-week/suggestionBanners";
+} from "../components/plan-week/suggestions/suggestionBanners";
 
 describe("getSuggestionBanner", () => {
   beforeEach(() => {

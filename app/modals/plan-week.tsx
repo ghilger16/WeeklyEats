@@ -20,8 +20,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { useMeals } from "../../hooks/useMeals";
-import DayMealPlannerCard from "../../components/plan-week/DayMealPlannerCard";
-import WeeklyPlannerSteps from "../../components/plan-week/WeeklyPlannerSteps";
+import SuggestionsContainer from "../../components/plan-week/suggestions/SuggestionsContainer";
 import {
   CurrentPlannedWeek,
   PLANNED_WEEK_DISPLAY_NAMES,
@@ -35,21 +34,21 @@ import { useCurrentWeekPlan } from "../../hooks/useCurrentWeekPlan";
 import { setCurrentWeekPlan } from "../../stores/weekPlanStorage";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
 import {
-  DayPinsPerWeek,
-  DayPinsState,
-  createEmptyDayPinsMap,
-  normalizeDayPinsState,
-} from "../../types/dayPins";
-import {
-  getStoredDayPins,
-  setStoredDayPins,
-} from "../../stores/dayPinsStorage";
-import {
   WeeklyWeekSettings,
   deriveWeekPinsFromSettings,
 } from "../../components/plan-week/weekPlanner";
-import { buildMealSuggestions } from "../../components/plan-week/suggestionMatcher";
+import { buildMealSuggestions } from "../../components/plan-week/suggestions/suggestionMatcher";
 import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
+import { addDays, getNextWeekStartForDate } from "../../utils/weekDays";
+import PlanDayChoiceStep, {
+  DayWizardAction,
+} from "../../components/plan-week/steps/PlanDayChoiceStep";
+import PlannedMealsSheet from "../../components/plan-week/planned-meals/PlannedMealsSheet";
+import DayPlannedToast from "../../components/plan-week/planned-meals/DayPlannedToast";
+import PlanWeekHeader from "../../components/plan-week/header/PlanWeekHeader";
+import WeeklyPlannerSteps from "../../components/plan-week/steps/WeeklyPlannerSteps";
+import useDayPins from "../../hooks/plan-week/useDayPins";
+import usePlanSides from "../../hooks/plan-week/usePlanSides";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>((acc, key) => {
@@ -60,13 +59,26 @@ const createInitialSuggestionIndex = () =>
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SUMMARY_MAX_TRANSLATE = SCREEN_HEIGHT;
 
+const formatWeekRangeLabel = (start: Date, end: Date) => {
+  const startLabel = start.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  const sameMonth = start.getMonth() === end.getMonth();
+  const endLabel = end.toLocaleDateString(undefined, {
+    month: sameMonth ? undefined : "short",
+    day: "numeric",
+  });
+  return `${startLabel} – ${endLabel}`;
+};
+
 export default function PlanWeekModal() {
   const router = useRouter();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals } = useMeals();
   const { plan, isLoading } = useCurrentWeekPlan();
-  const { orderedDays } = useWeekStartController();
+  const { orderedDays, startDay } = useWeekStartController();
   const initializedRef = useRef(false);
 
   const [plannedWeek, setPlannedWeek] = useState<CurrentPlannedWeek>(
@@ -77,16 +89,11 @@ export default function PlanWeekModal() {
     createInitialSuggestionIndex
   );
   const [isSaving, setIsSaving] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [isSummaryVisible, setIsSummaryVisible] = useState(false);
   const summaryTranslateY = useRef(
     new Animated.Value(SUMMARY_MAX_TRANSLATE)
   ).current;
   const summaryClosingRef = useRef(false);
-  const [dayPinsMap, setDayPinsMap] = useState<DayPinsPerWeek>(() =>
-    createEmptyDayPinsMap()
-  );
-  const pinsHydratedRef = useRef(false);
   const [plannerSelection, setPlannerSelection] = useState<{
     day: PlannedWeekDayKey | null;
     meal: Meal | null;
@@ -95,23 +102,13 @@ export default function PlanWeekModal() {
   const dayRowRefs = useRef<Record<PlannedWeekDayKey, View | null>>(
     {} as Record<PlannedWeekDayKey, View | null>
   );
-  const [flashDay, setFlashDay] = useState<PlannedWeekDayKey | null>(null);
-  const flashTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [savedIndicatorDay, setSavedIndicatorDay] =
     useState<PlannedWeekDayKey | null>(null);
+  const [toastDay, setToastDay] = useState<PlannedWeekDayKey | null>(null);
   const [hasCompletedPlannerSetup, setHasCompletedPlannerSetup] =
     useState(false);
-  const [daySidesMap, setDaySidesMap] = useState<
-    Record<PlannedWeekDayKey, string[]>
-  >(() =>
-    PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, string[]>>(
-      (acc, key) => {
-        acc[key] = [];
-        return acc;
-      },
-      {} as Record<PlannedWeekDayKey, string[]>
-    )
-  );
+  const [activeWizardAction, setActiveWizardAction] =
+    useState<DayWizardAction | null>(null);
 
   const animateSummaryTo = useCallback(
     (toValue: number, duration: number, easing: (value: number) => number) =>
@@ -147,68 +144,45 @@ export default function PlanWeekModal() {
     );
     summaryClosingRef.current = false;
     setIsSummaryVisible(false);
-    setFlashDay(null);
     setPlannerSelection({ day: null, meal: null });
   }, [animateSummaryTo, isSummaryVisible, theme.motion.duration.normal]);
 
-  const handleDayPinsChange = useCallback(
-    (day: PlannedWeekDayKey, next: DayPinsState) => {
-      pinsHydratedRef.current = true;
-      setDayPinsMap((prev) => {
-        const updated: DayPinsPerWeek = {
-          ...prev,
-          [day]: normalizeDayPinsState(next),
-        };
-        setStoredDayPins(updated).catch(() => {});
-        return updated;
-      });
-    },
-    []
-  );
-
+  const activeDay =
+    orderedDays[activeDayIndex] ?? orderedDays[0] ?? PLANNED_WEEK_ORDER[0];
+  const { activeDayPins, handleDayPinsChange, replaceDayPins } = useDayPins({
+    activeDay,
+  });
+  const { daySidesMap, activeDaySides, handleAddSide, handleRemoveSide } =
+    usePlanSides({ activeDay });
   const handlePlannerSetupComplete = useCallback(
     (settings: WeeklyWeekSettings) => {
       const nextPins = deriveWeekPinsFromSettings(settings);
-      pinsHydratedRef.current = true;
-      setDayPinsMap(nextPins);
-      setStoredDayPins(nextPins).catch(() => {});
+      replaceDayPins(nextPins);
       setHasCompletedPlannerSetup(true);
     },
-    []
+    [replaceDayPins]
   );
-
-  const activeDay =
-    orderedDays[activeDayIndex] ?? orderedDays[0] ?? PLANNED_WEEK_ORDER[0];
+  const planningWeekStart = useMemo(
+    () => getNextWeekStartForDate(startDay),
+    [startDay]
+  );
+  const planningWeekEnd = useMemo(
+    () => addDays(planningWeekStart, 6),
+    [planningWeekStart]
+  );
+  const planningWeekLabel = useMemo(
+    () => formatWeekRangeLabel(planningWeekStart, planningWeekEnd),
+    [planningWeekEnd, planningWeekStart]
+  );
   const isWeekComplete = useMemo(
     () => orderedDays.every((day) => Boolean(plannedWeek[day])),
     [orderedDays, plannedWeek]
   );
+  const isDayPlanningStep = Boolean(activeWizardAction);
 
   useEffect(() => {
     setActiveDayIndex(0);
   }, [orderedDays]);
-
-  useEffect(() => {
-    let isMounted = true;
-    getStoredDayPins().then((stored) => {
-      if (!isMounted || pinsHydratedRef.current) {
-        return;
-      }
-      pinsHydratedRef.current = true;
-      setDayPinsMap(stored);
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (flashTimerRef.current) {
-        clearTimeout(flashTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (plan && !initializedRef.current) {
@@ -216,6 +190,10 @@ export default function PlanWeekModal() {
       setPlannedWeek(plan);
     }
   }, [plan]);
+
+  useEffect(() => {
+    setActiveWizardAction(null);
+  }, [activeDay]);
 
   useEffect(() => {
     if (!isSummaryVisible) {
@@ -229,11 +207,6 @@ export default function PlanWeekModal() {
       Easing.bezier(0, 0, 0.2, 1)
     ).then(() => {
       if (plannerSelection.day) {
-        setFlashDay(plannerSelection.day);
-        if (flashTimerRef.current) {
-          clearTimeout(flashTimerRef.current);
-        }
-        flashTimerRef.current = setTimeout(() => setFlashDay(null), 600);
         const targetNode = dayRowRefs.current[plannerSelection.day];
         const handle = targetNode ? findNodeHandle(targetNode) : null;
         if (handle) {
@@ -249,29 +222,16 @@ export default function PlanWeekModal() {
     theme.motion.duration.slow,
   ]);
 
-  const filteredMeals = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return [...meals]
-      .filter((meal) => {
-        if (!query) {
-          return true;
-        }
-        return meal.title.toLowerCase().includes(query);
-      })
-      .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
-  }, [meals, searchQuery]);
-
-  const activeDayPins = useMemo(
-    () => normalizeDayPinsState(dayPinsMap[activeDay]),
-    [activeDay, dayPinsMap]
+  const filteredMeals = useMemo(
+    () =>
+      [...meals].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
+    [meals]
   );
 
   const suggestionPool = useMemo(
     () => buildMealSuggestions(filteredMeals, activeDayPins),
     [activeDayPins, filteredMeals]
   );
-
-  const activeDaySides = daySidesMap[activeDay] ?? [];
 
   const activeSuggestionEntry = useMemo(() => {
     if (!suggestionPool.length) {
@@ -298,112 +258,43 @@ export default function PlanWeekModal() {
     return meals.find((candidate) => candidate.id === mealId);
   }, [activeDay, meals, plannedWeek]);
 
-  const handleChangeDay = useCallback(
-    (day: PlannedWeekDayKey) => {
-      const index = orderedDays.indexOf(day);
-      if (index >= 0) {
-        setActiveDayIndex(index);
+  const handleSelectPlannerDay = useCallback((day: PlannedWeekDayKey) => {
+    setPlannerSelection((prev) => {
+      if (!prev.meal) {
+        return prev;
       }
-    },
-    [orderedDays]
-  );
-
-  const totalDays = orderedDays.length;
-
-  const handleStepDay = useCallback(
-    (delta: number) => {
-      let didChange = false;
-      setActiveDayIndex((prev) => {
-        const next = prev + delta;
-        if (next < 0 || next >= totalDays) {
-          return prev;
-        }
-        didChange = true;
-        return next;
-      });
-      return didChange;
-    },
-    [totalDays]
-  );
-
-  const handleSwipeWithHaptics = useCallback(
-    (delta: number) => {
-      if (handleStepDay(delta)) {
-        Haptics.selectionAsync().catch(() => {});
+      if (prev.day === day) {
+        return prev;
       }
-    },
-    [handleStepDay]
-  );
-
-  const handleSelectPlannerDay = useCallback(
-    (day: PlannedWeekDayKey) => {
-      setPlannerSelection((prev) => {
-        if (!prev.meal) {
-          return prev;
-        }
-        if (prev.day === day) {
-          return prev;
-        }
-        return {
-          day,
-          meal: prev.meal,
-        };
-      });
-      setFlashDay(day);
-      if (flashTimerRef.current) {
-        clearTimeout(flashTimerRef.current);
-      }
-      flashTimerRef.current = setTimeout(() => setFlashDay(null), 600);
-    },
-    []
-  );
+      return {
+        day,
+        meal: prev.meal,
+      };
+    });
+  }, []);
 
   const handleAddMeal = useCallback(() => {
     if (!activeSuggestion) {
       return;
     }
     setPlannerSelection({ day: activeDay, meal: activeSuggestion });
-    setFlashDay(activeDay);
     savedIndicatorDay && setSavedIndicatorDay(null);
     handleOpenSummary();
   }, [activeDay, activeSuggestion, handleOpenSummary, savedIndicatorDay]);
 
   const handleSelectEatOut = useCallback(() => {
     setPlannerSelection({ day: activeDay, meal: EAT_OUT_MEAL });
-    setFlashDay(activeDay);
     savedIndicatorDay && setSavedIndicatorDay(null);
     handleOpenSummary();
   }, [activeDay, handleOpenSummary, savedIndicatorDay]);
 
-  const handleAddSide = useCallback(
-    (day: PlannedWeekDayKey, side: string) => {
-      setDaySidesMap((prev) => {
-        const existing = prev[day] ?? [];
-        return {
-          ...prev,
-          [day]: [...existing, side],
-        };
-      });
-    },
-    []
-  );
+  const handleSelectWizardOption = useCallback((action: DayWizardAction) => {
+    setActiveWizardAction(action);
+  }, []);
 
-  const handleRemoveSide = useCallback(
-    (day: PlannedWeekDayKey, index: number) => {
-      setDaySidesMap((prev) => {
-        const existing = prev[day] ?? [];
-        if (index < 0 || index >= existing.length) {
-          return prev;
-        }
-        const nextSides = existing.filter((_, idx) => idx !== index);
-        return {
-          ...prev,
-          [day]: nextSides,
-        };
-      });
-    },
-    []
-  );
+  const handleBackToWizardOptions = useCallback(() => {
+    setActiveWizardAction(null);
+  }, []);
 
   const stepSuggestion = useCallback(
     (delta: number) => {
@@ -446,32 +337,14 @@ export default function PlanWeekModal() {
       setSavedIndicatorDay(targetDay);
       setTimeout(() => {
         setSavedIndicatorDay(null);
-        handleCloseSummary();
+        handleCloseSummary().then(() => {
+          setToastDay(targetDay);
+        });
       }, 320);
     } finally {
       setPlannerSaving(false);
     }
   }, [handleCloseSummary, plannerSelection, plannedWeek]);
-
-  const daySwipeResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) =>
-          Math.abs(gesture.dx) > Math.abs(gesture.dy) &&
-          Math.abs(gesture.dx) > 12,
-        onMoveShouldSetPanResponderCapture: (_, gesture) =>
-          Math.abs(gesture.dx) > Math.abs(gesture.dy) &&
-          Math.abs(gesture.dx) > 12,
-        onPanResponderRelease: (_, gesture) => {
-          if (gesture.dx > 40) {
-            handleSwipeWithHaptics(-1);
-          } else if (gesture.dx < -40) {
-            handleSwipeWithHaptics(1);
-          }
-        },
-      }),
-    [handleSwipeWithHaptics]
-  );
 
   const summaryPanResponder = useMemo(
     () =>
@@ -526,99 +399,70 @@ export default function PlanWeekModal() {
     );
   }
 
+  if (toastDay) {
+    return (
+      <View style={styles.toastScreen}>
+        <DayPlannedToast
+          dayName={PLANNED_WEEK_DISPLAY_NAMES[toastDay]}
+          onComplete={handleToastComplete}
+        />
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.swipeContainer} {...daySwipeResponder.panHandlers}>
+    <View style={styles.swipeContainer}>
       <SafeAreaView
         style={styles.safe}
         edges={["top", "left", "right", "bottom"]}
       >
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            accessibilityRole="button"
-            accessibilityLabel="Close plan week"
-            style={styles.headerButton}
-          >
-            <MaterialCommunityIcons
-              name="close"
-              size={22}
-              color={theme.color.ink}
-            />
-          </Pressable>
-          <Text style={styles.headerTitle}>Plan Your Week</Text>
-          <Pressable
-            onPress={handleOpenSummary}
-            accessibilityRole="button"
-            accessibilityLabel="View planned meals summary"
-            style={[
-              styles.headerButton,
-              isSummaryVisible && styles.headerButtonActive,
-            ]}
-          >
-            <MaterialCommunityIcons
-              name={
-                isSummaryVisible
-                  ? "clipboard-text-outline"
-                  : "clipboard-text-outline"
-              }
-              size={22}
-              color={isSummaryVisible ? theme.color.accent : theme.color.ink}
-            />
-          </Pressable>
-        </View>
+        <PlanWeekHeader
+          isSummaryVisible={isSummaryVisible}
+          onClose={isDayPlanningStep ? handleBackToWizardOptions : () => router.back()}
+          onOpenSummary={handleOpenSummary}
+          isDayPlanningStep={isDayPlanningStep}
+          orderedDays={orderedDays}
+          plannedWeek={plannedWeek}
+          activeDay={activeDay}
+        />
 
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.daySelectorRow}>
-            {orderedDays.map((day) => {
-              const isActive = day === activeDay;
-              const isPlanned = Boolean(plannedWeek[day]);
-              return (
-                <Pressable
-                  key={day}
-                  onPress={() => handleChangeDay(day)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Plan ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
-                  style={[styles.dayChip, isActive && styles.dayChipActive]}
-                >
-                  <Text
-                    style={[
-                      styles.dayChipText,
-                      isActive && styles.dayChipTextActive,
-                      !isActive && isPlanned && styles.dayChipTextPlanned,
-                    ]}
-                  >
-                    {PLANNED_WEEK_LABELS[day]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {isLoading && !initializedRef.current ? (
-            <ActivityIndicator color={theme.color.accent} />
-          ) : (
-            <DayMealPlannerCard
+          {!activeWizardAction ? (
+            <PlanDayChoiceStep
               dayKey={activeDay}
-              dayDisplayName={PLANNED_WEEK_DISPLAY_NAMES[activeDay]}
-              meal={activeSuggestion}
-              suggestionContext={activeSuggestionContext}
-              plannedMeal={plannedMealForActiveDay}
-              onAdd={handleAddMeal}
-              onShuffle={() => stepSuggestion(1)}
+              orderedDays={orderedDays}
+              plannedWeek={plannedWeek}
+              weekLabel={planningWeekLabel}
+              onSelectOption={handleSelectWizardOption}
               onSelectEatOut={handleSelectEatOut}
-              searchQuery={searchQuery}
-              onSearchQueryChange={setSearchQuery}
-              pins={activeDayPins}
-              onPinsChange={(next) => handleDayPinsChange(activeDay, next)}
-              sides={activeDaySides}
-              onAddSide={(side) => handleAddSide(activeDay, side)}
-              onRemoveSide={(index) => handleRemoveSide(activeDay, index)}
             />
-          )}
+          ) : null}
+
+          {activeWizardAction ? (
+            <View style={styles.plannerSection}>
+              {isLoading && !initializedRef.current ? (
+                <ActivityIndicator color={theme.color.accent} />
+              ) : (
+                <SuggestionsContainer
+                  dayKey={activeDay}
+                  meal={activeSuggestion}
+                  suggestionContext={activeSuggestionContext}
+                  plannedMeal={plannedMealForActiveDay}
+                  onAdd={handleAddMeal}
+                  onShuffle={() => stepSuggestion(1)}
+                  pins={activeDayPins}
+                  onPinsChange={(next) => handleDayPinsChange(activeDay, next)}
+                  sides={activeDaySides}
+                  onAddSide={(side) => handleAddSide(activeDay, side)}
+                  onRemoveSide={(index) => handleRemoveSide(activeDay, index)}
+                />
+              )}
+            </View>
+          ) : null}
         </ScrollView>
 
         <View style={styles.footer}>
@@ -650,117 +494,33 @@ export default function PlanWeekModal() {
             accessibilityLabel="Close planned meals summary"
             onPress={handleCloseSummary}
           />
-          <Animated.View
-            style={[
-              styles.summarySheet,
-              { transform: [{ translateY: summaryTranslateY }] },
-            ]}
-            {...summaryPanResponder.panHandlers}
-          >
-            <SafeAreaView
-              edges={["bottom"]}
-              style={styles.summarySheetSafeArea}
-            >
-              <View style={styles.summaryHandle} />
-              <View style={styles.summaryModalHeaderRow}>
-                <View style={styles.summaryModalHeader}>
-                  <Text style={styles.summaryModalTitle}>Planned Meals</Text>
-                  <Text style={styles.summaryModalSubtitle}>
-                    Review your picks for the week.
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.summaryList}>
-                {orderedDays.map((day) => {
-                  const mealId = plannedWeek[day];
-                  const plannedMeal =
-                    mealId === EAT_OUT_MEAL_ID
-                      ? EAT_OUT_MEAL
-                      : meals.find((item) => item.id === mealId);
-                  const isSelected = plannerSelection.day === day;
-                  const canSelect = Boolean(plannerSelection.meal);
-                  return (
-                    <Pressable
-                      key={day}
-                      ref={(node) => {
-                        dayRowRefs.current[day] = node;
-                      }}
-                      onPress={() =>
-                        canSelect ? handleSelectPlannerDay(day) : undefined
-                      }
-                      disabled={!canSelect}
-                      accessibilityRole={canSelect ? "button" : "text"}
-                      accessibilityState={{ selected: isSelected }}
-                      accessibilityLabel={`${PLANNED_WEEK_DISPLAY_NAMES[day]} ${
-                        plannedMeal ? plannedMeal.title : "unplanned"
-                      }`}
-                      style={[
-                        styles.summaryRow,
-                        isSelected && styles.summaryRowSelected,
-                        flashDay === day && styles.summaryRowFlashing,
-                      ]}
-                    >
-                      <Text style={styles.summaryDay}>
-                        {PLANNED_WEEK_LABELS[day]}
-                      </Text>
-                      <Text style={styles.summaryMeal} numberOfLines={1}>
-                        {(() => {
-                          const title =
-                            isSelected && plannerSelection.meal
-                              ? `${plannerSelection.meal.emoji} ${plannerSelection.meal.title}`
-                              : plannedMeal
-                              ? `${plannedMeal.emoji} ${plannedMeal.title}`
-                              : "Unplanned";
-                          const sides = daySidesMap[day] ?? [];
-                          if (!sides.length) {
-                            return title;
-                          }
-                          const sidesLabel = sides.join(" • ");
-                          return `${title} • ${sidesLabel}`;
-                        })()}
-                      </Text>
-                      {savedIndicatorDay === day ? (
-                        <MaterialCommunityIcons
-                          name="check-circle"
-                          size={18}
-                          color={theme.color.accent}
-                        />
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {plannerSelection.day && plannerSelection.meal ? (
-                <View style={styles.summaryPrimaryButtonWrapper}>
-                  <Pressable
-                    onPress={handlePlannerSave}
-                    disabled={isPlannerSaving}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Save to ${
-                      PLANNED_WEEK_DISPLAY_NAMES[plannerSelection.day]
-                    }`}
-                    style={({ pressed }) => [
-                      styles.summaryPrimaryButton,
-                      pressed && !isPlannerSaving && styles.summaryPrimaryButtonPressed,
-                      isPlannerSaving && styles.summaryPrimaryButtonDisabled,
-                    ]}
-                  >
-                    {isPlannerSaving ? (
-                      <ActivityIndicator color={theme.color.ink} />
-                    ) : (
-                      <Text style={styles.summaryPrimaryButtonText}>
-                        {`Save to ${
-                          PLANNED_WEEK_DISPLAY_NAMES[plannerSelection.day]
-                        }`}
-                      </Text>
-                    )}
-                  </Pressable>
-                </View>
-              ) : null}
-            </SafeAreaView>
-          </Animated.View>
+          <PlannedMealsSheet
+            orderedDays={orderedDays}
+            plannedWeek={plannedWeek}
+            meals={meals}
+            daySidesMap={daySidesMap}
+            plannerSelection={plannerSelection}
+            savedIndicatorDay={savedIndicatorDay}
+            summaryTranslateY={summaryTranslateY}
+            summaryPanHandlers={summaryPanResponder.panHandlers}
+            onSelectPlannerDay={handleSelectPlannerDay}
+            onSaveSelection={handlePlannerSave}
+            isPlannerSaving={isPlannerSaving}
+            registerRowRef={(day, ref) => {
+              dayRowRefs.current[day] = ref;
+            }}
+          />
         </View>
       )}
+<<<<<<< ours
+=======
+      {toastDay ? (
+        <DayPlannedToast
+          dayName={PLANNED_WEEK_DISPLAY_NAMES[toastDay]}
+          onComplete={() => setToastDay(null)}
+        />
+      ) : null}
+>>>>>>> theirs
     </View>
   );
 }
@@ -778,164 +538,24 @@ const createStyles = (theme: WeeklyTheme) =>
       flex: 1,
       backgroundColor: theme.color.bg,
     },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: theme.space.xl,
-      paddingVertical: theme.space.lg,
-    },
-    headerButton: {
-      width: 40,
-      height: 40,
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.surfaceAlt,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    headerButtonActive: {
-      borderColor: theme.color.accent,
-    },
-    headerTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.bold,
-    },
     content: {
       paddingHorizontal: theme.space.lg,
       paddingBottom: theme.space.lg,
       gap: theme.space["2xl"],
     },
-    daySelectorRow: {
-      flexDirection: "row",
-      justifyContent: "center",
-      gap: theme.space.xs,
-      flexWrap: "wrap",
-    },
-    dayChip: {
-      paddingHorizontal: theme.space.sm,
-      paddingVertical: theme.space.xs,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    dayChipActive: {
-      backgroundColor: theme.color.accent,
-    },
-    dayChipText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
-      letterSpacing: 1,
-    },
-    dayChipTextActive: {
-      color: theme.color.ink,
-    },
-    dayChipTextPlanned: {
-      color: theme.color.accent,
+    plannerSection: {
+      gap: theme.space.md,
     },
     summaryBackdrop: {
       ...StyleSheet.absoluteFillObject,
       justifyContent: "flex-end",
       backgroundColor: "rgba(0,0,0,0.4)",
     },
-    summarySheet: {
-      backgroundColor: theme.color.surface,
-      borderTopLeftRadius: theme.radius.xl,
-      borderTopRightRadius: theme.radius.xl,
-      overflow: "hidden",
-    },
-    summarySheetSafeArea: {
-      paddingHorizontal: theme.space.xl,
-      paddingBottom: theme.space.xl,
-      paddingTop: theme.space.lg,
-      gap: theme.space.lg,
-    },
-    summaryHandle: {
-      alignSelf: "center",
-      width: 48,
-      height: 4,
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.cardOutline,
-    },
-    summaryModalHeaderRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: theme.space.md,
-    },
-    summaryModalHeader: {
+    toastScreen: {
       flex: 1,
-      gap: theme.space.xs,
-    },
-    summaryModalTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.bold,
-    },
-    summaryModalSubtitle: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-    },
-    summaryList: {
-      gap: theme.space.sm,
-      paddingBottom: theme.space.lg,
-    },
-    summaryRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: theme.space.md,
-      borderRadius: theme.radius.lg,
-      paddingVertical: theme.space.sm,
-      paddingHorizontal: theme.space.md,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    summaryRowSelected: {
-      borderColor: theme.color.accent,
-      backgroundColor: theme.color.surface,
-    },
-    summaryRowFlashing: {
-      backgroundColor: theme.color.surfaceAlt,
-      opacity: 0.85,
-    },
-    summaryDay: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
-      width: 48,
-    },
-    summaryMeal: {
-      flex: 1,
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      textAlign: "right",
-    },
-    summaryPrimaryButtonWrapper: {
-      paddingTop: theme.space.md,
-    },
-    summaryPrimaryButton: {
-      height: theme.component.button.height,
-      borderRadius: theme.component.button.radius,
-      backgroundColor: theme.color.accent,
+      backgroundColor: theme.color.bg,
       alignItems: "center",
       justifyContent: "center",
-    },
-    summaryPrimaryButtonPressed: {
-      opacity: 0.85,
-    },
-    summaryPrimaryButtonDisabled: {
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-    },
-    summaryPrimaryButtonText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.bold,
     },
     footer: {
       paddingHorizontal: theme.space.xl,

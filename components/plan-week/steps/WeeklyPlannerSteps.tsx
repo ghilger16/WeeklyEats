@@ -1,9 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useThemeController } from "../../providers/theme/ThemeController";
-import { WeeklyTheme } from "../../styles/theme";
-import { WeeklyWeekSettings } from "./weekPlanner";
+import { useThemeController } from "../../../providers/theme/ThemeController";
+import { WeeklyTheme } from "../../../styles/theme";
+import { WeeklyWeekSettings } from "../weekPlanner";
 
 type Props = {
   initialSettings?: Partial<WeeklyWeekSettings>;

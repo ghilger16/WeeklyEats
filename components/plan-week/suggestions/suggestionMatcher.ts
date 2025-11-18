@@ -1,5 +1,5 @@
-import { Meal } from "../../types/meals";
-import { DayPinsState, EffortOption } from "../../types/dayPins";
+import { Meal } from "../../../types/meals";
+import { DayPinsState, EffortOption } from "../../../types/dayPins";
 import { SuggestionBannerContext } from "./suggestionBanners";
 
 type DifficultyKey = "easy" | "medium" | "hard";
