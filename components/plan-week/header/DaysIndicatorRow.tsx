@@ -50,6 +50,7 @@ const DaysIndicatorRow = ({
                   width: dimension,
                   height: dimension,
                   borderRadius: dimension / 2,
+                  marginLeft: theme.space.xs - 1,
                 },
                 isPlanned && styles.indicatorPlanned,
                 isActive && styles.indicatorActive,
@@ -93,7 +94,7 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,
-      letterSpacing: 1,
+      letterSpacing: 0,
     },
     indicatorLabelPlanned: {
       color: theme.color.accent,

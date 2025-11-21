@@ -44,6 +44,8 @@ type Props = {
   onShuffle: () => void;
   pins: DayPinsState;
   onPinsChange: (next: DayPinsState) => void;
+  hideContent?: boolean;
+  showPlannedCard?: boolean;
   sides: string[];
   onAddSide: (value: string) => void;
   onRemoveSide: (index: number) => void;
@@ -88,6 +90,8 @@ export default function SuggestionsContainer({
   onShuffle,
   pins,
   onPinsChange,
+  hideContent = false,
+  showPlannedCard = false,
   sides,
   onAddSide,
   onRemoveSide,
@@ -330,8 +334,12 @@ export default function SuggestionsContainer({
     return () => clearTimeout(timeout);
   }, [inventoryPulseTrigger]);
 
+  if (hideContent) {
+    return null;
+  }
+
   const shouldShowPlanned =
-    hasPlannedMeal && !isSwapping && !isInventoryVisible;
+    showPlannedCard && hasPlannedMeal && !isSwapping && !isInventoryVisible;
 
   const showBanner = !isInventoryVisible;
 

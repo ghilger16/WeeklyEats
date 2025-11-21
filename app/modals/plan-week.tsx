@@ -47,6 +47,7 @@ import PlannedMealsSheet from "../../components/plan-week/planned-meals/PlannedM
 import DayPlannedToast from "../../components/plan-week/planned-meals/DayPlannedToast";
 import PlanWeekHeader from "../../components/plan-week/header/PlanWeekHeader";
 import WeeklyPlannerSteps from "../../components/plan-week/steps/WeeklyPlannerSteps";
+import WeeklyPlanTimeline from "../../components/plan-week/WeeklyPlanTimeline";
 import useDayPins from "../../hooks/plan-week/useDayPins";
 import usePlanSides from "../../hooks/plan-week/usePlanSides";
 
@@ -105,6 +106,10 @@ export default function PlanWeekModal() {
   const [savedIndicatorDay, setSavedIndicatorDay] =
     useState<PlannedWeekDayKey | null>(null);
   const [toastDay, setToastDay] = useState<PlannedWeekDayKey | null>(null);
+  const [pendingPlannedDay, setPendingPlannedDay] =
+    useState<PlannedWeekDayKey | null>(null);
+  const [plannedCardPreviewDay, setPlannedCardPreviewDay] =
+    useState<PlannedWeekDayKey | null>(null);
   const [hasCompletedPlannerSetup, setHasCompletedPlannerSetup] =
     useState(false);
   const [activeWizardAction, setActiveWizardAction] =
@@ -145,6 +150,7 @@ export default function PlanWeekModal() {
     summaryClosingRef.current = false;
     setIsSummaryVisible(false);
     setPlannerSelection({ day: null, meal: null });
+    setPendingPlannedDay(null);
   }, [animateSummaryTo, isSummaryVisible, theme.motion.duration.normal]);
 
   const activeDay =
@@ -193,6 +199,7 @@ export default function PlanWeekModal() {
 
   useEffect(() => {
     setActiveWizardAction(null);
+    setPlannedCardPreviewDay(null);
   }, [activeDay]);
 
   useEffect(() => {
@@ -224,7 +231,9 @@ export default function PlanWeekModal() {
 
   const filteredMeals = useMemo(
     () =>
-      [...meals].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
+      [...meals].sort((a, b) =>
+        (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")
+      ),
     [meals]
   );
 
@@ -277,22 +286,33 @@ export default function PlanWeekModal() {
     if (!activeSuggestion) {
       return;
     }
+    setPendingPlannedDay(activeDay);
     setPlannerSelection({ day: activeDay, meal: activeSuggestion });
     savedIndicatorDay && setSavedIndicatorDay(null);
     handleOpenSummary();
   }, [activeDay, activeSuggestion, handleOpenSummary, savedIndicatorDay]);
 
   const handleSelectEatOut = useCallback(() => {
+    setPendingPlannedDay(activeDay);
     setPlannerSelection({ day: activeDay, meal: EAT_OUT_MEAL });
     savedIndicatorDay && setSavedIndicatorDay(null);
     handleOpenSummary();
   }, [activeDay, handleOpenSummary, savedIndicatorDay]);
 
-  const handleSelectWizardOption = useCallback((action: DayWizardAction) => {
-    setActiveWizardAction(action);
-  }, []);
+  const handleSelectWizardOption = useCallback(
+    (action: DayWizardAction) => {
+      setActiveWizardAction(action);
+      if (action === "suggest" && plannedWeek[activeDay]) {
+        setPlannedCardPreviewDay(activeDay);
+      } else {
+        setPlannedCardPreviewDay(null);
+      }
+    },
+    [activeDay, plannedWeek]
+  );
 
   const handleBackToWizardOptions = useCallback(() => {
+    setPlannedCardPreviewDay(null);
     setActiveWizardAction(null);
   }, []);
 
@@ -318,12 +338,30 @@ export default function PlanWeekModal() {
       setIsSaving(false);
     }
   }, [plannedWeek, router]);
+
+  const handleToastComplete = useCallback(() => {
+    if (!toastDay) {
+      return;
+    }
+    const currentIndex = orderedDays.indexOf(toastDay);
+    if (currentIndex !== -1 && orderedDays.length > 0) {
+      const nextIndex = Math.min(
+        currentIndex + 1,
+        Math.max(orderedDays.length - 1, 0)
+      );
+      setActiveDayIndex(nextIndex);
+    }
+    setActiveWizardAction(null);
+    setPlannedCardPreviewDay(null);
+    setToastDay(null);
+    setPendingPlannedDay(null);
+  }, [orderedDays, toastDay]);
   const handlePlannerSave = useCallback(async () => {
-    if (!plannerSelection.day || !plannerSelection.meal) {
+    if (!plannerSelection.meal) {
       return;
     }
     setPlannerSaving(true);
-    const targetDay = plannerSelection.day;
+    const targetDay = plannerSelection.day ?? pendingPlannedDay ?? activeDay;
     const nextPlan: CurrentPlannedWeek = {
       ...plannedWeek,
       [targetDay]: plannerSelection.meal.id,
@@ -339,12 +377,35 @@ export default function PlanWeekModal() {
         setSavedIndicatorDay(null);
         handleCloseSummary().then(() => {
           setToastDay(targetDay);
+          setPendingPlannedDay(null);
+          setActiveWizardAction(null);
+          setPlannedCardPreviewDay(null);
         });
       }, 320);
     } finally {
       setPlannerSaving(false);
     }
-  }, [handleCloseSummary, plannerSelection, plannedWeek]);
+  }, [activeDay, handleCloseSummary, plannerSelection, plannedWeek, pendingPlannedDay]);
+
+  const handleRequestEditDay = useCallback(
+    (day: PlannedWeekDayKey) => {
+      const targetIndex = orderedDays.indexOf(day);
+      const applyEditState = () => {
+        if (targetIndex !== -1) {
+          setActiveDayIndex(targetIndex);
+        }
+        if (plannedWeek[day]) {
+          setPlannedCardPreviewDay(day);
+        } else {
+          setPlannedCardPreviewDay(null);
+        }
+        setActiveWizardAction("suggest");
+        setPendingPlannedDay(null);
+      };
+      handleCloseSummary().then(applyEditState);
+    },
+    [handleCloseSummary, orderedDays, plannedWeek]
+  );
 
   const summaryPanResponder = useMemo(
     () =>
@@ -385,6 +446,8 @@ export default function PlanWeekModal() {
     ]
   );
 
+  const shouldShowTimeline = isWeekComplete && !isSummaryVisible;
+
   if (!hasCompletedPlannerSetup) {
     return (
       <SafeAreaView
@@ -418,7 +481,9 @@ export default function PlanWeekModal() {
       >
         <PlanWeekHeader
           isSummaryVisible={isSummaryVisible}
-          onClose={isDayPlanningStep ? handleBackToWizardOptions : () => router.back()}
+          onClose={
+            isDayPlanningStep ? handleBackToWizardOptions : () => router.back()
+          }
           onOpenSummary={handleOpenSummary}
           isDayPlanningStep={isDayPlanningStep}
           orderedDays={orderedDays}
@@ -431,7 +496,7 @@ export default function PlanWeekModal() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {!activeWizardAction ? (
+          {!shouldShowTimeline && !activeWizardAction ? (
             <PlanDayChoiceStep
               dayKey={activeDay}
               orderedDays={orderedDays}
@@ -442,7 +507,7 @@ export default function PlanWeekModal() {
             />
           ) : null}
 
-          {activeWizardAction ? (
+          {!shouldShowTimeline && activeWizardAction ? (
             <View style={styles.plannerSection}>
               {isLoading && !initializedRef.current ? (
                 <ActivityIndicator color={theme.color.accent} />
@@ -456,12 +521,30 @@ export default function PlanWeekModal() {
                   onShuffle={() => stepSuggestion(1)}
                   pins={activeDayPins}
                   onPinsChange={(next) => handleDayPinsChange(activeDay, next)}
+                  hideContent={
+                    isSummaryVisible ||
+                    toastDay === activeDay ||
+                    pendingPlannedDay === activeDay
+                  }
+                  showPlannedCard={
+                    plannedCardPreviewDay === activeDay &&
+                    Boolean(plannedMealForActiveDay)
+                  }
                   sides={activeDaySides}
                   onAddSide={(side) => handleAddSide(activeDay, side)}
                   onRemoveSide={(index) => handleRemoveSide(activeDay, index)}
                 />
               )}
             </View>
+          ) : null}
+
+          {shouldShowTimeline ? (
+            <WeeklyPlanTimeline
+              orderedDays={orderedDays}
+              plannedWeek={plannedWeek}
+              meals={meals}
+              daySidesMap={daySidesMap}
+            />
           ) : null}
         </ScrollView>
 
@@ -504,6 +587,7 @@ export default function PlanWeekModal() {
             summaryTranslateY={summaryTranslateY}
             summaryPanHandlers={summaryPanResponder.panHandlers}
             onSelectPlannerDay={handleSelectPlannerDay}
+            onRequestEditDay={handleRequestEditDay}
             onSaveSelection={handlePlannerSave}
             isPlannerSaving={isPlannerSaving}
             registerRowRef={(day, ref) => {
@@ -512,15 +596,6 @@ export default function PlanWeekModal() {
           />
         </View>
       )}
-<<<<<<< ours
-=======
-      {toastDay ? (
-        <DayPlannedToast
-          dayName={PLANNED_WEEK_DISPLAY_NAMES[toastDay]}
-          onComplete={() => setToastDay(null)}
-        />
-      ) : null}
->>>>>>> theirs
     </View>
   );
 }

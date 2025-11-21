@@ -16,6 +16,7 @@ type Props = {
   isSelected: boolean;
   isSaved: boolean;
   canSelect: boolean;
+  isEditMode?: boolean;
   onPress?: () => void;
   registerRef?: (ref: View | null, day: PlannedWeekDayKey) => void;
 };
@@ -30,6 +31,7 @@ const PlannedMealRow = ({
   isSelected,
   isSaved,
   canSelect,
+  isEditMode = false,
   onPress,
   registerRef,
 }: Props) => {
@@ -41,18 +43,21 @@ const PlannedMealRow = ({
   const sidesLabel = sides.length ? ` • ${sides.join(" • ")}` : "";
   const label = `${title}${sidesLabel}`;
 
+  const isPressable = canSelect || isEditMode;
+
   return (
     <Pressable
       ref={(node) => registerRef?.(node, day)}
-      onPress={canSelect ? onPress : undefined}
-      disabled={!canSelect}
-      accessibilityRole={canSelect ? "button" : "text"}
+      onPress={isPressable ? onPress : undefined}
+      disabled={!isPressable}
+      accessibilityRole={isPressable ? "button" : "text"}
       accessibilityState={{ selected: isSelected }}
       accessibilityLabel={`${displayName} ${label}`}
       style={({ pressed }) => [
         styles.summaryRow,
         isSelected && styles.summaryRowSelected,
-        pressed && canSelect && styles.summaryRowPressed,
+        isEditMode && styles.summaryRowEditable,
+        pressed && isPressable && styles.summaryRowPressed,
       ]}
     >
       <Text style={styles.summaryDay}>{dayLabel}</Text>
@@ -92,6 +97,9 @@ const createStyles = (theme: WeeklyTheme) =>
     summaryRowSelected: {
       borderColor: theme.color.accent,
       backgroundColor: theme.color.surface,
+    },
+    summaryRowEditable: {
+      borderColor: theme.color.accent,
     },
     summaryDay: {
       color: theme.color.subtleInk,
