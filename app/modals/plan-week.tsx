@@ -31,7 +31,10 @@ import {
 } from "../../types/weekPlan";
 import { Meal } from "../../types/meals";
 import { useCurrentWeekPlan } from "../../hooks/useCurrentWeekPlan";
-import { setCurrentWeekPlan } from "../../stores/weekPlanStorage";
+import {
+  setCurrentWeekPlan,
+  updateWeekPlanStreak,
+} from "../../stores/weekPlanStorage";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
 import {
   WeeklyWeekSettings,
@@ -114,6 +117,15 @@ export default function PlanWeekModal() {
     useState(false);
   const [activeWizardAction, setActiveWizardAction] =
     useState<DayWizardAction | null>(null);
+  const [isCelebratingSave, setIsCelebratingSave] = useState(false);
+  const [celebratedDayIndex, setCelebratedDayIndex] = useState<number | null>(
+    null
+  );
+  const [saveToastPayload, setSaveToastPayload] = useState<{
+    title: string;
+    subtitle?: string;
+    onComplete?: () => void;
+  } | null>(null);
 
   const animateSummaryTo = useCallback(
     (toValue: number, duration: number, easing: (value: number) => number) =>
@@ -329,15 +341,61 @@ export default function PlanWeekModal() {
     [activeDay, filteredMeals.length]
   );
 
+  const runSavePlanCelebration = useCallback(async () => {
+    if (!orderedDays.length) {
+      return;
+    }
+    setIsCelebratingSave(true);
+    setCelebratedDayIndex(null);
+    const streak = await updateWeekPlanStreak(planningWeekStart);
+    const delay = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms));
+    for (let i = 0; i < orderedDays.length; i += 1) {
+      setCelebratedDayIndex(i);
+      await Haptics.selectionAsync().catch(() => {});
+      await delay(140);
+    }
+    const baseMessage = `Plan saved for ${planningWeekLabel}`;
+    const streakLine =
+      streak.count > 0 ? `🔥 ${streak.count}-week streak` : "";
+    const toastSubtitle = streakLine || undefined;
+    await new Promise<void>((resolve) => {
+      setSaveToastPayload({
+        title: baseMessage,
+        subtitle: toastSubtitle,
+        onComplete: resolve,
+      });
+    });
+    setCelebratedDayIndex(null);
+    setIsCelebratingSave(false);
+  }, [
+    orderedDays,
+    planningWeekLabel,
+    planningWeekStart,
+  ]);
+
   const handleSavePlan = useCallback(async () => {
+    if (isSaving || isCelebratingSave) {
+      return;
+    }
     setIsSaving(true);
     try {
       await setCurrentWeekPlan(plannedWeek);
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Success
+      ).catch(() => {});
+      await runSavePlanCelebration();
       router.back();
     } finally {
       setIsSaving(false);
     }
-  }, [plannedWeek, router]);
+  }, [
+    isCelebratingSave,
+    isSaving,
+    plannedWeek,
+    router,
+    runSavePlanCelebration,
+  ]);
 
   const handleToastComplete = useCallback(() => {
     if (!toastDay) {
@@ -544,6 +602,7 @@ export default function PlanWeekModal() {
               plannedWeek={plannedWeek}
               meals={meals}
               daySidesMap={daySidesMap}
+              celebratedIndex={celebratedDayIndex}
             />
           ) : null}
         </ScrollView>
@@ -552,7 +611,7 @@ export default function PlanWeekModal() {
           {isWeekComplete && !isSummaryVisible && (
             <Pressable
               onPress={handleSavePlan}
-              disabled={isSaving}
+              disabled={isSaving || isCelebratingSave}
               style={({ pressed }) => [
                 styles.saveButton,
                 pressed && styles.saveButtonPressed,
@@ -568,6 +627,16 @@ export default function PlanWeekModal() {
             </Pressable>
           )}
         </View>
+        {saveToastPayload ? (
+          <DayPlannedToast
+            title={saveToastPayload.title}
+            subtitle={saveToastPayload.subtitle}
+            onComplete={() => {
+              saveToastPayload.onComplete?.();
+              setSaveToastPayload(null);
+            }}
+          />
+        ) : null}
       </SafeAreaView>
       {isSummaryVisible && (
         <View style={styles.summaryBackdrop}>

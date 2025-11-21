@@ -7,6 +7,17 @@ import {
 } from "../types/weekPlan";
 
 const STORAGE_KEY = "@weeklyeats/weekPlan";
+const WEEK_PLAN_STREAK_KEY = "@weeklyeats/weekPlanStreak";
+
+export type WeekPlanStreak = {
+  count: number;
+  lastCompletedWeekStartIso: string | null;
+};
+
+const defaultStreak: WeekPlanStreak = {
+  count: 0,
+  lastCompletedWeekStartIso: null,
+};
 
 const isValidDayKey = (value: unknown): value is PlannedWeekDayKey =>
   typeof value === "string" && (PLANNED_WEEK_ORDER as string[]).includes(value);
@@ -68,3 +79,63 @@ export const clearCurrentWeekPlan = async (): Promise<void> => {
 
 export const weekPlanStorageKey = STORAGE_KEY;
 
+export const getWeekPlanStreak = async (): Promise<WeekPlanStreak> => {
+  try {
+    const raw = await AsyncStorage.getItem(WEEK_PLAN_STREAK_KEY);
+    if (!raw) {
+      return defaultStreak;
+    }
+    const parsed = JSON.parse(raw) as Partial<WeekPlanStreak>;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.count !== "number"
+    ) {
+      return defaultStreak;
+    }
+    return {
+      count: parsed.count ?? 0,
+      lastCompletedWeekStartIso:
+        typeof parsed.lastCompletedWeekStartIso === "string"
+          ? parsed.lastCompletedWeekStartIso
+          : null,
+    };
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to get plan streak", error);
+    return defaultStreak;
+  }
+};
+
+export const updateWeekPlanStreak = async (
+  weekStartDate: Date
+): Promise<WeekPlanStreak> => {
+  const current = await getWeekPlanStreak();
+  const nextStartIso = weekStartDate.toISOString().slice(0, 10);
+  const lastStartIso = current.lastCompletedWeekStartIso;
+
+  let nextCount = current.count ?? 0;
+
+  if (!lastStartIso) {
+    nextCount = 1;
+  } else if (lastStartIso === nextStartIso) {
+    nextCount = current.count || 1;
+  } else {
+    const last = new Date(lastStartIso);
+    const diffMs = weekStartDate.getTime() - last.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    nextCount = diffDays === 7 ? (current.count || 0) + 1 : 1;
+  }
+
+  const next: WeekPlanStreak = {
+    count: nextCount,
+    lastCompletedWeekStartIso: nextStartIso,
+  };
+
+  try {
+    await AsyncStorage.setItem(WEEK_PLAN_STREAK_KEY, JSON.stringify(next));
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to persist plan streak", error);
+  }
+
+  return next;
+};

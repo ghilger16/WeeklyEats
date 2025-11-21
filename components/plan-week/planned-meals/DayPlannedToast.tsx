@@ -5,15 +5,20 @@ import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 
 type Props = {
-  dayName: string;
+  dayName?: string;
+  title?: string;
+  subtitle?: string;
   onComplete?: () => void;
 };
 
-const DayPlannedToast = ({ dayName, onComplete }: Props) => {
+const DayPlannedToast = ({ dayName, title, subtitle, onComplete }: Props) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.95)).current;
+  const resolvedTitle = title ?? "Day Planned";
+  const resolvedSubtitle =
+    subtitle ?? (dayName ? `${dayName} is locked in.` : undefined);
 
   useEffect(() => {
     Animated.sequence([
@@ -54,8 +59,10 @@ const DayPlannedToast = ({ dayName, onComplete }: Props) => {
           <MaterialCommunityIcons name="check" size={24} color={theme.color.ink} />
         </View>
         <View style={styles.toastTextWrapper}>
-          <Text style={styles.toastTitle}>Day Planned</Text>
-          <Text style={styles.toastSubtitle}>{dayName} is locked in.</Text>
+          <Text style={styles.toastTitle}>{resolvedTitle}</Text>
+          {resolvedSubtitle ? (
+            <Text style={styles.toastSubtitle}>{resolvedSubtitle}</Text>
+          ) : null}
         </View>
       </Animated.View>
     </Animated.View>

@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, Animated } from "react-native";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import {
@@ -15,6 +16,7 @@ type WeeklyPlanTimelineProps = {
   plannedWeek: CurrentPlannedWeek;
   meals: Meal[];
   daySidesMap: Record<PlannedWeekDayKey, string[]>;
+  celebratedIndex?: number | null;
 };
 
 const WeeklyPlanTimeline = ({
@@ -22,6 +24,7 @@ const WeeklyPlanTimeline = ({
   plannedWeek,
   meals,
   daySidesMap,
+  celebratedIndex = null,
 }: WeeklyPlanTimelineProps) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -50,6 +53,13 @@ const WeeklyPlanTimeline = ({
     [orderedDays]
   );
 
+  const nodeScaleEntries = useMemo(
+    () => orderedDays.map(() => new Animated.Value(1)),
+    [orderedDays]
+  );
+  const fallbackScale = useMemo(() => new Animated.Value(1), []);
+  const prevCelebratedRef = useRef<number | null>(null);
+
   useEffect(() => {
     animatedEntries.forEach((entry, index) => {
       entry.translateY.setValue(20);
@@ -71,6 +81,33 @@ const WeeklyPlanTimeline = ({
     });
   }, [animatedEntries, plannedWeek]);
 
+  useEffect(() => {
+    if (celebratedIndex === null) {
+      nodeScaleEntries.forEach((entry) => entry.setValue(1));
+      prevCelebratedRef.current = null;
+      return;
+    }
+    if (prevCelebratedRef.current === celebratedIndex) {
+      return;
+    }
+    const target = nodeScaleEntries[celebratedIndex];
+    if (target) {
+      Animated.sequence([
+        Animated.spring(target, {
+          toValue: 1.15,
+          useNativeDriver: true,
+          bounciness: 8,
+        }),
+        Animated.spring(target, {
+          toValue: 1,
+          useNativeDriver: true,
+          bounciness: 6,
+        }),
+      ]).start();
+    }
+    prevCelebratedRef.current = celebratedIndex;
+  }, [celebratedIndex, nodeScaleEntries]);
+
   return (
     <View style={styles.timelineContainer}>
       {rows.map(({ day, meal, sides }, index) => {
@@ -82,6 +119,9 @@ const WeeklyPlanTimeline = ({
         const sidesLabel = sides.length
           ? `w/ ${sides.join(" • ")}`
           : null;
+        const isCompleted =
+          celebratedIndex !== null && index <= celebratedIndex;
+        const nodeScale = nodeScaleEntries[index] ?? fallbackScale;
 
         return (
           <Animated.View
@@ -106,12 +146,22 @@ const WeeklyPlanTimeline = ({
                   isFirst && styles.timelineConnectorHidden,
                 ]}
               />
-              <View
+              <Animated.View
                 style={[
                   styles.timelineNode,
-                  hasMeal && styles.timelineNodeFilled,
+                  (hasMeal || isCompleted) && styles.timelineNodeFilled,
+                  isCompleted && styles.timelineNodeCompleted,
+                  { transform: [{ scale: nodeScale }] },
                 ]}
-              />
+              >
+                {isCompleted ? (
+                  <MaterialCommunityIcons
+                    name="check"
+                    size={12}
+                    color={theme.color.ink}
+                  />
+                ) : null}
+              </Animated.View>
               <View
                 style={[
                   styles.timelineConnector,
@@ -176,6 +226,10 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
     },
     timelineNodeFilled: {
+      borderColor: theme.color.accent,
+      backgroundColor: theme.color.accent,
+    },
+    timelineNodeCompleted: {
       borderColor: theme.color.accent,
       backgroundColor: theme.color.accent,
     },
