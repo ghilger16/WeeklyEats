@@ -278,7 +278,6 @@ export default function ServedListItem({
         </View>
       ) : null}
       <FreezerAmountModal
-        mode="edit"
         visible={isFreezerModalVisible}
         initialMeal={meal}
         initialAmount={meal?.freezerAmount ?? meal?.freezerQuantity ?? ""}

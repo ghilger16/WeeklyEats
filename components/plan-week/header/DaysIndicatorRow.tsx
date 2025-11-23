@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, Pressable } from "react-native";
 import { useMemo } from "react";
 import { FlexGrid } from "../../../styles/flex-grid";
 import { useThemeController } from "../../../providers/theme/ThemeController";
@@ -16,6 +16,7 @@ type Props = {
   activeDay: PlannedWeekDayKey;
   plannedWeek: CurrentPlannedWeek;
   size?: SizeOption;
+  onSelectDay?: (day: PlannedWeekDayKey) => void;
 };
 
 const DIMENSIONS: Record<SizeOption, number> = {
@@ -31,6 +32,7 @@ const DaysIndicatorRow = ({
   activeDay,
   plannedWeek,
   size = "md",
+  onSelectDay,
 }: Props) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -43,7 +45,11 @@ const DaysIndicatorRow = ({
           const isActive = day === activeDay;
           const isPlanned = Boolean(plannedWeek[day]);
           return (
-            <View
+            <Pressable
+              key={day}
+              onPress={() => onSelectDay?.(day)}
+              accessibilityRole={onSelectDay ? "button" : "text"}
+              accessibilityLabel={`Select ${PLANNED_WEEK_LABELS[day]}`}
               style={[
                 styles.indicator,
                 {
@@ -65,7 +71,7 @@ const DaysIndicatorRow = ({
               >
                 {PLANNED_WEEK_LABELS[day].charAt(0)}
               </Text>
-            </View>
+            </Pressable>
           );
         })}
       </FlexGrid.Row>

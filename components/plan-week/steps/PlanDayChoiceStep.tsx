@@ -1,7 +1,8 @@
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
+import { Meal } from "../../../types/meals";
 import {
   CurrentPlannedWeek,
   PLANNED_WEEK_DISPLAY_NAMES,
@@ -9,6 +10,7 @@ import {
 } from "../../../types/weekPlan";
 import usePlanDayOptionsEntrance from "../../../hooks/animation/usePlanDayOptionsEntrance";
 import DaysIndicatorRow from "../header/DaysIndicatorRow";
+import MealPlannedCard from "../MealPlannedCard";
 
 export type DayWizardAction = "eat_out" | "suggest" | "search";
 
@@ -19,6 +21,10 @@ type Props = {
   weekLabel: string;
   onSelectOption: (action: DayWizardAction) => void;
   onSelectEatOut: () => void;
+  onSearchForMeal: () => void;
+  onSelectDay?: (day: PlannedWeekDayKey) => void;
+  plannedMeal?: Meal | null;
+  sides?: string[];
 };
 
 const DAY_OPTION_ITEMS: Array<{
@@ -38,52 +44,78 @@ const PlanDayChoiceStep = ({
   weekLabel,
   onSelectOption,
   onSelectEatOut,
+  onSearchForMeal,
+  onSelectDay,
+  plannedMeal,
+  sides = [],
 }: Props) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { animatedStyles } = usePlanDayOptionsEntrance(DAY_OPTION_ITEMS.length);
   const dayDisplayName = PLANNED_WEEK_DISPLAY_NAMES[dayKey];
+  const [isPlannedCardDismissed, setPlannedCardDismissed] = useState(false);
+
+  useEffect(() => {
+    setPlannedCardDismissed(false);
+  }, [plannedMeal?.id, dayKey]);
+
+  const showPlannedCard = Boolean(plannedMeal) && !isPlannedCardDismissed;
+  const headingText = showPlannedCard
+    ? dayDisplayName
+    : `Let’s plan ${dayDisplayName}`;
 
   return (
     <View style={styles.wrapper}>
       <View style={styles.stepperHero}>
-        <Text
-          style={styles.stepperTitle}
-        >{`Let’s plan ${dayDisplayName}`}</Text>
+        <Text style={styles.stepperTitle}>{headingText}</Text>
         <Text style={styles.stepperSubtitle}>{weekLabel}</Text>
-        <DaysIndicatorRow
-          orderedDays={orderedDays}
-          activeDay={dayKey}
-          plannedWeek={plannedWeek}
-          size="md"
-        />
+        <View style={styles.indicatorWrapper}>
+          <DaysIndicatorRow
+            orderedDays={orderedDays}
+            activeDay={dayKey}
+            plannedWeek={plannedWeek}
+            size="md"
+            onSelectDay={onSelectDay}
+          />
+        </View>
+        {showPlannedCard ? (
+          <MealPlannedCard
+            meal={plannedMeal}
+            sides={sides}
+            onSwap={() => setPlannedCardDismissed(true)}
+          />
+        ) : null}
       </View>
 
-      <View style={styles.optionList}>
-        {DAY_OPTION_ITEMS.map((option, index) => (
-          <Animated.View
-            key={option.key}
-            style={[styles.optionWrapper, animatedStyles[index]]}
-          >
-            <Pressable
-              onPress={() =>
-                option.key === "eat_out"
-                  ? onSelectEatOut()
-                  : onSelectOption(option.key)
-              }
-              accessibilityRole="button"
-              accessibilityLabel={`${option.label} for ${dayDisplayName}`}
-              style={({ pressed }) => [
-                styles.optionButton,
-                pressed && styles.optionButtonPressed,
-              ]}
+      {!showPlannedCard ? (
+        <View style={styles.optionList}>
+          {DAY_OPTION_ITEMS.map((option, index) => (
+            <Animated.View
+              key={option.key}
+              style={[styles.optionWrapper, animatedStyles[index]]}
             >
-              <Text style={styles.optionEmoji}>{option.emoji}</Text>
-              <Text style={styles.optionLabel}>{option.label}</Text>
-            </Pressable>
-          </Animated.View>
-        ))}
-      </View>
+              <Pressable
+                onPress={() =>
+                  option.key === "eat_out"
+                    ? onSelectEatOut()
+                    : option.key === "search"
+                    ? onSearchForMeal()
+                    : onSelectOption(option.key)
+                }
+                accessibilityRole="button"
+                accessibilityLabel={`${option.label} for ${dayDisplayName}`}
+                style={({ pressed }) => [
+                  styles.optionButton,
+                  pressed && styles.optionButtonPressed,
+                ]}
+              >
+                <Text style={styles.optionEmoji}>{option.emoji}</Text>
+                <Text style={styles.optionLabel}>{option.label}</Text>
+              </Pressable>
+            </Animated.View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 };
@@ -100,8 +132,11 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surface,
       paddingHorizontal: theme.space.xl,
       paddingVertical: theme.space["2xl"],
-      gap: theme.space.sm,
+      gap: theme.space.md,
       alignItems: "center",
+    },
+    indicatorWrapper: {
+      marginBottom: theme.space.lg,
     },
     stepperTitle: {
       fontSize: theme.type.size.h1,

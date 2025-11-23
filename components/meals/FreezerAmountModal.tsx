@@ -2,7 +2,6 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useEffect, useMemo, useState } from "react";
 import {
-  FlatList,
   Modal,
   Platform,
   Pressable,
@@ -31,13 +30,9 @@ const UNIT_OPTIONS = [
 
 const DEFAULT_UNIT = UNIT_OPTIONS[0];
 
-type Mode = "add" | "edit";
-
 type Props = {
-  mode: Mode;
   visible: boolean;
-  meals?: Meal[];
-  initialMeal?: Meal;
+  initialMeal?: Meal | null;
   initialAmount?: string;
   initialUnit?: string;
   initialAddedAt?: string;
@@ -50,12 +45,8 @@ type Props = {
   ) => void;
 };
 
-type Stage = "list" | "amount";
-
 export default function FreezerAmountModal({
-  mode,
   visible,
-  meals,
   initialMeal,
   initialAmount,
   initialUnit,
@@ -65,8 +56,7 @@ export default function FreezerAmountModal({
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const isAddMode = mode === "add";
-  const availableMeals = isAddMode ? meals ?? [] : [];
+  const meal = initialMeal ?? null;
 
   const parseAmount = (value?: string): number | null => {
     if (value === undefined || value === null) {
@@ -94,12 +84,9 @@ export default function FreezerAmountModal({
     return parsed;
   };
 
-  const [stage, setStage] = useState<Stage>(isAddMode ? "list" : "amount");
-  const [selectedMeal, setSelectedMeal] = useState<Meal | null>(
-    isAddMode ? null : initialMeal ?? null
-  );
+  const [selectedMeal, setSelectedMeal] = useState<Meal | null>(meal);
   const [amount, setAmount] = useState<number | null>(
-    isAddMode ? null : parseAmount(initialAmount)
+    parseAmount(initialAmount)
   );
   const [unit, setUnit] = useState<string>(
     initialUnit && initialUnit.length > 0 ? initialUnit : DEFAULT_UNIT
@@ -112,31 +99,13 @@ export default function FreezerAmountModal({
       return;
     }
     setIsDateMode(false);
-    if (isAddMode) {
-      setStage("list");
-      setSelectedMeal(null);
-      setAmount(null);
-      setUnit(DEFAULT_UNIT);
-      setAddedDate(new Date());
-    } else {
-      setStage("amount");
-      setSelectedMeal(initialMeal ?? null);
-      setAmount(parseAmount(initialAmount));
-      setUnit(
-        initialUnit && initialUnit.length > 0 ? initialUnit : DEFAULT_UNIT
-      );
-      setAddedDate(
-        parseDate(initialAddedAt ?? initialMeal?.freezerAddedAt) ?? new Date()
-      );
-    }
-  }, [
-    visible,
-    isAddMode,
-    initialMeal,
-    initialAmount,
-    initialUnit,
-    initialAddedAt,
-  ]);
+    setSelectedMeal(meal);
+    setAmount(parseAmount(initialAmount));
+    setUnit(initialUnit && initialUnit.length > 0 ? initialUnit : DEFAULT_UNIT);
+    setAddedDate(
+      parseDate(initialAddedAt ?? meal?.freezerAddedAt) ?? new Date()
+    );
+  }, [initialAddedAt, initialAmount, initialUnit, meal, visible]);
 
   const increment = () =>
     setAmount((prev) => {
@@ -154,25 +123,7 @@ export default function FreezerAmountModal({
       return next;
     });
 
-  const handleSelectMeal = (meal: Meal) => {
-    setSelectedMeal(meal);
-    setAmount(null);
-    setUnit(DEFAULT_UNIT);
-    setAddedDate(parseDate(meal.freezerAddedAt) ?? new Date());
-    setIsDateMode(false);
-    setStage("amount");
-  };
-
-  const handleBack = () => {
-    if (isAddMode) {
-      setStage("list");
-      setSelectedMeal(null);
-      setAmount(null);
-      setUnit(DEFAULT_UNIT);
-      setAddedDate(new Date());
-      setIsDateMode(false);
-      return;
-    }
+  const handleClose = () => {
     setIsDateMode(false);
     onDismiss();
   };
@@ -193,7 +144,6 @@ export default function FreezerAmountModal({
       ? `${amount}${unit ? ` ${unit}` : ""}`
       : `0 ${unit && unit.length > 0 ? unit : DEFAULT_UNIT}`;
   const disableSave = !selectedMeal;
-  const hasMeals = availableMeals.length > 0;
 
   return (
     <Modal
@@ -206,218 +156,164 @@ export default function FreezerAmountModal({
       <View style={styles.backdrop}>
         <Pressable style={styles.backdropPad} onPress={onDismiss} />
         <SafeAreaView style={styles.sheet}>
-          {stage === "list" ? (
-            <View style={styles.content}>
-              <Text style={styles.title}>Add from Meals</Text>
-              {!hasMeals ? (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>
-                    All meals are already in the freezer.
-                  </Text>
-                </View>
-              ) : (
-                <FlatList
-                  data={availableMeals}
-                  keyExtractor={(item) => item.id}
-                  ItemSeparatorComponent={() => (
-                    <View style={styles.separator} />
-                  )}
-                  contentContainerStyle={styles.listContent}
-                  renderItem={({ item }) => (
-                    <Pressable
-                      onPress={() => handleSelectMeal(item)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Add ${item.title} to freezer`}
-                      style={({ pressed }) => [
-                        styles.listItem,
-                        pressed && styles.listItemPressed,
+          <View style={styles.amountContent}>
+            <View style={styles.amountBody}>
+              <View style={styles.amountHeader}>
+                <Pressable
+                  onPress={handleClose}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close freezer amount editor"
+                  style={({ pressed }) => [
+                    styles.backButton,
+                    pressed && styles.backButtonPressed,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="close"
+                    size={20}
+                    color={theme.color.subtleInk}
+                  />
+                </Pressable>
+                <Text style={styles.amountHeaderTitle}>
+                  {isDateMode ? "Set Date Added" : "Set Amount"}
+                </Text>
+                <Pressable
+                  onPress={() => setIsDateMode((prev) => !prev)}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    isDateMode ? "Show amount controls" : "Change freezer date"
+                  }
+                  style={({ pressed }) => [
+                    styles.headerIconButton,
+                    pressed && styles.headerIconButtonPressed,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name={isDateMode ? "counter" : "calendar-month"}
+                    size={20}
+                    color={theme.color.subtleInk}
+                  />
+                </Pressable>
+              </View>
+              {selectedMeal ? (
+                <>
+                  {!isDateMode ? (
+                    <Text
+                      style={[
+                        styles.example,
+                        !hasAmountValue && styles.examplePlaceholder,
                       ]}
                     >
-                      <Text style={styles.listItemEmoji}>{item.emoji}</Text>
-                      <View style={styles.listItemContent}>
-                        <Text style={styles.listItemTitle}>{item.title}</Text>
-                        {item.rating ? (
-                          <Text style={styles.listItemSubtitle}>
-                            Rated {item.rating.toFixed(1)}
-                          </Text>
-                        ) : null}
-                      </View>
-                      <MaterialCommunityIcons
-                        name="chevron-right"
-                        size={20}
-                        color={theme.color.subtleInk}
-                      />
-                    </Pressable>
-                  )}
-                />
-              )}
-            </View>
-          ) : (
-            <View style={styles.amountContent}>
-              <View style={styles.amountBody}>
-                <View style={styles.amountHeader}>
-                  <Pressable
-                    onPress={handleBack}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      isAddMode ? "Back to meal list" : "Close amount editor"
-                    }
-                    style={({ pressed }) => [
-                      styles.backButton,
-                      pressed && styles.backButtonPressed,
-                    ]}
-                  >
-                    <MaterialCommunityIcons
-                      name={isAddMode ? "arrow-left" : "close"}
-                      size={20}
-                      color={theme.color.subtleInk}
-                    />
-                  </Pressable>
-                  <Text style={styles.amountHeaderTitle}>
-                    {isDateMode ? "Set Date Added" : "Set Amount"}
-                  </Text>
-                  <Pressable
-                    onPress={() => setIsDateMode((prev) => !prev)}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      isDateMode
-                        ? "Show amount controls"
-                        : "Change freezer date"
-                    }
-                    style={({ pressed }) => [
-                      styles.headerIconButton,
-                      pressed && styles.headerIconButtonPressed,
-                    ]}
-                  >
-                    <MaterialCommunityIcons
-                      name={isDateMode ? "counter" : "calendar-month"}
-                      size={20}
-                      color={theme.color.subtleInk}
-                    />
-                  </Pressable>
-                </View>
-                {selectedMeal ? (
-                  <>
-                    {!isDateMode ? (
-                      <Text
-                        style={[
-                          styles.example,
-                          !hasAmountValue && styles.examplePlaceholder,
-                        ]}
-                      >
-                        {amountDisplay}
-                      </Text>
-                    ) : null}
-                    <Text style={styles.mealName}>{selectedMeal.title}</Text>
-                  </>
-                ) : null}
-                {isDateMode ? (
-                  <View style={styles.dateContainer}>
-                    <Text style={styles.fieldLabel}>Freezer Date</Text>
-                    <View style={styles.datePickerWrapper}>
-                      {Platform.OS === "web" ? (
-                        <Text style={styles.dateDisplayText}>
-                          {addedDate.toLocaleDateString()}
-                        </Text>
-                      ) : (
-                        <DateTimePicker
-                          value={addedDate}
-                          mode="date"
-                          display={
-                            Platform.OS === "ios" ? "spinner" : "calendar"
-                          }
-                          onChange={(_, selectedDate) => {
-                            if (selectedDate) {
-                              setAddedDate(selectedDate);
-                            }
-                          }}
-                        />
-                      )}
-                    </View>
+                      {amountDisplay}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.mealName}>{selectedMeal.title}</Text>
+                </>
+              ) : null}
+              {isDateMode ? (
+                <View style={styles.dateContainer}>
+                  <Text style={styles.fieldLabel}>Freezer Date</Text>
+                  <View style={styles.datePickerWrapper}>
                     {Platform.OS === "web" ? (
-                      <Text style={styles.dateHelperText}>
-                        Date editing is currently limited on web. It will use
-                        the selected date above.
+                      <Text style={styles.dateDisplayText}>
+                        {addedDate.toLocaleDateString()}
                       </Text>
-                    ) : null}
+                    ) : (
+                      <DateTimePicker
+                        value={addedDate}
+                        mode="date"
+                        display={Platform.OS === "ios" ? "spinner" : "calendar"}
+                        onChange={(_, selectedDate) => {
+                          if (selectedDate) {
+                            setAddedDate(selectedDate);
+                          }
+                        }}
+                      />
+                    )}
                   </View>
-                ) : (
-                  <>
-                    <Text style={styles.fieldLabel}>Amount</Text>
-                    <View style={styles.counterRow}>
-                      <Pressable
-                        onPress={decrement}
-                        accessibilityRole="button"
-                        accessibilityLabel="Decrease amount"
-                        style={({ pressed }) => [
-                          styles.counterButton,
-                          pressed && styles.counterButtonPressed,
-                        ]}
-                      >
-                        <Text style={styles.counterButtonText}>-</Text>
-                      </Pressable>
-                      <Text style={styles.counterValue}>
-                        {amount !== null ? amount : 0}
-                      </Text>
-                      <Pressable
-                        onPress={increment}
-                        accessibilityRole="button"
-                        accessibilityLabel="Increase amount"
-                        style={({ pressed }) => [
-                          styles.counterButton,
-                          pressed && styles.counterButtonPressed,
-                        ]}
-                      >
-                        <Text style={styles.counterButtonText}>+</Text>
-                      </Pressable>
-                    </View>
-                    <Text style={styles.fieldLabel}>Unit</Text>
-                    <View style={styles.unitGrid}>
-                      {UNIT_OPTIONS.map((option) => {
-                        const isActive = option === unit;
-                        return (
-                          <Pressable
-                            key={option}
-                            onPress={() => setUnit(option)}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Set unit to ${option}`}
-                            style={({ pressed }) => [
-                              styles.unitChip,
-                              isActive && styles.unitChipActive,
-                              pressed && styles.unitChipPressed,
+                  {Platform.OS === "web" ? (
+                    <Text style={styles.dateHelperText}>
+                      Date editing is currently limited on web. It will use the
+                      selected date above.
+                    </Text>
+                  ) : null}
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.fieldLabel}>Amount</Text>
+                  <View style={styles.counterRow}>
+                    <Pressable
+                      onPress={decrement}
+                      accessibilityRole="button"
+                      accessibilityLabel="Decrease amount"
+                      style={({ pressed }) => [
+                        styles.counterButton,
+                        pressed && styles.counterButtonPressed,
+                      ]}
+                    >
+                      <Text style={styles.counterButtonText}>-</Text>
+                    </Pressable>
+                    <Text style={styles.counterValue}>
+                      {amount !== null ? amount : 0}
+                    </Text>
+                    <Pressable
+                      onPress={increment}
+                      accessibilityRole="button"
+                      accessibilityLabel="Increase amount"
+                      style={({ pressed }) => [
+                        styles.counterButton,
+                        pressed && styles.counterButtonPressed,
+                      ]}
+                    >
+                      <Text style={styles.counterButtonText}>+</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.fieldLabel}>Unit</Text>
+                  <View style={styles.unitGrid}>
+                    {UNIT_OPTIONS.map((option) => {
+                      const isActive = option === unit;
+                      return (
+                        <Pressable
+                          key={option}
+                          onPress={() => setUnit(option)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Set unit to ${option}`}
+                          style={({ pressed }) => [
+                            styles.unitChip,
+                            isActive && styles.unitChipActive,
+                            pressed && styles.unitChipPressed,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.unitChipText,
+                              isActive && styles.unitChipTextActive,
                             ]}
                           >
-                            <Text
-                              style={[
-                                styles.unitChipText,
-                                isActive && styles.unitChipTextActive,
-                              ]}
-                            >
-                              {option}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </>
-                )}
-              </View>
-              <Pressable
-                onPress={handleSave}
-                disabled={disableSave}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: disableSave }}
-                accessibilityLabel="Save freezer amount"
-                style={({ pressed }) => [
-                  styles.saveButton,
-                  pressed && !disableSave && styles.saveButtonPressed,
-                  disableSave && styles.saveButtonDisabled,
-                ]}
-              >
-                <Text style={styles.saveButtonText}>Save</Text>
-              </Pressable>
+                            {option}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
             </View>
-          )}
+            <Pressable
+              onPress={handleSave}
+              disabled={disableSave}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: disableSave }}
+              accessibilityLabel="Save freezer amount"
+              style={({ pressed }) => [
+                styles.saveButton,
+                pressed && !disableSave && styles.saveButtonPressed,
+                disableSave && styles.saveButtonDisabled,
+              ]}
+            >
+              <Text style={styles.saveButtonText}>Save</Text>
+            </Pressable>
+          </View>
         </SafeAreaView>
       </View>
     </Modal>
@@ -445,10 +341,6 @@ const createStyles = (theme: WeeklyTheme) =>
       minHeight: "65%",
       maxHeight: "80%",
     },
-    content: {
-      gap: theme.space.lg,
-      flex: 1,
-    },
     amountContent: {
       flex: 1,
       justifyContent: "space-between",
@@ -456,55 +348,6 @@ const createStyles = (theme: WeeklyTheme) =>
     amountBody: {
       gap: theme.space.lg,
       flexGrow: 1,
-    },
-    title: {
-      textAlign: "center",
-      color: theme.color.ink,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.bold,
-    },
-    listContent: {
-      paddingBottom: theme.space.lg,
-    },
-    separator: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: theme.color.cardOutline,
-    },
-    listItem: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingVertical: theme.space.md,
-      gap: theme.space.md,
-    },
-    listItemPressed: {
-      opacity: 0.8,
-    },
-    listItemEmoji: {
-      fontSize: 28,
-    },
-    listItemContent: {
-      flex: 1,
-      gap: theme.space.xs / 2,
-    },
-    listItemTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
-    },
-    listItemSubtitle: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.xs,
-    },
-    emptyState: {
-      paddingVertical: theme.space.xl,
-      alignItems: "center",
-      gap: theme.space.sm,
-    },
-    emptyText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      textAlign: "center",
     },
     backButton: {
       width: 44,

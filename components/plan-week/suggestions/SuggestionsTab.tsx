@@ -59,67 +59,70 @@ const SuggestionsTab = ({
 }: SuggestionsTabProps) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const hasSides = sides.length > 0;
 
   return (
     <View style={styles.container}>
       <View style={styles.mealCard}>
         <View style={styles.mealHero}>
-          <Text style={styles.mealEmoji}>{meal?.emoji ?? "🍽️"}</Text>
-          <View style={styles.mealHeroDetails}>
-            <FlexGrid
-              gutterWidth={theme.space.md}
-              style={styles.mealHeroMetaGrid}
-            >
-              <FlexGrid.Row
-                alignItems="center"
-                justifyContent="flex-start"
-                style={styles.mealHeroMetaRow}
+          {bannerMessage ? (
+            <SuggestionBanner
+              message={bannerMessage}
+              opacity={bannerOpacity}
+              variant="hero"
+            />
+          ) : null}
+          <View style={styles.mealHeroContent}>
+            <Text style={styles.mealEmoji}>{meal?.emoji ?? "🍽️"}</Text>
+            <View style={styles.mealHeroDetails}>
+              <FlexGrid
+                gutterWidth={theme.space.md}
+                style={styles.mealHeroMetaGrid}
               >
-                <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
-                  <View style={styles.metaItem}>
-                    <MaterialCommunityIcons
-                      name="star"
-                      size={16}
-                      color={theme.color.accent}
-                    />
-                    <Text style={styles.metaText}>{ratingLabel}</Text>
-                  </View>
-                </FlexGrid.Col>
-                <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
-                  <View style={styles.metaItem}>
-                    <Text style={styles.metaText}>{costLabel}</Text>
-                  </View>
-                </FlexGrid.Col>
-                <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
-                  <View style={styles.metaItem}>
-                    <MaterialCommunityIcons
-                      name="circle"
-                      size={14}
-                      color={
-                        theme.color[
-                          difficultyToThemeColor(mealDifficulty ?? "medium")
-                        ]
-                      }
-                    />
-                    <Text style={styles.metaText}>
-                      {mealDifficulty
-                        ? difficultyToLabel[mealDifficulty]
-                        : "--"}
-                    </Text>
-                  </View>
-                </FlexGrid.Col>
-              </FlexGrid.Row>
-            </FlexGrid>
-            <Text style={styles.lastServed}>{lastServedLabel}</Text>
+                <FlexGrid.Row
+                  alignItems="center"
+                  justifyContent="flex-start"
+                  style={styles.mealHeroMetaRow}
+                >
+                  <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                    <View style={styles.metaItem}>
+                      <MaterialCommunityIcons
+                        name="star"
+                        size={16}
+                        color={theme.color.accent}
+                      />
+                      <Text style={styles.metaText}>{ratingLabel}</Text>
+                    </View>
+                  </FlexGrid.Col>
+                  <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaText}>{costLabel}</Text>
+                    </View>
+                  </FlexGrid.Col>
+                  <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                    <View style={styles.metaItem}>
+                      <MaterialCommunityIcons
+                        name="circle"
+                        size={14}
+                        color={
+                          theme.color[
+                            difficultyToThemeColor(mealDifficulty ?? "medium")
+                          ]
+                        }
+                      />
+                      <Text style={styles.metaText}>
+                        {mealDifficulty
+                          ? difficultyToLabel[mealDifficulty]
+                          : "--"}
+                      </Text>
+                    </View>
+                  </FlexGrid.Col>
+                </FlexGrid.Row>
+              </FlexGrid>
+              <Text style={styles.lastServed}>{lastServedLabel}</Text>
+            </View>
           </View>
         </View>
-        {bannerMessage ? (
-          <SuggestionBanner
-            message={bannerMessage}
-            opacity={bannerOpacity}
-            variant="hero"
-          />
-        ) : null}
         <View style={styles.mealContent}>
           <Text ref={mealTitleRef} style={styles.mealTitle} numberOfLines={1}>
             {meal?.title ?? "No suggestion"}
@@ -165,21 +168,27 @@ const SuggestionsTab = ({
             />
             <Pressable
               onPress={onToggleSideDeleteMode}
+              disabled={!hasSides}
               accessibilityRole="button"
               accessibilityLabel={
                 isSideDeleteMode ? "Exit side delete mode" : "Delete sides"
               }
               style={({ pressed }) => [
                 styles.sideTrashButton,
-                pressed && styles.sideTrashButtonPressed,
+                pressed && hasSides && styles.sideTrashButtonPressed,
                 isSideDeleteMode && styles.sideTrashButtonActive,
+                !hasSides && styles.sideTrashButtonDisabled,
               ]}
             >
               <MaterialCommunityIcons
                 name={isSideDeleteMode ? "trash-can" : "trash-can-outline"}
                 size={18}
                 color={
-                  isSideDeleteMode ? theme.color.ink : theme.color.subtleInk
+                  !hasSides
+                    ? theme.color.border
+                    : isSideDeleteMode
+                    ? theme.color.ink
+                    : theme.color.subtleInk
                 }
               />
             </Pressable>
@@ -291,11 +300,13 @@ const createStyles = (theme: WeeklyTheme) =>
       overflow: "hidden",
     },
     mealHero: {
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    mealHeroContent: {
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: theme.color.surfaceAlt,
-      paddingVertical: theme.space.lg,
       paddingHorizontal: theme.space.lg,
+      paddingVertical: theme.space.lg,
       gap: theme.space.md,
     },
     mealHeroDetails: {
@@ -371,13 +382,13 @@ const createStyles = (theme: WeeklyTheme) =>
     sideInput: {
       flex: 1,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-      borderRadius: theme.radius.full,
+      borderColor: theme.color.subtleInk,
+      backgroundColor: theme.color.bg,
+      borderRadius: theme.radius.md,
+      paddingVertical: theme.space.sm,
       paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.xs,
       color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      backgroundColor: theme.color.surface,
+      fontSize: theme.type.size.base,
     },
     sideTrashButton: {
       width: 32,
@@ -393,6 +404,9 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.accent,
+    },
+    sideTrashButtonDisabled: {
+      opacity: 0.5,
     },
     actionButton: {
       flex: 1,

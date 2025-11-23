@@ -53,6 +53,7 @@ import WeeklyPlannerSteps from "../../components/plan-week/steps/WeeklyPlannerSt
 import WeeklyPlanTimeline from "../../components/plan-week/WeeklyPlanTimeline";
 import useDayPins from "../../hooks/plan-week/useDayPins";
 import usePlanSides from "../../hooks/plan-week/usePlanSides";
+import MealSearchModal from "../../components/meals/MealSearchModal";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>((acc, key) => {
@@ -126,6 +127,9 @@ export default function PlanWeekModal() {
     subtitle?: string;
     onComplete?: () => void;
   } | null>(null);
+  const [isSearchModalVisible, setSearchModalVisible] = useState(false);
+  const [searchTargetDay, setSearchTargetDay] =
+    useState<PlannedWeekDayKey | null>(null);
 
   const animateSummaryTo = useCallback(
     (toValue: number, duration: number, easing: (value: number) => number) =>
@@ -304,6 +308,24 @@ export default function PlanWeekModal() {
     handleOpenSummary();
   }, [activeDay, activeSuggestion, handleOpenSummary, savedIndicatorDay]);
 
+  const handleSelectSearchMeal = useCallback(
+    (meal: Meal) => {
+      const targetDay = searchTargetDay ?? activeDay;
+      setPendingPlannedDay(targetDay);
+      setPlannerSelection({ day: targetDay, meal });
+      savedIndicatorDay && setSavedIndicatorDay(null);
+      handleOpenSummary();
+      setSearchModalVisible(false);
+      setSearchTargetDay(null);
+    },
+    [activeDay, handleOpenSummary, savedIndicatorDay, searchTargetDay]
+  );
+
+  const handleDismissSearchModal = useCallback(() => {
+    setSearchModalVisible(false);
+    setSearchTargetDay(null);
+  }, []);
+
   const handleSelectEatOut = useCallback(() => {
     setPendingPlannedDay(activeDay);
     setPlannerSelection({ day: activeDay, meal: EAT_OUT_MEAL });
@@ -313,6 +335,13 @@ export default function PlanWeekModal() {
 
   const handleSelectWizardOption = useCallback(
     (action: DayWizardAction) => {
+      if (action === "search") {
+        setSearchTargetDay(activeDay);
+        setSearchModalVisible(true);
+        setPlannedCardPreviewDay(null);
+        setActiveWizardAction(null);
+        return;
+      }
       setActiveWizardAction(action);
       if (action === "suggest" && plannedWeek[activeDay]) {
         setPlannedCardPreviewDay(activeDay);
@@ -505,6 +534,7 @@ export default function PlanWeekModal() {
   );
 
   const shouldShowTimeline = isWeekComplete && !isSummaryVisible;
+  const searchModalTitleDay = searchTargetDay ?? activeDay;
 
   if (!hasCompletedPlannerSetup) {
     return (
@@ -562,6 +592,18 @@ export default function PlanWeekModal() {
               weekLabel={planningWeekLabel}
               onSelectOption={handleSelectWizardOption}
               onSelectEatOut={handleSelectEatOut}
+              onSelectDay={(day) => {
+                const targetIndex = orderedDays.indexOf(day);
+                if (targetIndex !== -1) {
+                  setActiveDayIndex(targetIndex);
+                }
+              }}
+              onSearchForMeal={() => {
+                setSearchTargetDay(activeDay);
+                setSearchModalVisible(true);
+              }}
+              plannedMeal={plannedMealForActiveDay}
+              sides={daySidesMap[activeDay] ?? []}
             />
           ) : null}
 
@@ -583,10 +625,6 @@ export default function PlanWeekModal() {
                     isSummaryVisible ||
                     toastDay === activeDay ||
                     pendingPlannedDay === activeDay
-                  }
-                  showPlannedCard={
-                    plannedCardPreviewDay === activeDay &&
-                    Boolean(plannedMealForActiveDay)
                   }
                   sides={activeDaySides}
                   onAddSide={(side) => handleAddSide(activeDay, side)}
@@ -665,6 +703,17 @@ export default function PlanWeekModal() {
           />
         </View>
       )}
+      <MealSearchModal
+        visible={isSearchModalVisible}
+        meals={meals}
+        onDismiss={handleDismissSearchModal}
+        onSelectMeal={handleSelectSearchMeal}
+        title={`Search meals for ${PLANNED_WEEK_DISPLAY_NAMES[searchModalTitleDay]}`}
+        subtitle="Pick a meal to plan for this day."
+        sides={daySidesMap[searchModalTitleDay] ?? []}
+        onAddSide={(side) => handleAddSide(searchModalTitleDay, side)}
+        onRemoveSide={(index) => handleRemoveSide(searchModalTitleDay, index)}
+      />
     </View>
   );
 }

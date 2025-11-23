@@ -1,4 +1,3 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import {
   Animated,
@@ -45,16 +44,9 @@ type Props = {
   pins: DayPinsState;
   onPinsChange: (next: DayPinsState) => void;
   hideContent?: boolean;
-  showPlannedCard?: boolean;
   sides: string[];
   onAddSide: (value: string) => void;
   onRemoveSide: (index: number) => void;
-};
-
-const difficultyToLabel: Record<DifficultyKey, string> = {
-  easy: "Easy",
-  medium: "Medium",
-  hard: "Hard",
 };
 
 const getDifficultyLabel = (value: number | undefined): DifficultyKey => {
@@ -91,14 +83,12 @@ export default function SuggestionsContainer({
   pins,
   onPinsChange,
   hideContent = false,
-  showPlannedCard = false,
   sides,
   onAddSide,
   onRemoveSide,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const [isSwapping, setIsSwapping] = useState(false);
   const bannerOpacity = useRef(new Animated.Value(0)).current;
   const mealTitleRef = useRef<ComponentRef<typeof Text> | null>(null);
   const lastMealIdRef = useRef<string | null>(null);
@@ -120,22 +110,6 @@ export default function SuggestionsContainer({
     : meal?.plannedCostTier ?? 1;
   const costLabel = meal ? "$".repeat(costTier) : "--";
 
-  const plannedCostTier = plannedMeal?.expense
-    ? Math.max(1, Math.min(3, Math.round(plannedMeal.expense / 2)))
-    : plannedMeal?.plannedCostTier ?? 1;
-  const plannedCostLabel = plannedMeal ? "$".repeat(plannedCostTier) : null;
-  const plannedDifficulty = plannedMeal
-    ? getDifficultyLabel(plannedMeal.difficulty)
-    : null;
-  const plannedDifficultyText = plannedDifficulty
-    ? difficultyToLabel[plannedDifficulty]
-    : null;
-  const plannedLastServed = plannedMeal
-    ? formatLastServed(plannedMeal.updatedAt)
-    : null;
-  const plannedDifficultyColor = plannedDifficulty
-    ? theme.color[difficultyToThemeColor(plannedDifficulty)]
-    : undefined;
   const lastServedLabel = formatLastServed(meal?.updatedAt);
   const hasPlannedMeal = Boolean(plannedMeal);
 
@@ -247,8 +221,11 @@ export default function SuggestionsContainer({
   }, [formatSideLabel, onAddSide, sideInput]);
 
   const toggleSideDeleteMode = useCallback(() => {
+    if (!sides.length) {
+      return;
+    }
     setSideDeleteMode((prev) => !prev);
-  }, []);
+  }, [sides.length]);
 
   const handleToggleInventory = useCallback(() => {
     setInventoryVisible((prev) => !prev);
@@ -316,15 +293,9 @@ export default function SuggestionsContainer({
 
   useEffect(() => {
     if (!hasPlannedMeal) {
-      setIsSwapping(false);
+      setInventoryVisible(false);
     }
   }, [hasPlannedMeal]);
-
-  useEffect(() => {
-    if (hasPlannedMeal) {
-      setIsSwapping(false);
-    }
-  }, [plannedMeal?.id, hasPlannedMeal]);
 
   useEffect(() => {
     if (!inventoryPulseTrigger) {
@@ -338,9 +309,6 @@ export default function SuggestionsContainer({
     return null;
   }
 
-  const shouldShowPlanned =
-    showPlannedCard && hasPlannedMeal && !isSwapping && !isInventoryVisible;
-
   const showBanner = !isInventoryVisible;
 
   let content: ReactNode = null;
@@ -348,72 +316,6 @@ export default function SuggestionsContainer({
     content = (
       <View style={styles.inventoryWrapper}>
         <PinInventory value={pins} onAdd={handleAddInventoryPin} />
-      </View>
-    );
-  } else if (shouldShowPlanned) {
-    content = (
-      <View style={styles.plannedCardWrapper}>
-        <View style={styles.plannedCard}>
-          <Pressable
-            onPress={() => {
-              setInventoryVisible(false);
-              setIsSwapping(true);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Change meal"
-            style={({ pressed }) => [
-              styles.plannedSwapButton,
-              pressed && styles.plannedSwapButtonPressed,
-            ]}
-          >
-            <MaterialCommunityIcons
-              name="swap-horizontal"
-              size={20}
-              color="#FFE6C7"
-            />
-          </Pressable>
-          <View style={styles.plannedBadge}>
-            <Text style={styles.plannedBadgeText}>DAY PLANNED</Text>
-          </View>
-          <Text style={styles.plannedEmoji}>{plannedMeal?.emoji ?? "🍽️"}</Text>
-          <View style={styles.plannedMetaRow}>
-            {plannedCostLabel ? (
-              <Text style={[styles.plannedMetaText, styles.plannedMetaAccent]}>
-                {plannedCostLabel}
-              </Text>
-            ) : null}
-            {plannedDifficultyText ? (
-              <View style={styles.plannedDifficultyMeta}>
-                <View
-                  style={[
-                    styles.plannedDifficultyDot,
-                    plannedDifficultyColor
-                      ? { backgroundColor: plannedDifficultyColor }
-                      : null,
-                  ]}
-                />
-                <Text style={styles.plannedMetaText}>
-                  {plannedDifficultyText}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-          {plannedLastServed ? (
-            <Text style={styles.plannedLastServed}>{plannedLastServed}</Text>
-          ) : null}
-          <Text style={styles.plannedTitle}>
-            {plannedMeal?.title ?? "Meal planned"}
-          </Text>
-          {sides.length ? (
-            <View style={styles.plannedSideList}>
-              {sides.map((side, index) => (
-                <View style={styles.plannedSideChip} key={`${side}-${index}`}>
-                  <Text style={styles.plannedSideText}>w/ {side}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-        </View>
       </View>
     );
   } else {
@@ -480,94 +382,6 @@ const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
     container: {
       gap: theme.space.lg,
-    },
-    plannedCardWrapper: {
-      width: "100%",
-      position: "relative",
-    },
-    plannedCard: {
-      borderRadius: theme.radius.xl,
-      backgroundColor: theme.color.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-      padding: theme.space.lg,
-      alignItems: "center",
-      gap: theme.space.sm,
-    },
-    plannedBadge: {
-      paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.xs / 1.5,
-      borderRadius: theme.radius.full,
-      backgroundColor: "#C37D1D",
-    },
-    plannedBadgeText: {
-      color: "#FFE6C7",
-      fontSize: theme.type.size.xs,
-      fontWeight: theme.type.weight.bold,
-      letterSpacing: 1,
-    },
-    plannedEmoji: {
-      fontSize: 72,
-    },
-    plannedMetaRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.md,
-    },
-    plannedMetaText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
-    },
-    plannedMetaAccent: {
-      color: theme.color.accent,
-    },
-    plannedDifficultyMeta: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.xs / 2,
-    },
-    plannedDifficultyDot: {
-      width: 8,
-      height: 8,
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.warning,
-    },
-    plannedLastServed: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-    },
-    plannedTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.h2,
-      fontWeight: theme.type.weight.bold,
-      textAlign: "center",
-    },
-    plannedSideList: {
-      gap: theme.space.xs,
-      alignItems: "center",
-    },
-    plannedSideChip: {
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.surfaceAlt,
-      paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.xs,
-    },
-    plannedSideText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
-    },
-    plannedSwapButton: {
-      position: "absolute",
-      top: theme.space.sm,
-      right: theme.space.sm,
-      padding: theme.space.sm,
-      borderRadius: theme.radius.full,
-      backgroundColor: "rgba(0,0,0,0.25)",
-    },
-    plannedSwapButtonPressed: {
-      opacity: 0.8,
     },
     inventoryWrapper: {
       gap: theme.space.md,

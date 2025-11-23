@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MealListItem from "../../../components/meals/MealListItem";
 import FreezerAmountModal from "../../../components/meals/FreezerAmountModal";
+import MealSearchModal from "../../../components/meals/MealSearchModal";
 import MealTabs, { type MealTabKey } from "../../../components/meals/MealTabs";
 import MealModalOverlay from "../../../components/meals/MealModalOverlay";
 import MealSearchInput, {
@@ -94,7 +95,10 @@ export default function MealsScreen() {
     direction: "desc",
   });
   const [freezerModalMeal, setFreezerModalMeal] = useState<Meal | null>(null);
-  const [isFreezerAddModalVisible, setFreezerAddModalVisible] = useState(false);
+  const [isMealPickerVisible, setMealPickerVisible] = useState(false);
+  const [selectedFreezerMeal, setSelectedFreezerMeal] = useState<Meal | null>(
+    null
+  );
   const contentProgress = useRef(new Animated.Value(0)).current;
 
   const animateContent = useCallback(
@@ -204,8 +208,8 @@ export default function MealsScreen() {
               sortSelection.direction === "cheap"
                 ? 1
                 : sortSelection.direction === "mediumCost"
-                  ? 2
-                  : 3;
+                ? 2
+                : 3;
             const distanceA = Math.abs(costA - target);
             const distanceB = Math.abs(costB - target);
             if (distanceA === distanceB) {
@@ -248,8 +252,8 @@ export default function MealsScreen() {
               sortSelection.direction === "easy"
                 ? 1
                 : sortSelection.direction === "medium"
-                  ? 3
-                  : 5;
+                ? 3
+                : 5;
             const distanceA = Math.abs(difficultyA - target);
             const distanceB = Math.abs(difficultyB - target);
             if (distanceA === distanceB) {
@@ -321,9 +325,7 @@ export default function MealsScreen() {
   const servedRankMap = useMemo(() => {
     const sorted = meals
       .filter((meal) => (meal.servedCount ?? 0) > 0)
-      .sort(
-        (a, b) => (b.servedCount ?? 0) - (a.servedCount ?? 0)
-      );
+      .sort((a, b) => (b.servedCount ?? 0) - (a.servedCount ?? 0));
     const map = new Map<string, number>();
     sorted.forEach((meal, index) => {
       map.set(meal.id, index + 1);
@@ -332,11 +334,13 @@ export default function MealsScreen() {
   }, [meals]);
 
   const openFreezerModal = useCallback((meal: Meal) => {
+    setSelectedFreezerMeal(null);
     setFreezerModalMeal(meal);
   }, []);
 
   const handleFreezerModalClose = useCallback(() => {
     setFreezerModalMeal(null);
+    setSelectedFreezerMeal(null);
   }, []);
 
   const handleFreezerModalSave = useCallback(
@@ -349,6 +353,7 @@ export default function MealsScreen() {
         isFavorite: true,
       });
       setFreezerModalMeal(null);
+      setSelectedFreezerMeal(null);
     },
     [updateMeal]
   );
@@ -380,9 +385,7 @@ export default function MealsScreen() {
             isFreezerTab ? () => openFreezerModal(item) : undefined
           }
           onRemoveFromFreezer={
-            isFreezerTab
-              ? () => handleRemoveFromFreezer(item.id)
-              : undefined
+            isFreezerTab ? () => handleRemoveFromFreezer(item.id) : undefined
           }
           servedRank={servedRankMap.get(item.id)}
         />
@@ -430,6 +433,8 @@ export default function MealsScreen() {
     () => meals.find((meal) => meal.id === selectedMealId),
     [meals, selectedMealId]
   );
+
+  const freezerAmountMeal = freezerModalMeal ?? selectedFreezerMeal;
 
   const handleDismissModal = useCallback(() => {
     setModalVisible(false);
@@ -488,11 +493,17 @@ export default function MealsScreen() {
         );
         return;
       }
-      setFreezerAddModalVisible(true);
+      setMealPickerVisible(true);
       return;
     }
     handleAddMeal();
   }, [activeTab, freezerCandidates.length, handleAddMeal]);
+
+  const handleSelectFreezerCandidate = useCallback((meal: Meal) => {
+    setSelectedFreezerMeal(meal);
+    setMealPickerVisible(false);
+    setFreezerModalMeal(meal);
+  }, []);
 
   const isFreezerTab = activeTab === "favorites";
 
@@ -541,8 +552,8 @@ export default function MealsScreen() {
           <View style={styles.freezerHelper}>
             <Text style={styles.freezerHelperTitle}>Ready to serve</Text>
             <Text style={styles.freezerHelperSubtitle}>
-              Keep tabs on leftovers and meal prep you've already handled.
-              Use this list as your personal freezer inventory.
+              Keep tabs on leftovers and meal prep you've already handled. Use
+              this list as your personal freezer inventory.
             </Text>
           </View>
         ) : null}
@@ -587,34 +598,25 @@ export default function MealsScreen() {
         onUpdateMeal={handleUpdateMeal}
       />
       <FreezerAmountModal
-        mode="edit"
-        visible={Boolean(freezerModalMeal)}
-        initialMeal={freezerModalMeal ?? undefined}
+        visible={Boolean(freezerAmountMeal)}
+        initialMeal={freezerAmountMeal ?? undefined}
         initialAmount={
-          freezerModalMeal?.freezerAmount ??
-          freezerModalMeal?.freezerQuantity ??
+          freezerAmountMeal?.freezerAmount ??
+          freezerAmountMeal?.freezerQuantity ??
           ""
         }
-        initialUnit={freezerModalMeal?.freezerUnit}
-        initialAddedAt={freezerModalMeal?.freezerAddedAt}
+        initialUnit={freezerAmountMeal?.freezerUnit}
+        initialAddedAt={freezerAmountMeal?.freezerAddedAt}
         onDismiss={handleFreezerModalClose}
         onComplete={handleFreezerModalSave}
       />
-      <FreezerAmountModal
-        mode="add"
-        visible={isFreezerAddModalVisible}
+      <MealSearchModal
+        visible={isMealPickerVisible}
         meals={freezerCandidates}
-        onDismiss={() => setFreezerAddModalVisible(false)}
-        onComplete={(meal, amount, unit, addedAt) => {
-          updateMeal({
-            id: meal.id,
-            isFavorite: true,
-            freezerAmount: amount,
-            freezerUnit: unit,
-            freezerAddedAt: addedAt,
-          });
-          setFreezerAddModalVisible(false);
-        }}
+        onDismiss={() => setMealPickerVisible(false)}
+        onSelectMeal={handleSelectFreezerCandidate}
+        title="Add to freezer"
+        subtitle="Pick a meal to add to your freezer inventory."
       />
     </>
   );
