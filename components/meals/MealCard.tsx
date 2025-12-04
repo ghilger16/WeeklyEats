@@ -8,7 +8,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
@@ -749,20 +748,6 @@ export default function MealCard({
             <Text style={styles.helperText}>
               Track how often this meal makes it to the table.
             </Text>
-            <View style={styles.toggleRow}>
-              <Text style={styles.toggleLabel}>Show on meal list</Text>
-              <Switch
-                value={Boolean(form.showServedCount)}
-                onValueChange={(value) => updateField("showServedCount", value)}
-                trackColor={{
-                  false: theme.color.surfaceAlt,
-                  true: theme.color.accent,
-                }}
-                thumbColor={
-                  form.showServedCount ? theme.color.ink : theme.color.surface
-                }
-              />
-            </View>
             <Text style={styles.servedCountValue}>
               Served {form.servedCount ?? 0}{" "}
               {form.servedCount === 1 ? "time" : "times"}
@@ -1122,22 +1107,6 @@ const createStyles = (theme: WeeklyTheme) =>
     helperText: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
-    },
-    toggleRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      backgroundColor: theme.color.surface,
-      borderRadius: theme.radius.md,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-      paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.sm,
-    },
-    toggleLabel: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
     },
     servedCountValue: {
       marginTop: theme.space.xs,

@@ -129,8 +129,6 @@ const createStyles = (theme: WeeklyTheme) =>
     plannedCard: {
       borderRadius: theme.radius.xl,
       backgroundColor: theme.color.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
       padding: theme.space.lg,
       alignItems: "center",
       gap: theme.space.sm,

@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MealListItem from "../../../components/meals/MealListItem";
 import FreezerAmountModal from "../../../components/meals/FreezerAmountModal";
+import DisplayOnCardsSheet from "../../../components/meals/DisplayOnCardsSheet";
 import MealSearchModal from "../../../components/meals/MealSearchModal";
 import MealTabs, { type MealTabKey } from "../../../components/meals/MealTabs";
 import MealModalOverlay from "../../../components/meals/MealModalOverlay";
@@ -99,6 +100,14 @@ export default function MealsScreen() {
   const [selectedFreezerMeal, setSelectedFreezerMeal] = useState<Meal | null>(
     null
   );
+  const [displayOptions, setDisplayOptions] = useState({
+    showDifficulty: true,
+    showExpense: true,
+    ratingMode: "family" as "family" | "summary" | "off",
+    showServed: true,
+    showEmoji: true,
+  });
+  const [isDisplaySheetOpen, setDisplaySheetOpen] = useState(false);
   const contentProgress = useRef(new Animated.Value(0)).current;
 
   const animateContent = useCallback(
@@ -388,12 +397,14 @@ export default function MealsScreen() {
             isFreezerTab ? () => handleRemoveFromFreezer(item.id) : undefined
           }
           servedRank={servedRankMap.get(item.id)}
+          displayOptions={displayOptions}
         />
       );
     },
     [
       activeTab,
       deleteMeal,
+      displayOptions,
       handleRemoveFromFreezer,
       onOpenMeal,
       openFreezerModal,
@@ -463,10 +474,6 @@ export default function MealsScreen() {
     [updateMeal]
   );
 
-  const handleOpenMenu = useCallback(() => {
-    Alert.alert("Meals", "Menu actions coming soon.");
-  }, []);
-
   useEffect(() => {
     if (
       modalMode === "edit" &&
@@ -525,16 +532,76 @@ export default function MealsScreen() {
     [handleAddButtonPress, isFreezerTab]
   );
 
+  const toggleDisplayOption = useCallback(
+    (key: keyof typeof displayOptions) => {
+      setDisplayOptions((prev) => ({ ...prev, [key]: !prev[key] }));
+    },
+    []
+  );
+
+  const cycleRatingMode = useCallback(() => {
+    setDisplayOptions((prev) => {
+      const next =
+        prev.ratingMode === "family"
+          ? "summary"
+          : prev.ratingMode === "summary"
+          ? "off"
+          : "family";
+      return { ...prev, ratingMode: next };
+    });
+  }, []);
+
+  const displayOptionList = useMemo(
+    () => [
+      {
+        id: "difficulty",
+        label: "Difficulty",
+        selected: displayOptions.showDifficulty,
+        onPress: () => toggleDisplayOption("showDifficulty"),
+      },
+      {
+        id: "expense",
+        label: "Expense",
+        selected: displayOptions.showExpense,
+        onPress: () => toggleDisplayOption("showExpense"),
+      },
+      {
+        id: "ratings",
+        label:
+          displayOptions.ratingMode === "family"
+            ? "Family Ratings"
+            : displayOptions.ratingMode === "summary"
+            ? "Ratings Star"
+            : "Ratings Off",
+        selected: displayOptions.ratingMode !== "off",
+        onPress: cycleRatingMode,
+      },
+      {
+        id: "served",
+        label: "Served Count",
+        selected: displayOptions.showServed,
+        onPress: () => toggleDisplayOption("showServed"),
+      },
+      {
+        id: "emoji",
+        label: "Meal icon",
+        selected: displayOptions.showEmoji,
+        onPress: () => toggleDisplayOption("showEmoji"),
+      },
+    ],
+    [cycleRatingMode, displayOptions, toggleDisplayOption]
+  );
+
   const menuButtonConfig = useMemo(
     () =>
       isFreezerTab
         ? undefined
         : {
-            onPress: handleOpenMenu,
+            onPress: () => setDisplaySheetOpen(true),
             testID: "meals-more-button",
             accessibilityLabel: "Open meals menu",
           },
-    [handleOpenMenu, isFreezerTab]
+    [isFreezerTab]
   );
 
   return (
@@ -609,6 +676,11 @@ export default function MealsScreen() {
         initialAddedAt={freezerAmountMeal?.freezerAddedAt}
         onDismiss={handleFreezerModalClose}
         onComplete={handleFreezerModalSave}
+      />
+      <DisplayOnCardsSheet
+        visible={isDisplaySheetOpen}
+        options={displayOptionList}
+        onClose={() => setDisplaySheetOpen(false)}
       />
       <MealSearchModal
         visible={isMealPickerVisible}

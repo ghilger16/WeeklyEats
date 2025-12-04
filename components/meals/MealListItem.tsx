@@ -33,6 +33,13 @@ type Props = {
   onFreezerPress?: () => void;
   onRemoveFromFreezer?: () => void;
   servedRank?: number;
+  displayOptions?: {
+    showDifficulty?: boolean;
+    showExpense?: boolean;
+    showServed?: boolean;
+    ratingMode?: "family" | "summary";
+    showEmoji?: boolean;
+  };
 };
 
 type DifficultyColorKey = "success" | "warning" | "danger";
@@ -66,6 +73,7 @@ const MealListItem = memo(function MealListItem({
   onFreezerPress,
   onRemoveFromFreezer,
   servedRank,
+  displayOptions,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -161,14 +169,21 @@ const MealListItem = memo(function MealListItem({
     : undefined;
   const servedCount =
     typeof meal.servedCount === "number" ? meal.servedCount : 0;
-  const shouldShowServedCount = meal.showServedCount;
+
+  const showDifficulty = displayOptions?.showDifficulty ?? true;
+  const showExpense = displayOptions?.showExpense ?? true;
+  const ratingMode = displayOptions?.ratingMode ?? "family";
+  const showRatings = ratingMode !== "off";
+  const useFamilyRatingSummary = ratingMode === "summary";
+  const showServed = displayOptions?.showServed ?? true;
+  const showEmoji = displayOptions?.showEmoji ?? true;
 
   const combinedStyle = ({
     pressed,
   }: PressableStateCallbackType): StyleProp<ViewStyle> => [
     styles.card,
     isFreezer && styles.freezerCard,
-    isFamilyStar && styles.familyStarCard,
+    isFamilyStar && showRatings && styles.familyStarCard,
     style,
   ];
 
@@ -212,6 +227,21 @@ const MealListItem = memo(function MealListItem({
     };
   }, [hasFamilyMembers, meal.familyRatings]);
 
+  const familySummary = useMemo(() => {
+    if (!hasFamilyMembers || !meal.familyRatings) return null;
+    const scores = Object.values(meal.familyRatings)
+      .map((value) => {
+        if (value === 3) return 5;
+        if (value === 2) return 3;
+        if (value === 1) return 1;
+        return 0;
+      })
+      .filter((value) => value > 0);
+    if (!scores.length) return null;
+    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+    return { avg, count: scores.length };
+  }, [hasFamilyMembers, meal.familyRatings]);
+
   const isGalaxyMeal =
     isFamilyStar &&
     typeof servedRank === "number" &&
@@ -242,11 +272,13 @@ const MealListItem = memo(function MealListItem({
     >
       <FlexGrid gutterWidth={theme.space.lg}>
         <FlexGrid.Row alignItems="center" wrap={false}>
-          <FlexGrid.Col span={2} grow={0}>
-            <Text style={styles.emoji} accessible accessibilityRole="image">
-              {meal.emoji}
-            </Text>
-          </FlexGrid.Col>
+          {showEmoji ? (
+            <FlexGrid.Col span={2} grow={0}>
+              <Text style={styles.emoji} accessible accessibilityRole="image">
+                {meal.emoji ?? "🍽️"}
+              </Text>
+            </FlexGrid.Col>
+          ) : null}
           {isFreezer ? (
             <FlexGrid.Col grow={1}>
               <View style={styles.freezerDetails}>
@@ -273,7 +305,7 @@ const MealListItem = memo(function MealListItem({
             </FlexGrid.Col>
           ) : (
             <>
-              <FlexGrid.Col span={7} grow={1}>
+              <FlexGrid.Col span={showEmoji ? 7 : 9} grow={1}>
                 <View style={styles.details}>
                   <Text style={styles.title}>{meal.title}</Text>
                   {isFamilyStar ? (
@@ -281,12 +313,25 @@ const MealListItem = memo(function MealListItem({
                       variant={isGalaxyMeal ? "galaxy" : "family"}
                       style={styles.badge}
                     />
+                  ) : showRatings ? (
+                    ratingMode === "family" ? (
+                      familyRatingsNode ?? (
+                        <RatingStars
+                          value={meal.rating ?? 0}
+                          size={16}
+                          gap={0}
+                        />
+                      )
                   ) : (
-                    familyRatingsNode ?? (
-                      <RatingStars value={meal.rating ?? 0} size={16} gap={0} />
-                    )
-                  )}
-                  {shouldShowServedCount ? (
+                    <Text style={styles.familySummary}>
+                      ⭐{" "}
+                      {familySummary
+                        ? familySummary.avg.toFixed(1)
+                        : (meal.rating ?? 0).toFixed(1)}
+                    </Text>
+                  )
+                ) : null}
+                  {showServed ? (
                     <Text style={styles.servedCount}>
                       Served {servedCount}{" "}
                       {servedCount === 1 ? "time" : "times"}
@@ -296,7 +341,7 @@ const MealListItem = memo(function MealListItem({
               </FlexGrid.Col>
               <FlexGrid.Col span={3} grow={0}>
                 <View style={styles.meta}>
-                  {difficultyColor ? (
+                  {showDifficulty && difficultyColor ? (
                     <View
                       style={[
                         styles.difficultyDot,
@@ -306,12 +351,14 @@ const MealListItem = memo(function MealListItem({
                       accessible
                     />
                   ) : null}
-                  <Text
-                    style={styles.cost}
-                    accessibilityLabel={`Expense ${expenseLabel}`}
-                  >
-                    {costLabel}
-                  </Text>
+                  {showExpense ? (
+                    <Text
+                      style={styles.cost}
+                      accessibilityLabel={`Expense ${expenseLabel}`}
+                    >
+                      {costLabel}
+                    </Text>
+                  ) : null}
                   {meal.locked ? (
                     <MaterialCommunityIcons
                       name="lock"
@@ -393,6 +440,12 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: 18,
       fontWeight: theme.type.weight.bold,
       marginBottom: theme.space.xs,
+    },
+    familySummary: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+      marginTop: theme.space.xs,
     },
     servedCount: {
       marginTop: theme.space.xs,
