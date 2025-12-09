@@ -32,9 +32,13 @@ import {
 import {
   PLANNED_WEEK_LABELS,
   createEmptyCurrentPlannedWeek,
+  createEmptyCurrentWeekSides,
   PlannedWeekDayKey,
 } from "../../../types/weekPlan";
-import { setCurrentWeekPlan } from "../../../stores/weekPlanStorage";
+import {
+  setCurrentWeekPlan,
+  setCurrentWeekSides,
+} from "../../../stores/weekPlanStorage";
 import { clearServedMeals } from "../../../stores/servedMealsStorage";
 import type { ServedOutcome } from "../../../components/week-dashboard/servedActions";
 import { getRandomCelebrationMessage } from "../../../components/week-dashboard/celebrations";
@@ -92,7 +96,9 @@ export default function WeekDashboardScreen() {
     days,
     today,
     plan,
+    sides,
     setPlanState,
+    setSidesState,
     refresh: refreshWeekPlan,
   } = useCurrentWeekPlan({
     today: effectiveDate,
@@ -168,10 +174,7 @@ export default function WeekDashboardScreen() {
             Boolean(day.meal && day.mealId) &&
             !servedEntries.some((entry) => entry.dayKey === day.key)
         )
-        .sort(
-          (a, b) =>
-            b.plannedDate.getTime() - a.plannedDate.getTime()
-        ),
+        .sort((a, b) => b.plannedDate.getTime() - a.plannedDate.getTime()),
     [days, servedEntries]
   );
 
@@ -231,9 +234,7 @@ export default function WeekDashboardScreen() {
         servedAtISO: new Date(plannedDate).toISOString(),
         outcome,
         celebrationMessage:
-          outcome === "served"
-            ? getRandomCelebrationMessage()
-            : undefined,
+          outcome === "served" ? getRandomCelebrationMessage() : undefined,
       });
 
       if (outcome === "served") {
@@ -298,10 +299,15 @@ export default function WeekDashboardScreen() {
 
   const handleClearWeekPlan = useCallback(async () => {
     const emptyPlan = createEmptyCurrentPlannedWeek();
+    const emptySides = createEmptyCurrentWeekSides();
     setPlanState(emptyPlan);
-    await setCurrentWeekPlan(emptyPlan);
+    setSidesState(emptySides);
+    await Promise.all([
+      setCurrentWeekPlan(emptyPlan),
+      setCurrentWeekSides(emptySides),
+    ]);
     await refreshWeekPlan();
-  }, [refreshWeekPlan, setPlanState]);
+  }, [refreshWeekPlan, setPlanState, setSidesState]);
 
   const handleClearServedMeals = useCallback(async () => {
     await clearServedMeals();
@@ -429,7 +435,10 @@ export default function WeekDashboardScreen() {
                 nextPlan[day.key] = nextSlot.mealId ?? null;
               });
               setPlanState(nextPlan);
-              await setCurrentWeekPlan(nextPlan);
+              await Promise.all([
+                setCurrentWeekPlan(nextPlan),
+                setCurrentWeekSides(sides),
+              ]);
             }}
           />
           <ServedList

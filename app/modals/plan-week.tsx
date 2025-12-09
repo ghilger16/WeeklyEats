@@ -33,6 +33,7 @@ import { Meal } from "../../types/meals";
 import { useCurrentWeekPlan } from "../../hooks/useCurrentWeekPlan";
 import {
   setCurrentWeekPlan,
+  setCurrentWeekSides,
   updateWeekPlanStreak,
 } from "../../stores/weekPlanStorage";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
@@ -253,9 +254,19 @@ export default function PlanWeekModal() {
     [meals]
   );
 
+  const plannedMealIds = useMemo(
+    () =>
+      new Set(
+        Object.values(plannedWeek).filter(
+          (mealId): mealId is Meal["id"] => typeof mealId === "string"
+        )
+      ),
+    [plannedWeek]
+  );
+
   const suggestionPool = useMemo(
-    () => buildMealSuggestions(filteredMeals, activeDayPins),
-    [activeDayPins, filteredMeals]
+    () => buildMealSuggestions(filteredMeals, activeDayPins, plannedMealIds),
+    [activeDayPins, filteredMeals, plannedMealIds]
   );
 
   const activeSuggestionEntry = useMemo(() => {
@@ -409,7 +420,10 @@ export default function PlanWeekModal() {
     }
     setIsSaving(true);
     try {
-      await setCurrentWeekPlan(plannedWeek);
+      await Promise.all([
+        setCurrentWeekPlan(plannedWeek),
+        setCurrentWeekSides(daySidesMap),
+      ]);
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success
       ).catch(() => {});
@@ -455,7 +469,10 @@ export default function PlanWeekModal() {
     };
     setPlannedWeek(nextPlan);
     try {
-      await setCurrentWeekPlan(nextPlan);
+      await Promise.all([
+        setCurrentWeekPlan(nextPlan),
+        setCurrentWeekSides(daySidesMap),
+      ]);
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success
       ).catch(() => {});

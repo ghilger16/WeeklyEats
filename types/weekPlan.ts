@@ -10,6 +10,7 @@ export type PlannedWeekDayKey =
   | "sun";
 
 export type CurrentPlannedWeek = Record<PlannedWeekDayKey, Meal["id"] | null>;
+export type CurrentWeekSides = Record<PlannedWeekDayKey, string[]>;
 
 export const PLANNED_WEEK_ORDER: PlannedWeekDayKey[] = [
   "mon",
@@ -47,3 +48,8 @@ export const createEmptyCurrentPlannedWeek = (): CurrentPlannedWeek =>
     return acc;
   }, {} as CurrentPlannedWeek);
 
+export const createEmptyCurrentWeekSides = (): CurrentWeekSides =>
+  PLANNED_WEEK_ORDER.reduce<CurrentWeekSides>((acc, key) => {
+    acc[key] = [];
+    return acc;
+  }, {} as CurrentWeekSides);

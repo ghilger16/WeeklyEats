@@ -31,6 +31,10 @@ export default function DateControls({
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
+  if (!showControls) {
+    return null;
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.dateLabel}>
@@ -38,83 +42,79 @@ export default function DateControls({
       </Text>
       <Text style={styles.dateValue}>{formattedDate}</Text>
 
-      {showControls ? (
-        <>
-          <View style={styles.buttonRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="View previous day"
-              style={({ pressed }) => [
-                styles.controlButton,
-                pressed && styles.controlButtonPressed,
-              ]}
-              onPress={onPrevDay}
-            >
-              <Text style={styles.controlButtonText}>Prev Day</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="View next day"
-              style={({ pressed }) => [
-                styles.controlButton,
-                pressed && styles.controlButtonPressed,
-              ]}
-              onPress={onNextDay}
-            >
-              <Text style={styles.controlButtonText}>Next Day</Text>
-            </Pressable>
-          </View>
+      <View style={styles.buttonRow}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="View previous day"
+          style={({ pressed }) => [
+            styles.controlButton,
+            pressed && styles.controlButtonPressed,
+          ]}
+          onPress={onPrevDay}
+        >
+          <Text style={styles.controlButtonText}>Prev Day</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="View next day"
+          style={({ pressed }) => [
+            styles.controlButton,
+            pressed && styles.controlButtonPressed,
+          ]}
+          onPress={onNextDay}
+        >
+          <Text style={styles.controlButtonText}>Next Day</Text>
+        </Pressable>
+      </View>
 
-          <View style={styles.buttonRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Clear planned week data"
-              style={({ pressed }) => [
-                styles.secondaryButton,
-                pressed && styles.secondaryButtonPressed,
-              ]}
-              onPress={onClearWeekPlan}
-            >
-              <Text style={styles.secondaryButtonText}>Clear Week Plan</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Clear served meals data"
-              style={({ pressed }) => [
-                styles.secondaryButton,
-                pressed && styles.secondaryButtonPressed,
-              ]}
-              onPress={onClearServedMeals}
-            >
-              <Text style={styles.secondaryButtonText}>Clear Served Meals</Text>
-            </Pressable>
-          </View>
+      <View style={styles.buttonRow}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Clear planned week data"
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            pressed && styles.secondaryButtonPressed,
+          ]}
+          onPress={onClearWeekPlan}
+        >
+          <Text style={styles.secondaryButtonText}>Clear Week Plan</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Clear served meals data"
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            pressed && styles.secondaryButtonPressed,
+          ]}
+          onPress={onClearServedMeals}
+        >
+          <Text style={styles.secondaryButtonText}>Clear Served Meals</Text>
+        </Pressable>
+      </View>
 
-          <View style={styles.previewButtonWrapper}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Preview stored data"
-              style={({ pressed }) => [
-                styles.previewButton,
-                pressed && styles.previewButtonPressed,
-              ]}
-              onPress={onTogglePreview}
-            >
-              <Text style={styles.previewButtonText}>
-                {isPreviewVisible ? "Hide Preview" : "Preview Data"}
-              </Text>
-            </Pressable>
-          </View>
+      <View style={styles.previewButtonWrapper}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Preview stored data"
+          style={({ pressed }) => [
+            styles.previewButton,
+            pressed && styles.previewButtonPressed,
+          ]}
+          onPress={onTogglePreview}
+        >
+          <Text style={styles.previewButtonText}>
+            {isPreviewVisible ? "Hide Preview" : "Preview Data"}
+          </Text>
+        </Pressable>
+      </View>
 
-          {isPreviewVisible ? (
-            <View style={styles.previewContainer}>
-              <Text style={styles.previewLabel}>Stored Data</Text>
-              <Text selectable style={styles.previewText}>
-                {previewContent}
-              </Text>
-            </View>
-          ) : null}
-        </>
+      {isPreviewVisible ? (
+        <View style={styles.previewContainer}>
+          <Text style={styles.previewLabel}>Stored Data</Text>
+          <Text selectable style={styles.previewText}>
+            {previewContent}
+          </Text>
+        </View>
       ) : null}
     </View>
   );

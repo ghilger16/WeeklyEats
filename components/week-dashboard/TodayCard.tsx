@@ -109,9 +109,13 @@ export default function TodayCard({
         <>
           <Pressable
             style={styles.touchArea}
-            accessibilityRole="button"
-            accessibilityLabel={`Open recipe for ${meal.title}`}
-            onPress={handleCardPress}
+            accessibilityRole={meal.recipeUrl ? "button" : "text"}
+            accessibilityLabel={
+              meal.recipeUrl
+                ? `Open recipe for ${meal.title}`
+                : `Meal details for ${meal.title}`
+            }
+            onPress={meal.recipeUrl ? handleCardPress : undefined}
           >
             <View style={styles.topRow}>
               <Text style={styles.date}>{dateLabel}</Text>
@@ -125,11 +129,11 @@ export default function TodayCard({
                     />
                     <Text style={styles.freezerBadgeText}>Freezer</Text>
                   </View>
-                ) : (
+                ) : meal.recipeUrl ? (
                   <View style={styles.recipeTag}>
                     <Text style={styles.recipeTagText}>Recipe</Text>
                   </View>
-                )}
+                ) : null}
               </View>
             </View>
 

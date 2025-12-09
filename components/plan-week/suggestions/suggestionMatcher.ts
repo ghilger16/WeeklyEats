@@ -30,8 +30,11 @@ const effortToDifficultySet = (effort: EffortOption | null | undefined) => {
   return new Set<DifficultyKey>([effort]);
 };
 
-const hasFreezerInventory = (meal: Meal) =>
-  Boolean(meal.freezerAmount || meal.freezerQuantity);
+const hasFreezerInventory = (meal: Meal) => {
+  const amount = meal.freezerAmount?.trim();
+  const quantity = meal.freezerQuantity?.trim();
+  return Boolean(amount || quantity || meal.freezerAddedAt);
+};
 
 const getExpenseTier = (meal: Meal): number => {
   if (typeof meal.expense === "number" && !Number.isNaN(meal.expense)) {
@@ -76,7 +79,8 @@ const resolveContextFromFlags = (flags: Set<SuggestionBannerContext>) => {
 
 export const buildMealSuggestions = (
   meals: Meal[],
-  pins: DayPinsState
+  pins: DayPinsState,
+  excludeMealIds?: Set<Meal["id"]>
 ): MealSuggestion[] => {
   const allowedDifficulty = effortToDifficultySet(pins.effort);
   const desiredExpense =
@@ -87,13 +91,29 @@ export const buildMealSuggestions = (
       : pins.expense === "$$$"
       ? 3
       : null;
+  const shouldFilterByExpense = Boolean(desiredExpense && !pins.freezerNight);
+  const shouldFilterByDifficulty = Boolean(
+    allowedDifficulty && !pins.freezerNight
+  );
 
   return meals
     .filter((meal) => {
+      if (excludeMealIds?.has(meal.id)) {
+        return false;
+      }
       if (pins.familyStar === "exclude" && meal.isFavorite) {
         return false;
       }
-      if (allowedDifficulty) {
+      if (pins.freezerNight && !hasFreezerInventory(meal)) {
+        return false;
+      }
+      if (shouldFilterByExpense) {
+        const mealExpense = getExpenseTier(meal);
+        if (mealExpense !== desiredExpense) {
+          return false;
+        }
+      }
+      if (shouldFilterByDifficulty) {
         const mealDifficulty = difficultyFromValue(meal.difficulty);
         if (!allowedDifficulty.has(mealDifficulty)) {
           return false;

@@ -127,19 +127,25 @@ export default function CurrentWeekList({
       for (let i = currentIndex; i < targetIndex; i += 1) {
         const tempMeal = next[i].meal;
         const tempMealId = next[i].mealId;
+        const tempSides = next[i].sides;
         next[i].meal = next[i + 1].meal;
         next[i].mealId = next[i + 1].mealId;
+        next[i].sides = next[i + 1].sides;
         next[i + 1].meal = tempMeal;
         next[i + 1].mealId = tempMealId;
+        next[i + 1].sides = tempSides;
       }
     } else {
       for (let i = currentIndex; i > targetIndex; i -= 1) {
         const tempMeal = next[i].meal;
         const tempMealId = next[i].mealId;
+        const tempSides = next[i].sides;
         next[i].meal = next[i - 1].meal;
         next[i].mealId = next[i - 1].mealId;
+        next[i].sides = next[i - 1].sides;
         next[i - 1].meal = tempMeal;
         next[i - 1].mealId = tempMealId;
+        next[i - 1].sides = tempSides;
       }
     }
 
@@ -268,6 +274,7 @@ export default function CurrentWeekList({
           <WeekDayListItem
             dayLabel={day.label}
             meal={day.meal}
+            sides={day.sides}
             isFreezer={Boolean(day.meal?.isFavorite)}
             rightSlot={
               isEditing ? (
@@ -361,20 +368,13 @@ export default function CurrentWeekList({
             <WeekDayListItem
               dayLabel={overlayLabel}
               meal={overlayMeal}
+              sides={draggingItem?.sides}
               isFreezer={Boolean(overlayMeal?.isFavorite)}
             />
           </Animated.View>
         ) : null}
       </View>
 
-      <Pressable style={styles.footer} accessibilityRole="button">
-        <Text style={styles.footerText}>Show all</Text>
-        <MaterialCommunityIcons
-          name="chevron-down"
-          size={20}
-          color={theme.color.subtleInk}
-        />
-      </Pressable>
     </View>
   );
 }
@@ -449,19 +449,5 @@ const createStyles = (theme: WeeklyTheme) =>
       shadowOpacity: 0.15,
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 6 },
-    },
-    footer: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: theme.space.xs,
-      paddingVertical: theme.space.sm,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    footerText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
     },
   });

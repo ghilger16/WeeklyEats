@@ -1,13 +1,16 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   CurrentPlannedWeek,
+  CurrentWeekSides,
   PlannedWeekDayKey,
   createEmptyCurrentPlannedWeek,
+  createEmptyCurrentWeekSides,
   PLANNED_WEEK_ORDER,
 } from "../types/weekPlan";
 
 const STORAGE_KEY = "@weeklyeats/weekPlan";
 const WEEK_PLAN_STREAK_KEY = "@weeklyeats/weekPlanStreak";
+const WEEK_PLAN_SIDES_KEY = "@weeklyeats/weekPlanSides";
 
 export type WeekPlanStreak = {
   count: number;
@@ -44,6 +47,21 @@ const normalizePlan = (raw: unknown): CurrentPlannedWeek | null => {
   return hasValidEntry ? plan : plan;
 };
 
+const normalizeSides = (raw: unknown): CurrentWeekSides => {
+  const sides = createEmptyCurrentWeekSides();
+  if (!raw || typeof raw !== "object") {
+    return sides;
+  }
+  Object.entries(raw as Record<string, unknown>).forEach(([key, value]) => {
+    if (isValidDayKey(key) && Array.isArray(value)) {
+      sides[key] = value.filter(
+        (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
+      );
+    }
+  });
+  return sides;
+};
+
 export const getCurrentWeekPlan = async (): Promise<CurrentPlannedWeek | null> => {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -69,9 +87,34 @@ export const setCurrentWeekPlan = async (
   }
 };
 
+export const getCurrentWeekSides = async (): Promise<CurrentWeekSides> => {
+  try {
+    const raw = await AsyncStorage.getItem(WEEK_PLAN_SIDES_KEY);
+    if (!raw) {
+      return createEmptyCurrentWeekSides();
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    return normalizeSides(parsed);
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to get plan sides", error);
+    return createEmptyCurrentWeekSides();
+  }
+};
+
+export const setCurrentWeekSides = async (
+  sides: CurrentWeekSides
+): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(WEEK_PLAN_SIDES_KEY, JSON.stringify(sides));
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to persist plan sides", error);
+  }
+};
+
 export const clearCurrentWeekPlan = async (): Promise<void> => {
   try {
     await AsyncStorage.removeItem(STORAGE_KEY);
+    await AsyncStorage.removeItem(WEEK_PLAN_SIDES_KEY);
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to clear plan", error);
   }

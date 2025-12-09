@@ -60,6 +60,55 @@ const SuggestionsTab = ({
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const hasSides = sides.length > 0;
+  const isFreezerMeal = useMemo(() => {
+    if (!meal) {
+      return false;
+    }
+    const amount = meal.freezerAmount?.trim();
+    const quantity = meal.freezerQuantity?.trim();
+    return Boolean(amount || quantity || meal.freezerAddedAt);
+  }, [meal]);
+  const freezerPortionLabel = useMemo(() => {
+    if (!isFreezerMeal || !meal) {
+      return "";
+    }
+    const quantity = (meal.freezerQuantity ?? "").trim();
+    const amount = (meal.freezerAmount ?? "").trim();
+    const unit = (meal.freezerUnit ?? "").trim();
+    if (amount) {
+      return `Portions left: ${amount}${unit ? ` ${unit}` : ""}`;
+    }
+    if (quantity) {
+      return `Portions left: ${quantity}`;
+    }
+    return "Portions left in freezer";
+  }, [isFreezerMeal, meal]);
+
+  const freezerDateLabel = useMemo(() => {
+    if (!isFreezerMeal || !meal) {
+      return "";
+    }
+    const addedAt = meal.freezerAddedAt ?? "";
+    const updatedAt = meal.updatedAt ?? "";
+    const parseDate = (value: string) => {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime())
+        ? null
+        : parsed.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          });
+    };
+    const addedDate = parseDate(addedAt);
+    if (addedDate) {
+      return `Added to freezer ${addedDate}`;
+    }
+    const updatedDate = parseDate(updatedAt);
+    if (updatedDate) {
+      return `Inventory checked ${updatedDate}`;
+    }
+    return "";
+  }, [isFreezerMeal, meal]);
 
   return (
     <View style={styles.container}>
@@ -75,51 +124,76 @@ const SuggestionsTab = ({
           <View style={styles.mealHeroContent}>
             <Text style={styles.mealEmoji}>{meal?.emoji ?? "🍽️"}</Text>
             <View style={styles.mealHeroDetails}>
-              <FlexGrid
-                gutterWidth={theme.space.md}
-                style={styles.mealHeroMetaGrid}
-              >
-                <FlexGrid.Row
-                  alignItems="center"
-                  justifyContent="flex-start"
-                  style={styles.mealHeroMetaRow}
-                >
-                  <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
-                    <View style={styles.metaItem}>
-                      <MaterialCommunityIcons
-                        name="star"
-                        size={16}
-                        color={theme.color.accent}
-                      />
-                      <Text style={styles.metaText}>{ratingLabel}</Text>
-                    </View>
-                  </FlexGrid.Col>
-                  <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
-                    <View style={styles.metaItem}>
-                      <Text style={styles.metaText}>{costLabel}</Text>
-                    </View>
-                  </FlexGrid.Col>
-                  <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
-                    <View style={styles.metaItem}>
-                      <MaterialCommunityIcons
-                        name="circle"
-                        size={14}
-                        color={
-                          theme.color[
-                            difficultyToThemeColor(mealDifficulty ?? "medium")
-                          ]
-                        }
-                      />
-                      <Text style={styles.metaText}>
-                        {mealDifficulty
-                          ? difficultyToLabel[mealDifficulty]
-                          : "--"}
-                      </Text>
-                    </View>
-                  </FlexGrid.Col>
-                </FlexGrid.Row>
-              </FlexGrid>
-              <Text style={styles.lastServed}>{lastServedLabel}</Text>
+              {isFreezerMeal ? (
+                <View style={styles.freezerInfo}>
+                  <View style={styles.freezerPill}>
+                    <MaterialCommunityIcons
+                      name="snowflake"
+                      size={14}
+                      color={theme.color.accent}
+                    />
+                    <Text style={styles.freezerPillText}>Freezer meal</Text>
+                  </View>
+                  <Text style={styles.freezerInfoText}>
+                    {freezerPortionLabel}
+                  </Text>
+                  {freezerDateLabel ? (
+                    <Text style={styles.freezerInfoSubtle}>
+                      {freezerDateLabel}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : (
+                <>
+                  <FlexGrid
+                    gutterWidth={theme.space.md}
+                    style={styles.mealHeroMetaGrid}
+                  >
+                    <FlexGrid.Row
+                      alignItems="center"
+                      justifyContent="flex-start"
+                      style={styles.mealHeroMetaRow}
+                    >
+                      <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                        <View style={styles.metaItem}>
+                          <MaterialCommunityIcons
+                            name="star"
+                            size={16}
+                            color={theme.color.accent}
+                          />
+                          <Text style={styles.metaText}>{ratingLabel}</Text>
+                        </View>
+                      </FlexGrid.Col>
+                      <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                        <View style={styles.metaItem}>
+                          <Text style={styles.metaText}>{costLabel}</Text>
+                        </View>
+                      </FlexGrid.Col>
+                      <FlexGrid.Col grow={0} style={styles.gridAutoCol}>
+                        <View style={styles.metaItem}>
+                          <MaterialCommunityIcons
+                            name="circle"
+                            size={14}
+                            color={
+                              theme.color[
+                                difficultyToThemeColor(
+                                  mealDifficulty ?? "medium"
+                                )
+                              ]
+                            }
+                          />
+                          <Text style={styles.metaText}>
+                            {mealDifficulty
+                              ? difficultyToLabel[mealDifficulty]
+                              : "--"}
+                          </Text>
+                        </View>
+                      </FlexGrid.Col>
+                    </FlexGrid.Row>
+                  </FlexGrid>
+                  <Text style={styles.lastServed}>{lastServedLabel}</Text>
+                </>
+              )}
             </View>
           </View>
         </View>
@@ -336,6 +410,35 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,
+    },
+    freezerInfo: {
+      alignSelf: "stretch",
+      gap: theme.space.xs,
+    },
+    freezerPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs,
+      paddingHorizontal: theme.space.sm,
+      paddingVertical: Math.max(4, theme.space.xs),
+      backgroundColor: theme.color.surface,
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+    },
+    freezerPillText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.medium,
+    },
+    freezerInfoText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+    },
+    freezerInfoSubtle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
     },
     lastServed: {
       color: theme.color.subtleInk,

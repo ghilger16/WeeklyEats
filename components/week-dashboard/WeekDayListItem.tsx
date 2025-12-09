@@ -13,6 +13,7 @@ type Props = {
   emojiOverride?: string;
   iconOverride?: string;
   isFreezer?: boolean;
+  sides?: string[];
 };
 
 export default function WeekDayListItem({
@@ -23,11 +24,13 @@ export default function WeekDayListItem({
   emojiOverride,
   iconOverride,
   isFreezer = false,
+  sides = [],
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const title = labelOverride ?? meal?.title ?? "Unassigned";
   const emoji = emojiOverride ?? meal?.emoji ?? "🍽️";
+  const sidesLabel = sides.length ? `w/ ${sides.join(" • ")}` : "";
 
   const leadingVisual = iconOverride ? (
     <MaterialCommunityIcons
@@ -48,16 +51,23 @@ export default function WeekDayListItem({
       <Text style={styles.day}>{dayLabel}</Text>
       <View style={styles.mealInfo}>
         {leadingVisual}
-        <View style={styles.titleRow}>
-          <Text style={styles.title} numberOfLines={1}>
-            {title}
-          </Text>
-          {isFreezer ? (
-            <MaterialCommunityIcons
-              name="snowflake"
-              size={14}
-              color={theme.color.accent}
-            />
+        <View style={styles.titleColumn}>
+          <View style={styles.titleRow}>
+            <Text style={styles.title} numberOfLines={1}>
+              {title}
+            </Text>
+            {isFreezer ? (
+              <MaterialCommunityIcons
+                name="snowflake"
+                size={14}
+                color={theme.color.accent}
+              />
+            ) : null}
+          </View>
+          {sidesLabel ? (
+            <Text style={styles.sides} numberOfLines={1}>
+              {sidesLabel}
+            </Text>
           ) : null}
         </View>
       </View>
@@ -107,6 +117,14 @@ const createStyles = (theme: WeeklyTheme) =>
       flexDirection: "row",
       alignItems: "center",
       gap: theme.space.xs,
+    },
+    titleColumn: {
+      flex: 1,
+      gap: 2,
+    },
+    sides: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
     },
     rightSlot: {
       flexDirection: "row",
