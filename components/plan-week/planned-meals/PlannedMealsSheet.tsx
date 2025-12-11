@@ -7,8 +7,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useMemo, useState } from "react";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useMemo } from "react";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 import {
@@ -36,7 +35,6 @@ type Props = {
   summaryTranslateY: Animated.Value;
   summaryPanHandlers: any;
   onSelectPlannerDay: (day: PlannedWeekDayKey) => void;
-  onRequestEditDay?: (day: PlannedWeekDayKey) => void;
   onSaveSelection: () => void;
   isPlannerSaving: boolean;
   registerRowRef?: (day: PlannedWeekDayKey, ref: View | null) => void;
@@ -52,14 +50,12 @@ const PlannedMealsSheet = ({
   summaryTranslateY,
   summaryPanHandlers,
   onSelectPlannerDay,
-  onRequestEditDay,
   onSaveSelection,
   isPlannerSaving,
   registerRowRef,
 }: Props) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const [isEditMode, setIsEditMode] = useState(false);
 
   const rows = orderedDays.map((day) => {
     const mealId = plannedWeek[day];
@@ -88,29 +84,9 @@ const PlannedMealsSheet = ({
           <View style={styles.summaryModalHeader}>
             <Text style={styles.summaryModalTitle}>Planned Meals</Text>
             <Text style={styles.summaryModalSubtitle}>
-              {isEditMode
-                ? "Tap a day to edit its meal."
-                : "Review your picks for the week."}
+              Review your picks for the week.
             </Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
-              isEditMode ? "Exit edit mode" : "Enable edit mode"
-            }
-            onPress={() => setIsEditMode((prev) => !prev)}
-            style={({ pressed }) => [
-              styles.editButton,
-              isEditMode && styles.editButtonActive,
-              pressed && styles.editButtonPressed,
-            ]}
-          >
-            <MaterialCommunityIcons
-              name="pencil-outline"
-              size={18}
-              color={isEditMode ? theme.color.ink : theme.color.subtleInk}
-            />
-          </Pressable>
         </View>
         <View style={styles.summaryList}>
           {rows.map(({ day, plannedMeal, sides }) => (
@@ -124,18 +100,13 @@ const PlannedMealsSheet = ({
               sides={sides}
               isSelected={plannerSelection.day === day}
               isSaved={savedIndicatorDay === day}
-              isEditMode={isEditMode}
-              canSelect={!isEditMode && Boolean(plannerSelection.meal)}
-              onPress={() =>
-                isEditMode
-                  ? onRequestEditDay?.(day)
-                  : onSelectPlannerDay(day)
-              }
+              canSelect={Boolean(plannerSelection.meal)}
+              onPress={() => onSelectPlannerDay(day)}
               registerRef={(ref) => registerRowRef?.(day, ref)}
             />
           ))}
         </View>
-        {hasSelection && !isEditMode ? (
+        {hasSelection ? (
           <View style={styles.summaryPrimaryButtonWrapper}>
             <PressableButton
               label={`Save to ${
@@ -250,23 +221,6 @@ const createStyles = (theme: WeeklyTheme) =>
     summaryModalHeader: {
       flex: 1,
       gap: theme.space.xs,
-    },
-    editButton: {
-      width: 36,
-      height: 36,
-      borderRadius: theme.radius.full,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    editButtonActive: {
-      backgroundColor: theme.color.accent,
-      borderColor: theme.color.accent,
-    },
-    editButtonPressed: {
-      opacity: 0.85,
     },
     summaryModalTitle: {
       color: theme.color.ink,

@@ -624,7 +624,7 @@ export default function MealsScreen() {
             </Text>
           </View>
         ) : null}
-        <Animated.View style={[styles.listWrapper, { opacity }]}>
+        <Animated.View style={{ opacity }}>
           <FlatList
             testID="meals-list"
             data={data}
@@ -707,9 +707,6 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingHorizontal: theme.space.lg,
       paddingBottom: theme.space["2xl"],
       paddingTop: theme.space.lg,
-    },
-    listWrapper: {
-      flex: 1,
     },
     heading: {
       color: theme.color.ink,

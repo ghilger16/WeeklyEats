@@ -44,13 +44,13 @@ export const EmojiPickerModal = ({
     }
   }, [visible]);
 
-  const results = useMemo(() => findEmojiMatches(query, 96), [query]);
+  const results = useMemo(() => findEmojiMatches(query, 320), [query]);
 
   const data = useMemo(() => {
     if (query.trim()) {
       return results;
     }
-    return EMOJI_CATALOG.slice(0, 96);
+    return EMOJI_CATALOG.slice(0, 240);
   }, [query, results]);
 
   const handlePick = useCallback(

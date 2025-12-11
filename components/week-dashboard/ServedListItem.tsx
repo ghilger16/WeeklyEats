@@ -172,7 +172,7 @@ export default function ServedListItem({
     >
       <MaterialCommunityIcons
         name={icon as any}
-        size={18}
+        size={20}
         color={expanded === panel ? theme.color.ink : theme.color.subtleInk}
       />
     </Pressable>
@@ -240,7 +240,7 @@ export default function ServedListItem({
           ) : null}
           {expanded === "freezer" ? (
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Freezer favorites</Text>
+              <Text style={styles.sectionLabel}>Freezer </Text>
               <Pressable
                 style={({ pressed }) => [
                   styles.toggleButton,
@@ -302,13 +302,13 @@ const createStyles = (theme: WeeklyTheme) =>
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      gap: theme.space.sm,
+      gap: theme.space.lg,
       alignSelf: "center",
       width: "100%",
     },
     actionButton: {
-      width: 32,
-      height: 32,
+      width: 40,
+      height: 40,
       borderRadius: theme.radius.full,
       backgroundColor: theme.color.surfaceAlt,
       alignItems: "center",
@@ -325,7 +325,7 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     drawer: {
       paddingVertical: theme.space.md,
-      paddingHorizontal: theme.space.md,
+      paddingHorizontal: theme.space.xs,
       gap: theme.space.md,
     },
     section: {

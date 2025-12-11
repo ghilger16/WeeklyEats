@@ -111,6 +111,9 @@ export default function PlanWeekModal() {
   const [savedIndicatorDay, setSavedIndicatorDay] =
     useState<PlannedWeekDayKey | null>(null);
   const [toastDay, setToastDay] = useState<PlannedWeekDayKey | null>(null);
+  const [toastSeenDays, setToastSeenDays] = useState<Set<PlannedWeekDayKey>>(
+    new Set()
+  );
   const [pendingPlannedDay, setPendingPlannedDay] =
     useState<PlannedWeekDayKey | null>(null);
   const [plannedCardPreviewDay, setPlannedCardPreviewDay] =
@@ -444,6 +447,11 @@ export default function PlanWeekModal() {
     if (!toastDay) {
       return;
     }
+    setToastSeenDays((prev) => {
+      const next = new Set(prev);
+      next.add(toastDay);
+      return next;
+    });
     const currentIndex = orderedDays.indexOf(toastDay);
     if (currentIndex !== -1 && orderedDays.length > 0) {
       const nextIndex = Math.min(
@@ -457,6 +465,21 @@ export default function PlanWeekModal() {
     setToastDay(null);
     setPendingPlannedDay(null);
   }, [orderedDays, toastDay]);
+
+  const handleSwapPlannedMeal = useCallback(
+    async (day: PlannedWeekDayKey) => {
+      const nextPlan: CurrentPlannedWeek = { ...plannedWeek, [day]: null };
+      setPlannedWeek(nextPlan);
+      setPlannedCardPreviewDay(null);
+      setPendingPlannedDay(null);
+      setActiveWizardAction(null);
+      await Promise.all([
+        setCurrentWeekPlan(nextPlan),
+        setCurrentWeekSides(daySidesMap),
+      ]);
+    },
+    [daySidesMap, plannedWeek]
+  );
   const handlePlannerSave = useCallback(async () => {
     if (!plannerSelection.meal) {
       return;
@@ -490,26 +513,6 @@ export default function PlanWeekModal() {
       setPlannerSaving(false);
     }
   }, [activeDay, handleCloseSummary, plannerSelection, plannedWeek, pendingPlannedDay]);
-
-  const handleRequestEditDay = useCallback(
-    (day: PlannedWeekDayKey) => {
-      const targetIndex = orderedDays.indexOf(day);
-      const applyEditState = () => {
-        if (targetIndex !== -1) {
-          setActiveDayIndex(targetIndex);
-        }
-        if (plannedWeek[day]) {
-          setPlannedCardPreviewDay(day);
-        } else {
-          setPlannedCardPreviewDay(null);
-        }
-        setActiveWizardAction("suggest");
-        setPendingPlannedDay(null);
-      };
-      handleCloseSummary().then(applyEditState);
-    },
-    [handleCloseSummary, orderedDays, plannedWeek]
-  );
 
   const summaryPanResponder = useMemo(
     () =>
@@ -602,27 +605,29 @@ export default function PlanWeekModal() {
           showsVerticalScrollIndicator={false}
         >
           {!shouldShowTimeline && !activeWizardAction ? (
-            <PlanDayChoiceStep
-              dayKey={activeDay}
-              orderedDays={orderedDays}
-              plannedWeek={plannedWeek}
-              weekLabel={planningWeekLabel}
-              onSelectOption={handleSelectWizardOption}
-              onSelectEatOut={handleSelectEatOut}
-              onSelectDay={(day) => {
-                const targetIndex = orderedDays.indexOf(day);
-                if (targetIndex !== -1) {
-                  setActiveDayIndex(targetIndex);
-                }
-              }}
-              onSearchForMeal={() => {
-                setSearchTargetDay(activeDay);
-                setSearchModalVisible(true);
-              }}
-              plannedMeal={plannedMealForActiveDay}
-              sides={daySidesMap[activeDay] ?? []}
-            />
-          ) : null}
+          <PlanDayChoiceStep
+            dayKey={activeDay}
+            orderedDays={orderedDays}
+            plannedWeek={plannedWeek}
+            weekLabel={planningWeekLabel}
+            hasSeenPlannedToast={toastSeenDays.has(activeDay)}
+            onSelectOption={handleSelectWizardOption}
+            onSelectEatOut={handleSelectEatOut}
+            onSelectDay={(day) => {
+              const targetIndex = orderedDays.indexOf(day);
+              if (targetIndex !== -1) {
+                setActiveDayIndex(targetIndex);
+              }
+            }}
+            onSearchForMeal={() => {
+              setSearchTargetDay(activeDay);
+              setSearchModalVisible(true);
+            }}
+            plannedMeal={plannedMealForActiveDay}
+            sides={daySidesMap[activeDay] ?? []}
+            onSwapPlannedMeal={handleSwapPlannedMeal}
+          />
+        ) : null}
 
           {!shouldShowTimeline && activeWizardAction ? (
             <View style={styles.plannerSection}>
@@ -711,7 +716,6 @@ export default function PlanWeekModal() {
             summaryTranslateY={summaryTranslateY}
             summaryPanHandlers={summaryPanResponder.panHandlers}
             onSelectPlannerDay={handleSelectPlannerDay}
-            onRequestEditDay={handleRequestEditDay}
             onSaveSelection={handlePlannerSave}
             isPlannerSaving={isPlannerSaving}
             registerRowRef={(day, ref) => {

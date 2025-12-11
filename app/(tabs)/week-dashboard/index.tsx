@@ -358,6 +358,7 @@ export default function WeekDashboardScreen() {
           meal={today.meal}
           dateLabel={formatWeekdayDate(today.plannedDate)}
           servedEntry={todayServedEntry}
+          sides={today.sides}
           onMarkServed={handleMarkServed}
           onSelectOutcome={handleTodayAlternateOutcome}
         />

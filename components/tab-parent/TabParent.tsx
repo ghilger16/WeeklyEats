@@ -84,7 +84,9 @@ export default function TabParent({
                   hitSlop={theme.space.xs}
                   accessibilityRole="button"
                   accessibilityLabel={
-                    addBtn.accessibilityLabel ?? addBtn.label ?? "Add to freezer"
+                    addBtn.accessibilityLabel ??
+                    addBtn.label ??
+                    "Add to freezer"
                   }
                   onPress={addBtn.onPress}
                   testID={addBtn.testID}

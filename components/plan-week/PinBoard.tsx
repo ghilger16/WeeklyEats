@@ -464,8 +464,8 @@ const PinBoard = ({
               ]}
             >
               <MaterialCommunityIcons
-                name={isInventoryOpen ? "chevron-up" : "warehouse"}
-                size={18}
+                name={isInventoryOpen ? "chevron-up" : "chevron-down"}
+                size={20}
                 color={theme.color.ink}
               />
             </Pressable>

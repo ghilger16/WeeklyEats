@@ -45,7 +45,11 @@ const RatingStars = memo(function RatingStars({
 
         if (!isInteractive) {
           return (
-            <View key={starValue} style={[styles.star, spacingStyle]} pointerEvents="none">
+            <View
+              key={starValue}
+              style={[styles.star, spacingStyle]}
+              pointerEvents="none"
+            >
               {icon}
             </View>
           );

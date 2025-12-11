@@ -278,20 +278,6 @@ export default function MealCard({
     setNewIngredient("");
   }, [form.ingredients, newIngredient, updateField]);
 
-  const handleAddToFreezer = useCallback(() => {
-    const now = new Date().toISOString();
-    setForm((prev) => {
-      if (prev.isFavorite && prev.freezerAddedAt) {
-        return prev;
-      }
-      return {
-        ...prev,
-        isFavorite: true,
-        freezerAddedAt: prev.freezerAddedAt ?? now,
-      };
-    });
-  }, []);
-
   const handleOpenEmojiPicker = useCallback(() => {
     Keyboard.dismiss();
     setEmojiPickerVisible(true);
@@ -500,7 +486,6 @@ export default function MealCard({
     <View style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.keyboardAvoid}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 80}
       >
         <FlexGrid gutterWidth={theme.space.lg} gutterHeight={theme.space.md}>
@@ -539,35 +524,6 @@ export default function MealCard({
                         : theme.color.accent
                     }
                   />
-                </Pressable>
-              )}
-            </FlexGrid.Col>
-            <FlexGrid.Col span={6} grow={0} style={styles.headerFreezerCol}>
-              {form.isFavorite ? (
-                <View style={styles.freezerBadge}>
-                  <MaterialCommunityIcons
-                    name="snowflake"
-                    size={18}
-                    color={theme.color.accent}
-                  />
-                  <Text style={styles.freezerBadgeText}>Freezer</Text>
-                </View>
-              ) : (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Add meal to freezer"
-                  onPress={handleAddToFreezer}
-                  style={({ pressed }) => [
-                    styles.freezerToggleButton,
-                    pressed && styles.freezerToggleButtonPressed,
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="snowflake"
-                    size={18}
-                    color={theme.color.accent}
-                  />
-                  <Text style={styles.freezerToggleText}>Add to freezer</Text>
                 </Pressable>
               )}
             </FlexGrid.Col>
@@ -745,9 +701,6 @@ export default function MealCard({
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Served Count</Text>
-            <Text style={styles.helperText}>
-              Track how often this meal makes it to the table.
-            </Text>
             <Text style={styles.servedCountValue}>
               Served {form.servedCount ?? 0}{" "}
               {form.servedCount === 1 ? "time" : "times"}
@@ -974,9 +927,6 @@ const createStyles = (theme: WeeklyTheme) =>
       flex: 1,
       backgroundColor: theme.color.bg,
     },
-    keyboardAvoid: {
-      flex: 1,
-    },
     backButton: {
       width: 44,
       height: 44,
@@ -1019,31 +969,6 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     freezerToggleButtonPressed: {
       opacity: 0.85,
-    },
-    freezerToggleText: {
-      color: theme.color.accent,
-      fontSize: theme.type.size.xs,
-      fontWeight: theme.type.weight.medium,
-      textTransform: "uppercase",
-      letterSpacing: 0.8,
-    },
-    freezerBadge: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.xs,
-      paddingHorizontal: theme.space.sm,
-      paddingVertical: 6,
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.accent,
-    },
-    freezerBadgeText: {
-      color: theme.color.accent,
-      fontSize: theme.type.size.xs,
-      fontWeight: theme.type.weight.bold,
-      textTransform: "uppercase",
-      letterSpacing: 0.8,
     },
     scrollContent: {
       paddingHorizontal: theme.space.xl,
@@ -1103,10 +1028,6 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.medium,
       textTransform: "uppercase",
       letterSpacing: 0.8,
-    },
-    helperText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
     },
     servedCountValue: {
       marginTop: theme.space.xs,

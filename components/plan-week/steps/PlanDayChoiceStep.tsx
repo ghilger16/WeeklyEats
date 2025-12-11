@@ -19,10 +19,12 @@ type Props = {
   orderedDays: PlannedWeekDayKey[];
   plannedWeek: CurrentPlannedWeek;
   weekLabel: string;
+  hasSeenPlannedToast?: boolean;
   onSelectOption: (action: DayWizardAction) => void;
   onSelectEatOut: () => void;
   onSearchForMeal: () => void;
   onSelectDay?: (day: PlannedWeekDayKey) => void;
+  onSwapPlannedMeal?: (day: PlannedWeekDayKey) => void;
   plannedMeal?: Meal | null;
   sides?: string[];
 };
@@ -32,7 +34,7 @@ const DAY_OPTION_ITEMS: Array<{
   emoji: string;
   label: string;
 }> = [
-  { key: "eat_out", emoji: "👋", label: "Plans to Eat Out" },
+  { key: "eat_out", emoji: "🍽️", label: "Plans to Eat Out" },
   { key: "suggest", emoji: "🔮", label: "Suggest a Meal" },
   { key: "search", emoji: "🔍", label: "Search for a Meal" },
 ];
@@ -42,10 +44,12 @@ const PlanDayChoiceStep = ({
   orderedDays,
   plannedWeek,
   weekLabel,
+  hasSeenPlannedToast = false,
   onSelectOption,
   onSelectEatOut,
   onSearchForMeal,
   onSelectDay,
+  onSwapPlannedMeal,
   plannedMeal,
   sides = [],
 }: Props) => {
@@ -59,7 +63,8 @@ const PlanDayChoiceStep = ({
     setPlannedCardDismissed(false);
   }, [plannedMeal?.id, dayKey]);
 
-  const showPlannedCard = Boolean(plannedMeal) && !isPlannedCardDismissed;
+  const showPlannedCard =
+    Boolean(plannedMeal) && hasSeenPlannedToast && !isPlannedCardDismissed;
   const headingText = showPlannedCard
     ? dayDisplayName
     : `Let’s plan ${dayDisplayName}`;
@@ -82,7 +87,10 @@ const PlanDayChoiceStep = ({
           <MealPlannedCard
             meal={plannedMeal}
             sides={sides}
-            onSwap={() => setPlannedCardDismissed(true)}
+            onSwap={() => {
+              setPlannedCardDismissed(true);
+              onSwapPlannedMeal?.(dayKey);
+            }}
           />
         ) : null}
       </View>

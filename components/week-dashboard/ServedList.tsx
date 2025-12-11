@@ -94,15 +94,6 @@ export default function ServedList({
           );
         })}
       </View>
-
-      <Pressable style={styles.footer} accessibilityRole="button">
-        <Text style={styles.footerText}>View history</Text>
-        <MaterialCommunityIcons
-          name="chevron-right"
-          size={20}
-          color={theme.color.subtleInk}
-        />
-      </Pressable>
     </View>
   );
 }
@@ -154,19 +145,5 @@ const createStyles = (theme: WeeklyTheme) =>
     divider: {
       height: StyleSheet.hairlineWidth,
       backgroundColor: theme.color.border,
-    },
-    footer: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: theme.space.xs,
-      paddingVertical: theme.space.sm,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    footerText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
     },
   });
