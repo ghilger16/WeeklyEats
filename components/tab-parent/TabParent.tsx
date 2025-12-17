@@ -37,6 +37,7 @@ type Props = {
   backgroundColor?: string;
   headerStyle?: StyleProp<ViewStyle>;
   titleStyle?: StyleProp<TextStyle>;
+  streakCount?: number;
   addBtn?: AddButtonProps;
   menuBtn?: MenuButtonProps;
 };
@@ -57,6 +58,7 @@ export default function TabParent({
   headerStyle,
   addBtn,
   menuBtn,
+  streakCount,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -74,6 +76,20 @@ export default function TabParent({
             <Text style={[styles.title, titleStyle]}>{title}</Text>
           </View>
           <View style={styles.actions}>
+            {typeof streakCount === "number" ? (
+              <View
+                style={styles.streakPill}
+                accessibilityRole="text"
+                accessibilityLabel={`Week streak ${streakCount} weeks`}
+              >
+                <MaterialCommunityIcons
+                  name={"fire" as IconName}
+                  size={16}
+                  color={theme.color.accent}
+                />
+                <Text style={styles.streakText}>{streakCount}</Text>
+              </View>
+            ) : null}
             {addBtn ? (
               addBtn.variant === "badge" ? (
                 <Pressable
@@ -180,6 +196,22 @@ const createStyles = (theme: WeeklyTheme) =>
       flexDirection: "row",
       alignItems: "center",
       gap: theme.space.sm,
+    },
+    streakPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs,
+      paddingHorizontal: theme.space.sm,
+      paddingVertical: theme.space.xs,
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    streakText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
     },
     iconButton: {
       width: 40,

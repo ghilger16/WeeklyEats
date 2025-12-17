@@ -38,6 +38,7 @@ import {
 import {
   setCurrentWeekPlan,
   setCurrentWeekSides,
+  getWeekPlanStreak,
 } from "../../../stores/weekPlanStorage";
 import { clearServedMeals } from "../../../stores/servedMealsStorage";
 import type { ServedOutcome } from "../../../components/week-dashboard/servedActions";
@@ -56,6 +57,7 @@ export default function WeekDashboardScreen() {
   );
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
   const [isPreviewVisible, setPreviewVisible] = useState(false);
+  const [streakCount, setStreakCount] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollEnabledRef = useRef(true);
 
@@ -97,6 +99,7 @@ export default function WeekDashboardScreen() {
     today,
     plan,
     sides,
+    weekStartISO,
     setPlanState,
     setSidesState,
     refresh: refreshWeekPlan,
@@ -108,12 +111,17 @@ export default function WeekDashboardScreen() {
     logServedMeal,
     refresh: refreshServedMeals,
   } = useServedMeals();
+  const refreshStreak = useCallback(async () => {
+    const streak = await getWeekPlanStreak();
+    setStreakCount(streak.count ?? 0);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       refreshWeekPlan();
       refreshServedMeals();
-    }, [refreshServedMeals, refreshWeekPlan])
+      refreshStreak();
+    }, [refreshServedMeals, refreshStreak, refreshWeekPlan])
   );
 
   const handleFamilyRatingChange = useCallback(
@@ -275,6 +283,8 @@ export default function WeekDashboardScreen() {
     setPreviewVisible((prev) => !prev);
   }, []);
 
+  const showWeekPlanDetails = plan?.weekedPlanned === true;
+
   const showPlanButton = useMemo(() => {
     const reference = startOfDay(effectiveDate);
     const nextWeekStart = getNextWeekStartForDate(startDay, reference);
@@ -298,16 +308,16 @@ export default function WeekDashboardScreen() {
   }, [dateControlsEnabled, effectiveDate]);
 
   const handleClearWeekPlan = useCallback(async () => {
-    const emptyPlan = createEmptyCurrentPlannedWeek();
+    const emptyPlan = createEmptyCurrentPlannedWeek({ weekStartISO });
     const emptySides = createEmptyCurrentWeekSides();
     setPlanState(emptyPlan);
     setSidesState(emptySides);
     await Promise.all([
-      setCurrentWeekPlan(emptyPlan),
-      setCurrentWeekSides(emptySides),
+      setCurrentWeekPlan(weekStartISO, emptyPlan),
+      setCurrentWeekSides(weekStartISO, emptySides),
     ]);
     await refreshWeekPlan();
-  }, [refreshWeekPlan, setPlanState, setSidesState]);
+  }, [refreshWeekPlan, setPlanState, setSidesState, weekStartISO]);
 
   const handleClearServedMeals = useCallback(async () => {
     await clearServedMeals();
@@ -396,7 +406,7 @@ export default function WeekDashboardScreen() {
   ));
 
   return (
-    <TabParent title="Week Dashboard" header={header}>
+    <TabParent title="Week Dashboard" header={header} streakCount={streakCount}>
       <ScrollView
         ref={scrollViewRef}
         contentContainerStyle={styles.scrollContent}
@@ -417,16 +427,18 @@ export default function WeekDashboardScreen() {
         ) : null}
 
         <View style={styles.stack}>
-          {todayCard}
-          {unmarkedCards}
-          <CurrentWeekList
-            days={upcomingDays}
-            title="Current Week Plan"
-            onDragStateChange={handleWeekListDragStateChange}
-            onReorder={async (reordered) => {
-              if (!plan) {
-                return;
-              }
+          {showWeekPlanDetails ? (
+            <>
+              {todayCard}
+              {unmarkedCards}
+              <CurrentWeekList
+                days={upcomingDays}
+                title="Current Week Plan"
+                onDragStateChange={handleWeekListDragStateChange}
+                onReorder={async (reordered) => {
+                  if (!plan) {
+                    return;
+                  }
               const nextPlan = { ...plan };
               upcomingDays.forEach((day, index) => {
                 const nextSlot = reordered[index];
@@ -437,11 +449,33 @@ export default function WeekDashboardScreen() {
               });
               setPlanState(nextPlan);
               await Promise.all([
-                setCurrentWeekPlan(nextPlan),
-                setCurrentWeekSides(sides),
+                setCurrentWeekPlan(weekStartISO, nextPlan),
+                setCurrentWeekSides(weekStartISO, sides),
               ]);
             }}
           />
+            </>
+          ) : (
+            <View style={styles.planningCard}>
+              <Text style={styles.planningCardTitle}>
+                Week planning in progress
+              </Text>
+              <Text style={styles.planningCardSubtitle}>
+                Finish planning to see your week details here.
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Resume planning this week"
+                style={({ pressed }) => [
+                  styles.planningButton,
+                  pressed && styles.planningButtonPressed,
+                ]}
+                onPress={() => router.push("/modals/plan-week")}
+              >
+                <Text style={styles.planningButtonText}>Resume Planning</Text>
+              </Pressable>
+            </View>
+          )}
           <ServedList
             servedWeek={servedWeek}
             meals={meals}
@@ -481,6 +515,42 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     stack: {
       gap: theme.space["2xl"],
+    },
+    planningCard: {
+      backgroundColor: theme.color.surface,
+      borderRadius: theme.radius.lg,
+      paddingHorizontal: theme.space.xl,
+      paddingVertical: theme.space.xl,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      gap: theme.space.sm,
+    },
+    planningCardTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+    },
+    planningCardSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+    },
+    planningButton: {
+      marginTop: theme.space.xs,
+      alignSelf: "flex-start",
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.sm,
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    planningButtonPressed: {
+      opacity: 0.85,
+    },
+    planningButtonText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
     },
     loadingCard: {
       backgroundColor: theme.color.surface,

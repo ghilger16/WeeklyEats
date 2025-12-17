@@ -28,6 +28,7 @@ import {
   PLANNED_WEEK_ORDER,
   PlannedWeekDayKey,
   createEmptyCurrentPlannedWeek,
+  createEmptyCurrentWeekSides,
 } from "../../types/weekPlan";
 import { Meal } from "../../types/meals";
 import { useCurrentWeekPlan } from "../../hooks/useCurrentWeekPlan";
@@ -55,6 +56,7 @@ import WeeklyPlanTimeline from "../../components/plan-week/WeeklyPlanTimeline";
 import useDayPins from "../../hooks/plan-week/useDayPins";
 import usePlanSides from "../../hooks/plan-week/usePlanSides";
 import MealSearchModal from "../../components/meals/MealSearchModal";
+import { createEmptyDayPinsMap } from "../../types/dayPins";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>((acc, key) => {
@@ -83,12 +85,22 @@ export default function PlanWeekModal() {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals } = useMeals();
-  const { plan, isLoading } = useCurrentWeekPlan();
   const { orderedDays, startDay } = useWeekStartController();
+  const planningWeekStart = useMemo(
+    () => getNextWeekStartForDate(startDay),
+    [startDay]
+  );
+  const planningWeekStartISO = useMemo(
+    () => planningWeekStart.toISOString().slice(0, 10),
+    [planningWeekStart]
+  );
+  const { plan, sides: storedSides, isLoading } = useCurrentWeekPlan({
+    weekStartOverride: planningWeekStart,
+  });
   const initializedRef = useRef(false);
 
-  const [plannedWeek, setPlannedWeek] = useState<CurrentPlannedWeek>(
-    createEmptyCurrentPlannedWeek()
+  const [plannedWeek, setPlannedWeek] = useState<CurrentPlannedWeek>(() =>
+    createEmptyCurrentPlannedWeek({ weekStartISO: planningWeekStartISO })
   );
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [suggestionIndexMap, setSuggestionIndexMap] = useState(
@@ -120,6 +132,7 @@ export default function PlanWeekModal() {
     useState<PlannedWeekDayKey | null>(null);
   const [hasCompletedPlannerSetup, setHasCompletedPlannerSetup] =
     useState(false);
+  const [resumePromptVisible, setResumePromptVisible] = useState(false);
   const [activeWizardAction, setActiveWizardAction] =
     useState<DayWizardAction | null>(null);
   const [isCelebratingSave, setIsCelebratingSave] = useState(false);
@@ -178,8 +191,13 @@ export default function PlanWeekModal() {
   const { activeDayPins, handleDayPinsChange, replaceDayPins } = useDayPins({
     activeDay,
   });
-  const { daySidesMap, activeDaySides, handleAddSide, handleRemoveSide } =
-    usePlanSides({ activeDay });
+  const {
+    daySidesMap,
+    activeDaySides,
+    handleAddSide,
+    handleRemoveSide,
+    resetSides,
+  } = usePlanSides({ activeDay });
   const handlePlannerSetupComplete = useCallback(
     (settings: WeeklyWeekSettings) => {
       const nextPins = deriveWeekPinsFromSettings(settings);
@@ -187,10 +205,6 @@ export default function PlanWeekModal() {
       setHasCompletedPlannerSetup(true);
     },
     [replaceDayPins]
-  );
-  const planningWeekStart = useMemo(
-    () => getNextWeekStartForDate(startDay),
-    [startDay]
   );
   const planningWeekEnd = useMemo(
     () => addDays(planningWeekStart, 6),
@@ -200,6 +214,38 @@ export default function PlanWeekModal() {
     () => formatWeekRangeLabel(planningWeekStart, planningWeekEnd),
     [planningWeekEnd, planningWeekStart]
   );
+
+  const handleResumeContinue = useCallback(() => {
+    setHasCompletedPlannerSetup(true);
+    setResumePromptVisible(false);
+  }, []);
+
+  const handleResumeRestart = useCallback(async () => {
+    const emptyPlan = createEmptyCurrentPlannedWeek({
+      weekStartISO: planningWeekStartISO,
+    });
+    const emptySides = createEmptyCurrentWeekSides();
+    setPlannedWeek(emptyPlan);
+    resetSides(emptySides);
+    replaceDayPins(createEmptyDayPinsMap());
+    setHasCompletedPlannerSetup(false);
+    setResumePromptVisible(false);
+    setActiveDayIndex(0);
+    setToastSeenDays(new Set());
+    setToastDay(null);
+    setPendingPlannedDay(null);
+    setPlannedCardPreviewDay(null);
+    setActiveWizardAction(null);
+    setSavedIndicatorDay(null);
+    await Promise.all([
+      setCurrentWeekPlan(planningWeekStartISO, emptyPlan),
+      setCurrentWeekSides(planningWeekStartISO, emptySides),
+    ]);
+  }, [
+    planningWeekStartISO,
+    replaceDayPins,
+    resetSides,
+  ]);
   const isWeekComplete = useMemo(
     () => orderedDays.every((day) => Boolean(plannedWeek[day])),
     [orderedDays, plannedWeek]
@@ -211,11 +257,35 @@ export default function PlanWeekModal() {
   }, [orderedDays]);
 
   useEffect(() => {
-    if (plan && !initializedRef.current) {
+    if (isLoading) {
+      return;
+    }
+    if (!initializedRef.current) {
       initializedRef.current = true;
       setPlannedWeek(plan);
     }
-  }, [plan]);
+  }, [isLoading, plan]);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    resetSides(storedSides);
+  }, [isLoading, resetSides, storedSides]);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+    const hasMeals = PLANNED_WEEK_ORDER.some(
+      (dayKey) => typeof plan[dayKey] === "string"
+    );
+    const isTargetWeek =
+      plan.weekStartISO === planningWeekStartISO ||
+      !plan.weekStartISO;
+    const shouldPromptResume = isTargetWeek && !plan.weekedPlanned && hasMeals;
+    setResumePromptVisible(shouldPromptResume);
+  }, [isLoading, plan, planningWeekStartISO]);
 
   useEffect(() => {
     setActiveWizardAction(null);
@@ -423,9 +493,15 @@ export default function PlanWeekModal() {
     }
     setIsSaving(true);
     try {
+    const completedPlan: CurrentPlannedWeek = {
+      ...plannedWeek,
+      weekedPlanned: true,
+      weekStartISO: planningWeekStartISO,
+    };
+      setPlannedWeek(completedPlan);
       await Promise.all([
-        setCurrentWeekPlan(plannedWeek),
-        setCurrentWeekSides(daySidesMap),
+        setCurrentWeekPlan(planningWeekStartISO, completedPlan),
+        setCurrentWeekSides(planningWeekStartISO, daySidesMap),
       ]);
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success
@@ -468,18 +544,20 @@ export default function PlanWeekModal() {
 
   const handleSwapPlannedMeal = useCallback(
     async (day: PlannedWeekDayKey) => {
-      const nextPlan: CurrentPlannedWeek = { ...plannedWeek, [day]: null };
-      setPlannedWeek(nextPlan);
-      setPlannedCardPreviewDay(null);
-      setPendingPlannedDay(null);
-      setActiveWizardAction(null);
-      await Promise.all([
-        setCurrentWeekPlan(nextPlan),
-        setCurrentWeekSides(daySidesMap),
-      ]);
-    },
-    [daySidesMap, plannedWeek]
-  );
+    const nextPlan: CurrentPlannedWeek = { ...plannedWeek, [day]: null };
+    nextPlan.weekStartISO = planningWeekStartISO;
+    nextPlan.weekedPlanned = false;
+    setPlannedWeek(nextPlan);
+    setPlannedCardPreviewDay(null);
+    setPendingPlannedDay(null);
+    setActiveWizardAction(null);
+    await Promise.all([
+      setCurrentWeekPlan(planningWeekStartISO, nextPlan),
+      setCurrentWeekSides(planningWeekStartISO, daySidesMap),
+    ]);
+  },
+  [daySidesMap, plannedWeek, planningWeekStartISO]
+);
   const handlePlannerSave = useCallback(async () => {
     if (!plannerSelection.meal) {
       return;
@@ -489,12 +567,14 @@ export default function PlanWeekModal() {
     const nextPlan: CurrentPlannedWeek = {
       ...plannedWeek,
       [targetDay]: plannerSelection.meal.id,
+      weekedPlanned: false,
+      weekStartISO: planningWeekStartISO,
     };
     setPlannedWeek(nextPlan);
     try {
       await Promise.all([
-        setCurrentWeekPlan(nextPlan),
-        setCurrentWeekSides(daySidesMap),
+        setCurrentWeekPlan(planningWeekStartISO, nextPlan),
+        setCurrentWeekSides(planningWeekStartISO, daySidesMap),
       ]);
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success
@@ -512,7 +592,15 @@ export default function PlanWeekModal() {
     } finally {
       setPlannerSaving(false);
     }
-  }, [activeDay, handleCloseSummary, plannerSelection, plannedWeek, pendingPlannedDay]);
+  }, [
+    activeDay,
+    handleCloseSummary,
+    plannerSelection,
+    plannedWeek,
+    pendingPlannedDay,
+    planningWeekStartISO,
+    daySidesMap,
+  ]);
 
   const summaryPanResponder = useMemo(
     () =>
@@ -555,6 +643,47 @@ export default function PlanWeekModal() {
 
   const shouldShowTimeline = isWeekComplete && !isSummaryVisible;
   const searchModalTitleDay = searchTargetDay ?? activeDay;
+
+  if (resumePromptVisible) {
+    return (
+      <SafeAreaView
+        style={styles.plannerStepsSafeArea}
+        edges={["top", "left", "right", "bottom"]}
+      >
+        <View style={styles.resumeCard}>
+          <Text style={styles.resumeTitle}>Resume planning?</Text>
+          <Text style={styles.resumeSubtitle}>
+            You already saved some meals for this week. Continue where you left
+            off or start over.
+          </Text>
+          <View style={styles.resumeActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Continue planning where you left off"
+              onPress={handleResumeContinue}
+              style={({ pressed }) => [
+                styles.resumeButtonPrimary,
+                pressed && styles.resumeButtonPrimaryPressed,
+              ]}
+            >
+              <Text style={styles.resumeButtonPrimaryText}>Continue</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Start planning this week over"
+              onPress={handleResumeRestart}
+              style={({ pressed }) => [
+                styles.resumeButtonSecondary,
+                pressed && styles.resumeButtonSecondaryPressed,
+              ]}
+            >
+              <Text style={styles.resumeButtonSecondaryText}>Start over</Text>
+            </Pressable>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!hasCompletedPlannerSetup) {
     return (
@@ -744,6 +873,58 @@ const createStyles = (theme: WeeklyTheme) =>
     plannerStepsSafeArea: {
       flex: 1,
       backgroundColor: theme.color.bg,
+    },
+    resumeCard: {
+      flex: 1,
+      justifyContent: "center",
+      paddingHorizontal: theme.space.xl,
+      paddingVertical: theme.space["2xl"],
+      gap: theme.space.lg,
+    },
+    resumeTitle: {
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+      color: theme.color.ink,
+    },
+    resumeSubtitle: {
+      fontSize: theme.type.size.base,
+      color: theme.color.subtleInk,
+    },
+    resumeActions: {
+      flexDirection: "column",
+      gap: theme.space.sm,
+    },
+    resumeButtonPrimary: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: theme.space.md,
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.accent,
+    },
+    resumeButtonPrimaryPressed: {
+      opacity: 0.9,
+    },
+    resumeButtonPrimaryText: {
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+      color: theme.color.ink,
+    },
+    resumeButtonSecondary: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: theme.space.md,
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+    },
+    resumeButtonSecondaryPressed: {
+      opacity: 0.9,
+    },
+    resumeButtonSecondaryText: {
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+      color: theme.color.ink,
     },
     swipeContainer: {
       flex: 1,

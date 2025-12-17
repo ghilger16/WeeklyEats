@@ -50,6 +50,7 @@ export type UseCurrentWeekPlanResult = {
   isLoading: boolean;
   plan: CurrentPlannedWeek;
   sides: CurrentWeekSides;
+  weekStartISO: string;
   days: WeekPlanDay[];
   today?: WeekPlanDay;
   upcoming: WeekPlanDay[];
@@ -60,6 +61,7 @@ export type UseCurrentWeekPlanResult = {
 
 type UseCurrentWeekPlanOptions = {
   today?: Date;
+  weekStartOverride?: Date;
 };
 
 export const useCurrentWeekPlan = (
@@ -72,23 +74,40 @@ export const useCurrentWeekPlan = (
   const [isLoading, setLoading] = useState(true);
   const effectiveToday = options.today ?? new Date();
   const effectiveTodayTime = effectiveToday.getTime();
+  const effectiveWeekStart = useMemo(
+    () =>
+      options.weekStartOverride
+        ? startOfDay(options.weekStartOverride)
+        : getWeekStartForDate(startDay, effectiveToday),
+    [effectiveToday, options.weekStartOverride, startDay]
+  );
+  const effectiveWeekStartISO = useMemo(
+    () => effectiveWeekStart.toISOString().slice(0, 10),
+    [effectiveWeekStart]
+  );
 
   const hydrate = useCallback(async () => {
     setLoading(true);
     const [storedPlan, storedSides] = await Promise.all([
-      getCurrentWeekPlan(),
-      getCurrentWeekSides(),
+      getCurrentWeekPlan(effectiveWeekStartISO),
+      getCurrentWeekSides(effectiveWeekStartISO),
     ]);
     if (storedPlan) {
       setPlan(storedPlan);
     }
     setSides(storedSides);
     setLoading(false);
-  }, []);
+  }, [effectiveWeekStartISO]);
 
-  const setPlanState = useCallback((nextPlan: CurrentPlannedWeek) => {
-    setPlan(nextPlan);
-  }, []);
+  const setPlanState = useCallback(
+    (nextPlan: CurrentPlannedWeek) => {
+      setPlan({
+        ...nextPlan,
+        weekStartISO: effectiveWeekStartISO,
+      });
+    },
+    [effectiveWeekStartISO]
+  );
 
   const setSidesState = useCallback((nextSides: CurrentWeekSides) => {
     setSides(nextSides);
@@ -100,7 +119,7 @@ export const useCurrentWeekPlan = (
 
   const days = useMemo<WeekPlanDay[]>(() => {
     const referenceDate = new Date(effectiveTodayTime);
-    const weekStart = getWeekStartForDate(startDay, referenceDate);
+    const weekStart = effectiveWeekStart;
     const todayStart = startOfDay(new Date(effectiveTodayTime));
 
     return orderedDays.map((dayKey, index) => {
@@ -143,6 +162,7 @@ export const useCurrentWeekPlan = (
     isLoading,
     plan,
     sides,
+    weekStartISO: effectiveWeekStartISO,
     days,
     today,
     upcoming,

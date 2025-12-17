@@ -13,6 +13,7 @@ type UsePlanSidesResult = {
   activeDaySides: string[];
   handleAddSide: (day: PlannedWeekDayKey, side: string) => void;
   handleRemoveSide: (day: PlannedWeekDayKey, index: number) => void;
+  resetSides: (next: Record<PlannedWeekDayKey, string[]>) => void;
 };
 
 const createInitialSidesMap = () =>
@@ -55,6 +56,13 @@ const usePlanSides = ({ activeDay }: UsePlanSidesArgs): UsePlanSidesResult => {
     []
   );
 
+  const resetSides = useCallback(
+    (next: Record<PlannedWeekDayKey, string[]>) => {
+      setDaySidesMap(next);
+    },
+    []
+  );
+
   const activeDaySides = useMemo(() => daySidesMap[activeDay] ?? [], [activeDay, daySidesMap]);
 
   return {
@@ -62,6 +70,7 @@ const usePlanSides = ({ activeDay }: UsePlanSidesArgs): UsePlanSidesResult => {
     activeDaySides,
     handleAddSide,
     handleRemoveSide,
+    resetSides,
   };
 };
 

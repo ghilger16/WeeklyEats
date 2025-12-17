@@ -9,7 +9,10 @@ export type PlannedWeekDayKey =
   | "sat"
   | "sun";
 
-export type CurrentPlannedWeek = Record<PlannedWeekDayKey, Meal["id"] | null>;
+export type CurrentPlannedWeek = {
+  weekedPlanned?: boolean;
+  weekStartISO?: string;
+} & Record<PlannedWeekDayKey, Meal["id"] | null>;
 export type CurrentWeekSides = Record<PlannedWeekDayKey, string[]>;
 
 export const PLANNED_WEEK_ORDER: PlannedWeekDayKey[] = [
@@ -42,11 +45,22 @@ export const PLANNED_WEEK_DISPLAY_NAMES: Record<PlannedWeekDayKey, string> = {
   sun: "Sunday",
 };
 
-export const createEmptyCurrentPlannedWeek = (): CurrentPlannedWeek =>
-  PLANNED_WEEK_ORDER.reduce<CurrentPlannedWeek>((acc, key) => {
+export const createEmptyCurrentPlannedWeek = (
+  options: { weekedPlanned?: boolean; weekStartISO?: string } = {}
+): CurrentPlannedWeek => {
+  const basePlan = PLANNED_WEEK_ORDER.reduce<
+    Record<PlannedWeekDayKey, Meal["id"] | null>
+  >((acc, key) => {
     acc[key] = null;
     return acc;
-  }, {} as CurrentPlannedWeek);
+  }, {} as Record<PlannedWeekDayKey, Meal["id"] | null>);
+
+  return {
+    ...basePlan,
+    weekedPlanned: options.weekedPlanned ?? false,
+    weekStartISO: options.weekStartISO,
+  };
+};
 
 export const createEmptyCurrentWeekSides = (): CurrentWeekSides =>
   PLANNED_WEEK_ORDER.reduce<CurrentWeekSides>((acc, key) => {
