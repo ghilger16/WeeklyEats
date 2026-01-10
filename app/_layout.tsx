@@ -42,6 +42,14 @@ export default function RootLayout() {
                 headerShown: false,
               }}
             />
+            <Stack.Screen
+              name="modals/streaksHistoryModal"
+              options={{
+                presentation: "transparentModal",
+                animation: "slide_from_bottom",
+                headerShown: false,
+              }}
+            />
           </Stack>
         </FamilyMembersProvider>
       </WeekStartControllerProvider>

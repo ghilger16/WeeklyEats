@@ -35,6 +35,7 @@ import { useCurrentWeekPlan } from "../../hooks/useCurrentWeekPlan";
 import {
   setCurrentWeekPlan,
   setCurrentWeekSides,
+  addWeekPlanHistory,
   updateWeekPlanStreak,
 } from "../../stores/weekPlanStorage";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
@@ -502,6 +503,7 @@ export default function PlanWeekModal() {
       await Promise.all([
         setCurrentWeekPlan(planningWeekStartISO, completedPlan),
         setCurrentWeekSides(planningWeekStartISO, daySidesMap),
+        addWeekPlanHistory(completedPlan),
       ]);
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success

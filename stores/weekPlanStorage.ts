@@ -13,6 +13,7 @@ const LEGACY_PLAN_SIDES_KEY = "@weeklyeats/weekPlanSides";
 const WEEK_PLAN_MAP_KEY = "@weeklyeats/weekPlanByWeek";
 const WEEK_PLAN_SIDES_MAP_KEY = "@weeklyeats/weekPlanSidesByWeek";
 const WEEK_PLAN_STREAK_KEY = "@weeklyeats/weekPlanStreak";
+const WEEK_PLAN_HISTORY_KEY = "@weeklyeats/weekPlanHistory";
 
 export type WeekPlanStreak = {
   count: number;
@@ -29,6 +30,11 @@ const isValidDayKey = (value: unknown): value is PlannedWeekDayKey =>
 
 type WeekPlanMap = Record<string, CurrentPlannedWeek>;
 type WeekSidesMap = Record<string, CurrentWeekSides>;
+export type WeekPlanHistoryEntry = {
+  weekStartISO: string;
+  completedAtISO: string;
+  plan: CurrentPlannedWeek;
+};
 
 const isValidISODateString = (value: unknown): value is string =>
   typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value);
@@ -382,4 +388,83 @@ export const updateWeekPlanStreak = async (
   }
 
   return next;
+};
+
+const getWeekPlanHistoryInternal = async (): Promise<WeekPlanHistoryEntry[]> => {
+  try {
+    const raw = await AsyncStorage.getItem(WEEK_PLAN_HISTORY_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((entry) => {
+        const maybe = entry as Partial<WeekPlanHistoryEntry>;
+        if (
+          !maybe ||
+          !isValidISODateString(maybe.weekStartISO) ||
+          typeof maybe.completedAtISO !== "string" ||
+          !maybe.plan
+        ) {
+          return null;
+        }
+        const normalizedPlan = normalizePlan(maybe.plan, maybe.weekStartISO);
+        if (!normalizedPlan) {
+          return null;
+        }
+        return {
+          weekStartISO: maybe.weekStartISO.slice(0, 10),
+          completedAtISO: maybe.completedAtISO,
+          plan: normalizedPlan,
+        } as WeekPlanHistoryEntry;
+      })
+      .filter(Boolean) as WeekPlanHistoryEntry[];
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to read history", error);
+    return [];
+  }
+};
+
+const saveWeekPlanHistoryInternal = async (
+  entries: WeekPlanHistoryEntry[]
+) => {
+  try {
+    await AsyncStorage.setItem(WEEK_PLAN_HISTORY_KEY, JSON.stringify(entries));
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to persist history", error);
+  }
+};
+
+export const addWeekPlanHistory = async (
+  plan: CurrentPlannedWeek,
+  options: { maxEntries?: number } = {}
+): Promise<void> => {
+  const { maxEntries = 12 } = options;
+  const startISO = plan.weekStartISO;
+  if (!startISO || !isValidISODateString(startISO) || !plan.weekedPlanned) {
+    return;
+  }
+  const existing = await getWeekPlanHistoryInternal();
+  const completedAtISO = new Date().toISOString();
+  const deduped = existing.filter(
+    (entry) => entry.weekStartISO !== startISO.slice(0, 10)
+  );
+  deduped.unshift({
+    weekStartISO: startISO.slice(0, 10),
+    completedAtISO,
+    plan,
+  });
+  deduped.sort(
+    (a, b) =>
+      new Date(b.weekStartISO).getTime() - new Date(a.weekStartISO).getTime()
+  );
+  const trimmed = deduped.slice(0, Math.max(1, maxEntries));
+  await saveWeekPlanHistoryInternal(trimmed);
+};
+
+export const getWeekPlanHistory = async (): Promise<WeekPlanHistoryEntry[]> => {
+  return getWeekPlanHistoryInternal();
 };

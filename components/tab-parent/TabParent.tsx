@@ -37,7 +37,10 @@ type Props = {
   backgroundColor?: string;
   headerStyle?: StyleProp<ViewStyle>;
   titleStyle?: StyleProp<TextStyle>;
-  streakCount?: number;
+  streak?: {
+    count: number;
+    onPress?: () => void;
+  };
   addBtn?: AddButtonProps;
   menuBtn?: MenuButtonProps;
 };
@@ -58,7 +61,7 @@ export default function TabParent({
   headerStyle,
   addBtn,
   menuBtn,
-  streakCount,
+  streak,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -76,19 +79,24 @@ export default function TabParent({
             <Text style={[styles.title, titleStyle]}>{title}</Text>
           </View>
           <View style={styles.actions}>
-            {typeof streakCount === "number" ? (
-              <View
-                style={styles.streakPill}
-                accessibilityRole="text"
-                accessibilityLabel={`Week streak ${streakCount} weeks`}
+            {typeof streak?.count === "number" ? (
+              <Pressable
+                disabled={!streak.onPress}
+                onPress={streak.onPress}
+                style={({ pressed }) => [
+                  styles.streakPill,
+                  streak.onPress && pressed && styles.streakPillPressed,
+                ]}
+                accessibilityRole={streak.onPress ? "button" : "text"}
+                accessibilityLabel={`Week streak ${streak.count} weeks`}
               >
                 <MaterialCommunityIcons
                   name={"fire" as IconName}
                   size={16}
                   color={theme.color.accent}
                 />
-                <Text style={styles.streakText}>{streakCount}</Text>
-              </View>
+                <Text style={styles.streakText}>{streak.count}</Text>
+              </Pressable>
             ) : null}
             {addBtn ? (
               addBtn.variant === "badge" ? (
@@ -212,6 +220,9 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.bold,
+    },
+    streakPillPressed: {
+      opacity: 0.9,
     },
     iconButton: {
       width: 40,

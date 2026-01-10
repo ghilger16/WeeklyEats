@@ -1,5 +1,8 @@
 import {
   ActivityIndicator,
+  Animated,
+  DeviceEventEmitter,
+  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -51,13 +54,23 @@ export default function WeekDashboardScreen() {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals, updateMeal } = useMeals();
-  const { startDay } = useWeekStartController();
+  const { startDay, orderedDays } = useWeekStartController();
   const dateControlsEnabled = useFeatureFlag(
     "weekDashboardDateControlsEnabled"
   );
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
   const [isPreviewVisible, setPreviewVisible] = useState(false);
   const [streakCount, setStreakCount] = useState(0);
+  const [isStreakModalOpen, setStreakModalOpen] = useState(false);
+  const dashboardAnim = useRef(new Animated.Value(0)).current;
+  const plannedDayCount = useMemo(
+    () =>
+      orderedDays.reduce(
+        (acc, day) => (typeof plan?.[day] === "string" ? acc + 1 : acc),
+        0
+      ),
+    [orderedDays, plan]
+  );
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollEnabledRef = useRef(true);
 
@@ -87,6 +100,28 @@ export default function WeekDashboardScreen() {
       setOverrideDate(new Date());
     }
   }, [dateControlsEnabled, overrideDate]);
+
+  useEffect(() => {
+    const openSub = DeviceEventEmitter.addListener("streakModalOpen", () =>
+      setStreakModalOpen(true)
+    );
+    const closeSub = DeviceEventEmitter.addListener("streakModalClose", () =>
+      setStreakModalOpen(false)
+    );
+    return () => {
+      openSub.remove();
+      closeSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(dashboardAnim, {
+      toValue: isStreakModalOpen ? 1 : 0,
+      duration: 280,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [dashboardAnim, isStreakModalOpen]);
 
   const effectiveDate = useMemo(
     () => (dateControlsEnabled ? overrideDate ?? new Date() : new Date()),
@@ -284,6 +319,7 @@ export default function WeekDashboardScreen() {
   }, []);
 
   const showWeekPlanDetails = plan?.weekedPlanned === true;
+  const showPlanningCTA = !showWeekPlanDetails;
 
   const showPlanButton = useMemo(() => {
     const reference = startOfDay(effectiveDate);
@@ -323,6 +359,66 @@ export default function WeekDashboardScreen() {
     await clearServedMeals();
     await refreshServedMeals();
   }, [refreshServedMeals]);
+
+  const renderPlanningCTA = useCallback(
+    (mode: "start" | "resume", onPrimary: () => void, onSkip?: () => void) => {
+      const isResume = mode === "resume";
+      const primaryLabel = isResume ? "Resume planning" : "Start planning";
+      const title = isResume ? "You're partway through" : "Ready when you are";
+      const subtitle = isResume
+        ? `You planned ${plannedDayCount} of ${orderedDays.length} nights. Jump back in where you left off.`
+        : "Pick dinners for the week in a few minutes. You can always change them later.";
+      const progress = orderedDays.length
+        ? Math.min(1, plannedDayCount / orderedDays.length)
+        : 0;
+      return (
+        <View style={styles.planningCardCta}>
+          <Text style={styles.planningCtaTitle}>{title}</Text>
+          <Text style={styles.planningCtaSubtitle}>{subtitle}</Text>
+          {isResume ? (
+            <View style={styles.progressRow}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { flex: progress }]} />
+                <View style={{ flex: 1 - progress }} />
+              </View>
+              <Text style={styles.progressLabel}>
+                {plannedDayCount}/{orderedDays.length}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.timeEstimate}>~3 minutes</Text>
+          )}
+          <View style={styles.planningButtonsRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={primaryLabel}
+              onPress={onPrimary}
+              style={({ pressed }) => [
+                styles.planningPrimaryButton,
+                pressed && styles.planningPrimaryButtonPressed,
+              ]}
+            >
+              <Text style={styles.planningPrimaryText}>{primaryLabel}</Text>
+            </Pressable>
+            {!isResume && onSkip ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Skip planning for now"
+                onPress={onSkip}
+                style={({ pressed }) => [
+                  styles.skipButton,
+                  pressed && styles.skipButtonPressed,
+                ]}
+              >
+                <Text style={styles.skipText}>Skip for now</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      );
+    },
+    [orderedDays.length, plannedDayCount]
+  );
 
   const header = useMemo(
     () => (
@@ -405,86 +501,106 @@ export default function WeekDashboardScreen() {
     />
   ));
 
-  return (
-    <TabParent title="Week Dashboard" header={header} streakCount={streakCount}>
-      <ScrollView
-        ref={scrollViewRef}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {showPlanButton ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.planButton,
-              pressed && styles.planButtonPressed,
-            ]}
-            onPress={() => router.push("/modals/plan-week")}
-            accessibilityRole="button"
-            accessibilityLabel="Plan upcoming week"
-          >
-            <Text style={styles.planButtonText}>Plan Next Week</Text>
-          </Pressable>
-        ) : null}
+  const screenMotionStyle = useMemo(
+    () => ({
+      transform: [
+        {
+          translateY: dashboardAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0, 55],
+          }),
+        },
+        {
+          scale: dashboardAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0.98],
+          }),
+        },
+      ],
+      opacity: dashboardAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [1, 0.95],
+      }),
+    }),
+    [dashboardAnim]
+  );
 
-        <View style={styles.stack}>
-          {showWeekPlanDetails ? (
-            <>
-              {todayCard}
-              {unmarkedCards}
-              <CurrentWeekList
-                days={upcomingDays}
-                title="Current Week Plan"
-                onDragStateChange={handleWeekListDragStateChange}
-                onReorder={async (reordered) => {
-                  if (!plan) {
-                    return;
-                  }
-              const nextPlan = { ...plan };
-              upcomingDays.forEach((day, index) => {
-                const nextSlot = reordered[index];
-                if (!day || !nextSlot) {
-                  return;
-                }
-                nextPlan[day.key] = nextSlot.mealId ?? null;
-              });
-              setPlanState(nextPlan);
-              await Promise.all([
-                setCurrentWeekPlan(weekStartISO, nextPlan),
-                setCurrentWeekSides(weekStartISO, sides),
-              ]);
-            }}
-          />
-            </>
-          ) : (
-            <View style={styles.planningCard}>
-              <Text style={styles.planningCardTitle}>
-                Week planning in progress
-              </Text>
-              <Text style={styles.planningCardSubtitle}>
-                Finish planning to see your week details here.
-              </Text>
+  return (
+    <View style={styles.screenContainer}>
+      <Animated.View style={[styles.screenWrapper, screenMotionStyle]}>
+        <TabParent
+          title="Week Dashboard"
+          header={header}
+          streak={{
+            count: streakCount,
+            onPress: () => router.push("/modals/streaksHistoryModal"),
+          }}
+        >
+          <ScrollView
+            ref={scrollViewRef}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {showPlanButton ? (
               <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Resume planning this week"
                 style={({ pressed }) => [
-                  styles.planningButton,
-                  pressed && styles.planningButtonPressed,
+                  styles.planButton,
+                  pressed && styles.planButtonPressed,
                 ]}
                 onPress={() => router.push("/modals/plan-week")}
+                accessibilityRole="button"
+                accessibilityLabel="Plan upcoming week"
               >
-                <Text style={styles.planningButtonText}>Resume Planning</Text>
+                <Text style={styles.planButtonText}>Plan Next Week</Text>
               </Pressable>
+            ) : null}
+
+            <View style={styles.stack}>
+              {showWeekPlanDetails ? (
+                <>
+                  {todayCard}
+                  {unmarkedCards}
+                  <CurrentWeekList
+                    days={upcomingDays}
+                    title="Current Week Plan"
+                    onDragStateChange={handleWeekListDragStateChange}
+                    onReorder={async (reordered) => {
+                      if (!plan) {
+                        return;
+                      }
+                      const nextPlan = { ...plan };
+                      upcomingDays.forEach((day, index) => {
+                        const nextSlot = reordered[index];
+                        if (!day || !nextSlot) {
+                          return;
+                        }
+                        nextPlan[day.key] = nextSlot.mealId ?? null;
+                      });
+                      setPlanState(nextPlan);
+                      await Promise.all([
+                        setCurrentWeekPlan(weekStartISO, nextPlan),
+                        setCurrentWeekSides(weekStartISO, sides),
+                      ]);
+                    }}
+                  />
+                </>
+              ) : (
+                renderPlanningCTA(
+                  plannedDayCount > 0 ? "resume" : "start",
+                  () => router.push("/modals/plan-week")
+                )
+              )}
+              <ServedList
+                servedWeek={servedWeek}
+                meals={meals}
+                title="Served Meals"
+                onFamilyRatingChange={handleFamilyRatingChange}
+              />
             </View>
-          )}
-          <ServedList
-            servedWeek={servedWeek}
-            meals={meals}
-            title="Served Meals"
-            onFamilyRatingChange={handleFamilyRatingChange}
-          />
-        </View>
-      </ScrollView>
-    </TabParent>
+          </ScrollView>
+        </TabParent>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -495,6 +611,15 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingTop: theme.space["2xl"],
       paddingBottom: theme.space["2xl"],
       gap: theme.space["2xl"],
+    },
+    screenContainer: {
+      flex: 1,
+      backgroundColor: "#000",
+    },
+    screenWrapper: {
+      flex: 1,
+      borderRadius: theme.radius.lg,
+      overflow: "hidden",
     },
     planButton: {
       borderRadius: theme.radius.md,
@@ -516,39 +641,90 @@ const createStyles = (theme: WeeklyTheme) =>
     stack: {
       gap: theme.space["2xl"],
     },
-    planningCard: {
+    planningCardCta: {
       backgroundColor: theme.color.surface,
       borderRadius: theme.radius.lg,
       paddingHorizontal: theme.space.xl,
       paddingVertical: theme.space.xl,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.cardOutline,
-      gap: theme.space.sm,
+      gap: theme.space.md,
+      shadowColor: "#000",
+      shadowOpacity: 0.05,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 3,
     },
-    planningCardTitle: {
+    planningCtaTitle: {
       color: theme.color.ink,
       fontSize: theme.type.size.title,
       fontWeight: theme.type.weight.bold,
     },
-    planningCardSubtitle: {
+    planningCtaSubtitle: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.base,
     },
-    planningButton: {
-      marginTop: theme.space.xs,
-      alignSelf: "flex-start",
-      paddingHorizontal: theme.space.md,
+    progressRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
+    },
+    progressBar: {
+      flex: 1,
+      height: 6,
+      borderRadius: 999,
+      backgroundColor: theme.color.border,
+      flexDirection: "row",
+      overflow: "hidden",
+    },
+    progressFill: {
+      height: "100%",
+      backgroundColor: "#f94f9b",
+    },
+    progressLabel: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    timeEstimate: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+    },
+    planningButtonsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+    },
+    planningPrimaryButton: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: theme.space.md,
+      borderRadius: theme.radius.full,
+      backgroundColor: "#f94f9b",
+      shadowColor: "#f94f9b",
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 3,
+    },
+    planningPrimaryButtonPressed: {
+      opacity: 0.9,
+    },
+    planningPrimaryText: {
+      color: "#fff",
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    skipButton: {
+      paddingHorizontal: theme.space.sm,
       paddingVertical: theme.space.sm,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
     },
-    planningButtonPressed: {
-      opacity: 0.85,
+    skipButtonPressed: {
+      opacity: 0.8,
     },
-    planningButtonText: {
-      color: theme.color.ink,
+    skipText: {
+      color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,
     },
