@@ -176,11 +176,21 @@ exports.handler = async (event) => {
   }
 
   if (!aiResponse.ok) {
+    let errorMessage = "Auto-fill failed.";
+    try {
+      const errorPayload = await aiResponse.json();
+      if (errorPayload?.error?.message) {
+        errorMessage = errorPayload.error.message;
+      }
+    } catch (error) {
+      // ignore parse failures
+    }
+
     return {
       statusCode: 500,
       body: JSON.stringify({
         ok: false,
-        error: "Auto-fill failed.",
+        error: errorMessage,
       }),
     };
   }
@@ -198,7 +208,7 @@ exports.handler = async (event) => {
       statusCode: 500,
       body: JSON.stringify({
         ok: false,
-        error: "Auto-fill failed.",
+        error: "Auto-fill failed to parse model response.",
       }),
     };
   }

@@ -76,10 +76,18 @@ export const autoFillMealFromUrl = async (
   }
 
   if (!response.ok) {
-    return {
-      ok: false,
-      error: "Auto-fill failed. Check the link and try again.",
-    };
+    try {
+      const payload = (await response.json()) as RecipeAutoFillOutcome;
+      return {
+        ok: false,
+        error: payload?.error ?? "Auto-fill failed. Check the link and try again.",
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: "Auto-fill failed. Check the link and try again.",
+      };
+    }
   }
 
   try {
