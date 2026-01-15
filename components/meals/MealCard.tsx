@@ -62,6 +62,7 @@ const AUTO_FILL_SELECTION_DEFAULT = {
   ingredients: false,
   difficulty: false,
   expense: false,
+  prepNotes: false,
 } as const;
 
 type AutoFillSelectionKey = keyof typeof AUTO_FILL_SELECTION_DEFAULT;
@@ -342,6 +343,10 @@ export default function MealCard({
         typeof outcome.data.expense === "number" &&
         clampSliderValue(outcome.data.expense) !==
           clampSliderValue(form.expense ?? 3),
+      prepNotes:
+        typeof outcome.data.prepNotes === "string" &&
+        outcome.data.prepNotes.trim().length > 0 &&
+        outcome.data.prepNotes.trim() !== prepNotesDraft.trim(),
     };
 
     setAutoFillSelection(defaultSelection);
@@ -353,6 +358,7 @@ export default function MealCard({
     form.ingredients,
     form.difficulty,
     form.expense,
+    prepNotesDraft,
   ]);
 
   const closeAutoFillPreview = useCallback(() => {
@@ -390,6 +396,13 @@ export default function MealCard({
       typeof autoFillResult.expense === "number"
     ) {
       updateField("expense", clampSliderValue(autoFillResult.expense));
+    }
+
+    if (
+      autoFillSelection.prepNotes &&
+      typeof autoFillResult.prepNotes === "string"
+    ) {
+      updateField("prepNotes", autoFillResult.prepNotes);
     }
 
     closeAutoFillPreview();
@@ -445,6 +458,12 @@ export default function MealCard({
         label: "Expense",
         value: expenseLabel,
         selectable: Boolean(expenseLabel),
+      },
+      {
+        key: "prepNotes" as const,
+        label: "Prep Notes",
+        value: autoFillResult.prepNotes,
+        selectable: Boolean(autoFillResult.prepNotes?.trim().length),
       },
     ];
   }, [autoFillResult]);

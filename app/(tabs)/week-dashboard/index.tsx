@@ -618,7 +618,8 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     screenWrapper: {
       flex: 1,
-      borderRadius: theme.radius.lg,
+      borderTopRightRadius: theme.radius.lg,
+      borderTopLeftRadius: theme.radius.lg,
       overflow: "hidden",
     },
     planButton: {

@@ -1,4 +1,4 @@
 {
-  "recipeAutoFillEnabled": false,
+  "recipeAutoFillEnabled": true,
   "weekDashboardDateControlsEnabled": true
 }

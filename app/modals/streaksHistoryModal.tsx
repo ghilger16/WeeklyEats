@@ -50,19 +50,31 @@ export default function StreaksHistoryModal() {
 
   const refreshStreak = useCallback(async () => {
     const streak = await getWeekPlanStreak();
-    setStreakCount(streak.count ?? 0);
-  }, []);
+    if (streak.count && streak.count > 0) {
+      setStreakCount(streak.count);
+    } else if (history.length) {
+      setStreakCount(history.length);
+    } else {
+      setStreakCount(0);
+    }
+  }, [history.length]);
 
   const refreshHistory = useCallback(async () => {
     const entries = await getWeekPlanHistory();
     setHistory(entries);
-  }, []);
+    if (entries.length && (!streakCount || streakCount < entries.length)) {
+      setStreakCount(entries.length);
+    }
+  }, [streakCount]);
 
   const addSampleHistory = useCallback(async () => {
+    const existing = await getWeekPlanHistory();
+    const mealIds = meals.map((m) => m.id).filter(Boolean);
     const today = startOfDay(new Date());
-    const starts = [0, -7].map((offset) =>
+    const starts = [0, -7, -14].map((offset) =>
       getWeekStartForDate(startDay, addDays(today, offset))
     );
+
     await Promise.all(
       starts.map(async (start) => {
         const iso = start.toISOString().slice(0, 10);
@@ -71,23 +83,44 @@ export default function StreaksHistoryModal() {
           weekedPlanned: true,
         });
         PLANNED_WEEK_ORDER.forEach((dayKey, idx) => {
-          plan[dayKey] = `sample-${iso}-${idx}`;
+          const mealId =
+            mealIds.length > 0
+              ? mealIds[(idx + start.getTime()) % mealIds.length]
+              : `sample-${idx + 1}`;
+          plan[dayKey] = mealId;
         });
         await addWeekPlanHistory(plan);
       })
     );
+
     await refreshHistory();
-  }, [refreshHistory, startDay]);
+    await refreshStreak();
+  }, [meals, refreshHistory, refreshStreak, startDay]);
 
   useFocusEffect(
     useCallback(() => {
       DeviceEventEmitter.emit("streakModalOpen");
-      refreshStreak();
-      refreshHistory();
+      const load = async () => {
+        const entries = await getWeekPlanHistory();
+        const needsSamples =
+          entries.length < 3 ||
+          entries.some((entry) =>
+            PLANNED_WEEK_ORDER.some((day) =>
+              (entry.plan[day] ?? "").toString().startsWith("sample")
+            )
+          );
+        if (needsSamples) {
+          await addSampleHistory();
+        } else {
+          setHistory(entries);
+          await refreshStreak();
+        }
+      };
+      load();
       return () => {
         DeviceEventEmitter.emit("streakModalClose");
       };
-    }, [refreshHistory, refreshStreak])
+    }, [addSampleHistory, refreshStreak])
   );
 
   const formatWeekRange = useCallback((weekStartISO: string) => {
@@ -101,7 +134,14 @@ export default function StreaksHistoryModal() {
       .filter((id): id is string => typeof id === "string")
       .map((id) => {
         const meal = meals.find((m) => m.id === id);
-        return meal?.name ?? "Meal";
+        if (meal?.name) {
+          return meal.name;
+        }
+        if (id.startsWith("sample-")) {
+          const suffix = id.split("-").pop();
+          return `Sample Meal ${suffix}`;
+        }
+        return id;
       });
     const isExpanded = expandedWeekStartISO === entry.weekStartISO;
     const handleToggle = () => {
@@ -216,7 +256,7 @@ export default function StreaksHistoryModal() {
                   <MaterialCommunityIcons
                     name="fire"
                     size={30}
-                    color={theme.color.ink}
+                    color={theme.color.accent}
                   />
                   <View>
                     <Text style={styles.modalStreakCount}>
@@ -312,7 +352,7 @@ const createStyles = (theme: WeeklyTheme) =>
       flex: 1,
     },
     modalHeaderTitle: {
-      color: theme.color.surface,
+      color: theme.color.ink,
       fontSize: theme.type.size.title,
       fontWeight: theme.type.weight.bold,
     },
