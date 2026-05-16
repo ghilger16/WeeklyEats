@@ -20,6 +20,8 @@ type Props = {
   visible: boolean;
   mode: "create" | "edit";
   meal?: Meal | null;
+  draftOverrides?: Partial<MealDraft>;
+  autoFillOnOpen?: boolean;
   onDismiss: () => void;
   onCreateMeal: (draft: MealDraft) => void;
   onUpdateMeal: (meal: Meal) => void;
@@ -31,6 +33,8 @@ export default function MealModalOverlay({
   visible,
   mode,
   meal,
+  draftOverrides,
+  autoFillOnOpen = false,
   onDismiss,
   onCreateMeal,
   onUpdateMeal,
@@ -128,8 +132,11 @@ export default function MealModalOverlay({
       return { ...meal };
     }
 
-    return createEmptyMealDraft();
-  }, [meal, mode]);
+    return {
+      ...createEmptyMealDraft(),
+      ...(draftOverrides ?? {}),
+    };
+  }, [draftOverrides, meal, mode]);
 
   if (!rendered) {
     return null;
@@ -152,6 +159,7 @@ export default function MealModalOverlay({
         <MealCard
           mode={mode}
           initialMeal={initialMeal}
+          autoFillOnOpen={autoFillOnOpen}
           onClose={dismiss}
           onCreateMeal={onCreateMeal}
           onUpdateMeal={onUpdateMeal}

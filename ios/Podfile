@@ -2,6 +2,12 @@ require File.join(File.dirname(`node --print "require.resolve('expo/package.json
 require File.join(File.dirname(`node --print "require.resolve('react-native/package.json')"`), "scripts/react_native_pods")
 
 require 'json'
+require 'xcodeproj'
+
+compatibility_versions = Xcodeproj::Constants::COMPATIBILITY_VERSION_BY_OBJECT_VERSION.merge(70 => 'Xcode 16.0')
+Xcodeproj::Constants.send(:remove_const, :COMPATIBILITY_VERSION_BY_OBJECT_VERSION)
+Xcodeproj::Constants.const_set(:COMPATIBILITY_VERSION_BY_OBJECT_VERSION, compatibility_versions.freeze)
+
 podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
 
 def ccache_enabled?(podfile_properties)
@@ -56,5 +62,22 @@ target 'WeeklyEats' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
+
+    react_core_private_headers = '"$(PODS_ROOT)/Headers/Private/React-Core"'
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |build_configuration|
+        header_search_paths = build_configuration.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)'
+        header_search_paths = [header_search_paths] if header_search_paths.is_a?(String)
+
+        unless header_search_paths.include?(react_core_private_headers)
+          header_search_paths << react_core_private_headers
+          build_configuration.build_settings['HEADER_SEARCH_PATHS'] = header_search_paths
+        end
+
+        if target.name == 'fmt'
+          build_configuration.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+        end
+      end
+    end
   end
 end

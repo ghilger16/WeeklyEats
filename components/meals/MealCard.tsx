@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Switch,
   StyleSheet,
   Text,
   TextInput,
@@ -33,6 +34,7 @@ import { setFamilyRatingValue } from "../../utils/familyRatings";
 type MealCardProps = {
   mode: "create" | "edit";
   initialMeal: MealDraft | Meal;
+  autoFillOnOpen?: boolean;
   onClose: () => void;
   onCreateMeal: (draft: MealDraft) => void;
   onUpdateMeal: (meal: Meal) => void;
@@ -44,6 +46,28 @@ const SLIDER_STEPS = 5;
 
 const clampSliderValue = (value: number) =>
   Math.min(Math.max(Math.round(value), 1), SLIDER_STEPS);
+
+const snapToLevelValue = (
+  value: number,
+  levels: readonly { value: number }[]
+) => {
+  const clamped = clampSliderValue(value);
+  if (levels.length === 0) {
+    return clamped;
+  }
+
+  return levels.reduce((closest, level) => {
+    const distance = Math.abs(level.value - clamped);
+    const closestDistance = Math.abs(closest - clamped);
+    if (distance < closestDistance) {
+      return level.value;
+    }
+    if (distance === closestDistance && level.value > closest) {
+      return level.value;
+    }
+    return closest;
+  }, levels[0].value);
+};
 
 const DIFFICULTY_LEVELS = [
   { label: "Easy", value: 1 as const, colorKey: "success" as const },
@@ -76,9 +100,14 @@ const labelForLevel = (
     return undefined;
   }
 
+  const snapped = snapToLevelValue(value, levels);
+  const match = levels.find((level) => level.value === snapped);
+  if (match) {
+    return match.label;
+  }
+
   const clamped = clampSliderValue(value);
-  const match = levels.find((level) => level.value === clamped);
-  return match?.label ?? `Level ${clamped}`;
+  return `Level ${clamped}`;
 };
 
 const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
@@ -100,8 +129,8 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   isFavorite: meal.isFavorite ?? false,
   recipeUrl: meal.recipeUrl ?? "",
   ingredients: meal.ingredients ? [...meal.ingredients] : [],
-  difficulty: clampSliderValue(meal.difficulty ?? 3),
-  expense: clampSliderValue(meal.expense ?? 3),
+  difficulty: snapToLevelValue(meal.difficulty ?? 3, DIFFICULTY_LEVELS),
+  expense: snapToLevelValue(meal.expense ?? 3, EXPENSE_LEVELS),
   prepNotes: meal.prepNotes ?? "",
   freezerAmount:
     "freezerAmount" in meal && meal.freezerAmount !== undefined
@@ -116,6 +145,7 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
 export default function MealCard({
   mode,
   initialMeal,
+  autoFillOnOpen = false,
   onClose,
   onCreateMeal,
   onUpdateMeal,
@@ -132,6 +162,7 @@ export default function MealCard({
     () => form.prepNotes ?? ""
   );
   const [newIngredient, setNewIngredient] = useState("");
+  const [isIngredientDeleteMode, setIsIngredientDeleteMode] = useState(false);
   const skipAutoSaveRef = useRef(true);
   const isEditMode = mode === "edit";
   const autoFillFeatureFlag = useFeatureFlag("recipeAutoFillEnabled");
@@ -174,6 +205,7 @@ export default function MealCard({
     useState<AutoFillSelectionState>({
       ...AUTO_FILL_SELECTION_DEFAULT,
     });
+  const autoFillTriggeredRef = useRef(false);
   const [isEmojiPickerVisible, setEmojiPickerVisible] = useState(false);
 
   const suggestedEmoji = useMemo(
@@ -218,6 +250,7 @@ export default function MealCard({
     setForm(normalized);
     setPrepNotesDraft(normalized.prepNotes ?? "");
     setNewIngredient("");
+    autoFillTriggeredRef.current = false;
   }, [initialMeal, mode]);
 
   useEffect(() => {
@@ -277,6 +310,7 @@ export default function MealCard({
 
     updateField("ingredients", [...(form.ingredients ?? []), trimmed]);
     setNewIngredient("");
+    setIsIngredientDeleteMode(false);
   }, [form.ingredients, newIngredient, updateField]);
 
   const handleOpenEmojiPicker = useCallback(() => {
@@ -312,6 +346,14 @@ export default function MealCard({
     [form.ingredients, updateField]
   );
 
+  const hasIngredients = (form.ingredients ?? []).length > 0;
+  const handleToggleIngredientDeleteMode = useCallback(() => {
+    if (!hasIngredients) {
+      return;
+    }
+    setIsIngredientDeleteMode((prev) => !prev);
+  }, [hasIngredients]);
+
   const handleToggleAutoFillSelection = useCallback(
     (field: AutoFillSelectionKey, value: boolean) => {
       setAutoFillSelection((prev) => ({
@@ -329,24 +371,24 @@ export default function MealCard({
       return;
     }
 
+    const normalizedDifficulty =
+      typeof outcome.data.difficulty === "number"
+        ? snapToLevelValue(outcome.data.difficulty, DIFFICULTY_LEVELS)
+        : undefined;
+    const normalizedExpense =
+      typeof outcome.data.expense === "number"
+        ? snapToLevelValue(outcome.data.expense, EXPENSE_LEVELS)
+        : undefined;
+
     const defaultSelection: AutoFillSelectionState = {
       ...AUTO_FILL_SELECTION_DEFAULT,
-      title: Boolean(outcome.data.title) && form.title.trim().length === 0,
-      ingredients:
-        Boolean(outcome.data.ingredients?.length) &&
-        (form.ingredients ?? []).length === 0,
-      difficulty:
-        typeof outcome.data.difficulty === "number" &&
-        clampSliderValue(outcome.data.difficulty) !==
-          clampSliderValue(form.difficulty ?? 3),
-      expense:
-        typeof outcome.data.expense === "number" &&
-        clampSliderValue(outcome.data.expense) !==
-          clampSliderValue(form.expense ?? 3),
+      title: Boolean(outcome.data.title),
+      ingredients: Boolean(outcome.data.ingredients?.length),
+      difficulty: typeof normalizedDifficulty === "number",
+      expense: typeof normalizedExpense === "number",
       prepNotes:
         typeof outcome.data.prepNotes === "string" &&
-        outcome.data.prepNotes.trim().length > 0 &&
-        outcome.data.prepNotes.trim() !== prepNotesDraft.trim(),
+        outcome.data.prepNotes.trim().length > 0,
     };
 
     setAutoFillSelection(defaultSelection);
@@ -361,6 +403,23 @@ export default function MealCard({
     prepNotesDraft,
   ]);
 
+  useEffect(() => {
+    if (!autoFillOnOpen) {
+      return;
+    }
+    if (autoFillTriggeredRef.current) {
+      return;
+    }
+    if (!isAutoFillEnabled) {
+      return;
+    }
+    if (!form.recipeUrl?.trim()) {
+      return;
+    }
+    autoFillTriggeredRef.current = true;
+    handleAutoFillPress();
+  }, [autoFillOnOpen, form.recipeUrl, handleAutoFillPress, isAutoFillEnabled]);
+
   const closeAutoFillPreview = useCallback(() => {
     setIsAutoFillPreviewVisible(false);
     setAutoFillSelection({ ...AUTO_FILL_SELECTION_DEFAULT });
@@ -371,6 +430,15 @@ export default function MealCard({
     if (!autoFillResult) {
       return;
     }
+
+    const normalizedDifficulty =
+      typeof autoFillResult.difficulty === "number"
+        ? snapToLevelValue(autoFillResult.difficulty, DIFFICULTY_LEVELS)
+        : undefined;
+    const normalizedExpense =
+      typeof autoFillResult.expense === "number"
+        ? snapToLevelValue(autoFillResult.expense, EXPENSE_LEVELS)
+        : undefined;
 
     if (autoFillSelection.title && autoFillResult.title) {
       updateField("title", autoFillResult.title);
@@ -384,18 +452,12 @@ export default function MealCard({
       updateField("ingredients", autoFillResult.ingredients);
     }
 
-    if (
-      autoFillSelection.difficulty &&
-      typeof autoFillResult.difficulty === "number"
-    ) {
-      updateField("difficulty", clampSliderValue(autoFillResult.difficulty));
+    if (autoFillSelection.difficulty && normalizedDifficulty !== undefined) {
+      updateField("difficulty", normalizedDifficulty);
     }
 
-    if (
-      autoFillSelection.expense &&
-      typeof autoFillResult.expense === "number"
-    ) {
-      updateField("expense", clampSliderValue(autoFillResult.expense));
+    if (autoFillSelection.expense && normalizedExpense !== undefined) {
+      updateField("expense", normalizedExpense);
     }
 
     if (
@@ -670,10 +732,27 @@ export default function MealCard({
                 (form.ingredients ?? []).map((ingredient, index) => (
                   <Pressable
                     key={`${ingredient}-${index}`}
-                    style={styles.chip}
+                    style={({ pressed }) => [
+                      styles.chip,
+                      isIngredientDeleteMode && styles.chipDeleteMode,
+                      pressed && isIngredientDeleteMode && styles.chipPressed,
+                    ]}
                     accessibilityRole="button"
-                    accessibilityHint="Double tap to remove ingredient"
-                    onPress={() => handleRemoveIngredient(index)}
+                    accessibilityLabel={
+                      isIngredientDeleteMode
+                        ? `Remove ${ingredient}`
+                        : ingredient
+                    }
+                    accessibilityHint={
+                      isIngredientDeleteMode
+                        ? "Double tap to remove ingredient"
+                        : "Enable delete mode to remove ingredients"
+                    }
+                    onPress={() => {
+                      if (isIngredientDeleteMode) {
+                        handleRemoveIngredient(index);
+                      }
+                    }}
                   >
                     <Text style={styles.chipText}>{ingredient}</Text>
                   </Pressable>
@@ -687,9 +766,40 @@ export default function MealCard({
                 style={styles.ingredientInput}
                 value={newIngredient}
                 onChangeText={setNewIngredient}
+                onFocus={() => setIsIngredientDeleteMode(false)}
                 onSubmitEditing={handleAddIngredient}
                 returnKeyType="done"
               />
+              <Pressable
+                onPress={handleToggleIngredientDeleteMode}
+                disabled={!hasIngredients}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isIngredientDeleteMode
+                    ? "Exit ingredient delete mode"
+                    : "Delete ingredients"
+                }
+                style={({ pressed }) => [
+                  styles.ingredientTrashButton,
+                  pressed && hasIngredients && styles.ingredientTrashButtonPressed,
+                  isIngredientDeleteMode && styles.ingredientTrashButtonActive,
+                  !hasIngredients && styles.ingredientTrashButtonDisabled,
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name={
+                    isIngredientDeleteMode ? "trash-can" : "trash-can-outline"
+                  }
+                  size={18}
+                  color={
+                    !hasIngredients
+                      ? theme.color.border
+                      : isIngredientDeleteMode
+                      ? theme.color.ink
+                      : theme.color.subtleInk
+                  }
+                />
+              </Pressable>
             </View>
           </View>
 
@@ -1093,6 +1203,13 @@ const createStyles = (theme: WeeklyTheme) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
     },
+    chipDeleteMode: {
+      borderColor: theme.color.danger,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    chipPressed: {
+      opacity: 0.75,
+    },
     chipText: {
       color: theme.color.ink,
       fontSize: theme.type.size.base,
@@ -1100,6 +1217,7 @@ const createStyles = (theme: WeeklyTheme) =>
     addIngredientRow: {
       flexDirection: "row",
       alignItems: "center",
+      gap: theme.space.sm,
     },
     ingredientInput: {
       flex: 1,
@@ -1109,6 +1227,24 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingHorizontal: theme.space.md,
       color: theme.color.ink,
       fontSize: theme.type.size.base,
+    },
+    ingredientTrashButton: {
+      width: 32,
+      height: 32,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    ingredientTrashButtonPressed: {
+      opacity: 0.7,
+    },
+    ingredientTrashButtonActive: {
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.accent,
+    },
+    ingredientTrashButtonDisabled: {
+      opacity: 0.5,
     },
     notesInput: {
       backgroundColor: theme.color.surface,

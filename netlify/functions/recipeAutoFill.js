@@ -67,6 +67,7 @@ const buildOpenAiPayload = (url, text) => ({
       content: [
         "Return a JSON object with keys: title, ingredients, difficulty, expense, prepNotes.",
         "Ingredients must be names only: no quantities, no units, no prep notes.",
+        "PrepNotes should only include advance-ahead tasks (hours in advance), like defrosting or marinating. Keep it short.",
         "Difficulty and expense are integers 1-5. PrepNotes is short.",
         `Recipe URL: ${url}`,
         `Recipe text: ${text}`,

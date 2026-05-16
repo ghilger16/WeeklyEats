@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useFocusEffect } from "expo-router";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
@@ -319,7 +320,6 @@ export default function WeekDashboardScreen() {
   }, []);
 
   const showWeekPlanDetails = plan?.weekedPlanned === true;
-  const showPlanningCTA = !showWeekPlanDetails;
 
   const showPlanButton = useMemo(() => {
     const reference = startOfDay(effectiveDate);
@@ -346,14 +346,29 @@ export default function WeekDashboardScreen() {
   const handleClearWeekPlan = useCallback(async () => {
     const emptyPlan = createEmptyCurrentPlannedWeek({ weekStartISO });
     const emptySides = createEmptyCurrentWeekSides();
+    const reference = startOfDay(effectiveDate);
+    const nextWeekStart = getNextWeekStartForDate(startDay, reference);
+    const nextWeekStartISO = nextWeekStart.toISOString().slice(0, 10);
     setPlanState(emptyPlan);
     setSidesState(emptySides);
     await Promise.all([
       setCurrentWeekPlan(weekStartISO, emptyPlan),
       setCurrentWeekSides(weekStartISO, emptySides),
+      setCurrentWeekPlan(
+        nextWeekStartISO,
+        createEmptyCurrentPlannedWeek({ weekStartISO: nextWeekStartISO })
+      ),
+      setCurrentWeekSides(nextWeekStartISO, createEmptyCurrentWeekSides()),
     ]);
     await refreshWeekPlan();
-  }, [refreshWeekPlan, setPlanState, setSidesState, weekStartISO]);
+  }, [
+    effectiveDate,
+    refreshWeekPlan,
+    setPlanState,
+    setSidesState,
+    startDay,
+    weekStartISO,
+  ]);
 
   const handleClearServedMeals = useCallback(async () => {
     await clearServedMeals();
@@ -551,7 +566,24 @@ export default function WeekDashboardScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Plan upcoming week"
               >
-                <Text style={styles.planButtonText}>Plan Next Week</Text>
+                <View style={styles.planIconWrap}>
+                  <MaterialCommunityIcons
+                    name="calendar-week"
+                    size={22}
+                    color={theme.color.accent}
+                  />
+                </View>
+                <View style={styles.planTextStack}>
+                  <Text style={styles.planButtonTitle}>Plan Next Week</Text>
+                  <Text style={styles.planButtonSubtitle}>
+                    Pick dinners for the week in minutes.
+                  </Text>
+                </View>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={26}
+                  color={theme.color.subtleInk}
+                />
               </Pressable>
             ) : null}
 
@@ -584,12 +616,9 @@ export default function WeekDashboardScreen() {
                     }}
                   />
                 </>
-              ) : (
-                renderPlanningCTA(
-                  plannedDayCount > 0 ? "resume" : "start",
-                  () => router.push("/modals/plan-week")
-                )
-              )}
+              ) : plannedDayCount > 0 ? (
+                renderPlanningCTA("resume", () => router.push("/modals/plan-week"))
+              ) : null}
               <ServedList
                 servedWeek={servedWeek}
                 meals={meals}
@@ -623,21 +652,44 @@ const createStyles = (theme: WeeklyTheme) =>
       overflow: "hidden",
     },
     planButton: {
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-      paddingVertical: theme.space.md,
-      paddingHorizontal: theme.space.lg,
+      flexDirection: "row",
       alignItems: "center",
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surface,
+      paddingVertical: theme.space.lg,
+      paddingHorizontal: theme.space.lg,
+      gap: theme.space.md,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
+      borderColor: theme.color.cardOutline,
+      shadowColor: "#000",
+      shadowOpacity: 0.06,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 3,
     },
     planButtonPressed: {
       opacity: 0.85,
     },
-    planButtonText: {
+    planIconWrap: {
+      width: 44,
+      height: 44,
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.color.focus,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    planTextStack: {
+      flex: 1,
+      gap: 2,
+    },
+    planButtonTitle: {
       color: theme.color.ink,
       fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
+      fontWeight: theme.type.weight.bold,
+    },
+    planButtonSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
     },
     stack: {
       gap: theme.space["2xl"],

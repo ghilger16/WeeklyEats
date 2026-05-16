@@ -4,7 +4,7 @@
     "slug": "WeeklyEats",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/weicon.png",
     "userInterfaceStyle": "light",
     "scheme": "weeklyeats",
     "newArchEnabled": true,
@@ -22,7 +22,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/weicon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,

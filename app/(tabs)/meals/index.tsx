@@ -1,15 +1,18 @@
 import {
   Alert,
   Animated,
+  AppState,
   Easing,
   FlatList,
   ListRenderItem,
+  Linking,
   RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
 import MealListItem from "../../../components/meals/MealListItem";
 import FreezerAmountModal from "../../../components/meals/FreezerAmountModal";
 import DisplayOnCardsSheet from "../../../components/meals/DisplayOnCardsSheet";
@@ -24,6 +27,11 @@ import { useMeals } from "../../../hooks/useMeals";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 import { Meal, MealDraft, createMealId } from "../../../types/meals";
+import {
+  getPendingRecipeImports,
+  removePendingRecipeImport,
+  type PendingRecipeImport,
+} from "../../../utils/pendingRecipeImports";
 
 const getMealRatingValue = (meal: Meal) =>
   typeof meal.rating === "number" ? meal.rating : 0;
@@ -72,7 +80,25 @@ const getMealServedCount = (meal: Meal) => {
   return 0;
 };
 
+const parseSharedRecipeUrl = (incomingUrl: string) => {
+  try {
+    const parsed = new URL(incomingUrl);
+    const host = parsed.host.toLowerCase();
+    const path = parsed.pathname.replace(/^\/+/, "").toLowerCase();
+    if (!["share", "meals"].includes(host) && !["share", "meals"].includes(path)) {
+      return null;
+    }
+    const shared = parsed.searchParams.get("url");
+    return shared && shared.trim().length > 0 ? shared : null;
+  } catch (error) {
+    return null;
+  }
+};
+
 export default function MealsScreen() {
+  const { url: sharedRecipeUrlParam } = useLocalSearchParams<{
+    url?: string | string[];
+  }>();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const {
@@ -90,6 +116,14 @@ export default function MealsScreen() {
   const [selectedMealId, setSelectedMealId] = useState<string | undefined>();
   const [isModalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [pendingSharedRecipeUrl, setPendingSharedRecipeUrl] = useState<
+    string | null
+  >(null);
+  const [pendingSharedRecipeImportId, setPendingSharedRecipeImportId] =
+    useState<string | null>(null);
+  const [pendingImportQueue, setPendingImportQueue] = useState<
+    PendingRecipeImport[]
+  >([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortSelection, setSortSelection] = useState<MealSortSelection | null>({
     id: "dateAdded",
@@ -326,6 +360,49 @@ export default function MealsScreen() {
     setModalVisible(true);
   }, []);
 
+  const openSharedRecipeUrl = useCallback(
+    (sharedUrl: string, importId?: string) => {
+      setPendingSharedRecipeUrl(sharedUrl);
+      setPendingSharedRecipeImportId(importId ?? null);
+      setModalMode("create");
+      setSelectedMealId(undefined);
+      setModalVisible(true);
+    },
+    []
+  );
+
+  const handleIncomingUrl = useCallback(
+    (incomingUrl: string) => {
+      const sharedUrl = parseSharedRecipeUrl(incomingUrl);
+      if (!sharedUrl) {
+        return;
+      }
+      openSharedRecipeUrl(sharedUrl);
+    },
+    [openSharedRecipeUrl]
+  );
+
+  const loadPendingImports = useCallback(async () => {
+    try {
+      const imports = await getPendingRecipeImports();
+      setPendingImportQueue(imports);
+    } catch (error) {
+      console.warn("Unable to load pending recipe imports", error);
+    }
+  }, []);
+
+  const clearActivePendingImport = useCallback(() => {
+    const importId = pendingSharedRecipeImportId;
+    if (!importId) {
+      return;
+    }
+
+    setPendingSharedRecipeImportId(null);
+    removePendingRecipeImport(importId).catch((error) => {
+      console.warn("Unable to remove pending recipe import", error);
+    });
+  }, [pendingSharedRecipeImportId]);
+
   const freezerCandidates = useMemo(
     () => meals.filter((meal) => !meal.isFavorite),
     [meals]
@@ -448,10 +525,12 @@ export default function MealsScreen() {
   const freezerAmountMeal = freezerModalMeal ?? selectedFreezerMeal;
 
   const handleDismissModal = useCallback(() => {
+    clearActivePendingImport();
     setModalVisible(false);
     setSelectedMealId(undefined);
     setModalMode("create");
-  }, []);
+    setPendingSharedRecipeUrl(null);
+  }, [clearActivePendingImport]);
 
   const handleCreateMeal = useCallback(
     (draft: MealDraft) => {
@@ -463,8 +542,9 @@ export default function MealsScreen() {
         createdAt: draft.createdAt ?? now,
         updatedAt: draft.updatedAt ?? now,
       });
+      clearActivePendingImport();
     },
-    [addMeal]
+    [addMeal, clearActivePendingImport]
   );
 
   const handleUpdateMeal = useCallback(
@@ -473,6 +553,68 @@ export default function MealsScreen() {
     },
     [updateMeal]
   );
+
+  useEffect(() => {
+    let isActive = true;
+    Linking.getInitialURL()
+      .then((url) => {
+        if (isActive && url) {
+          handleIncomingUrl(url);
+        }
+      })
+      .catch(() => {});
+
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      handleIncomingUrl(url);
+    });
+
+    return () => {
+      isActive = false;
+      subscription.remove();
+    };
+  }, [handleIncomingUrl]);
+
+  useEffect(() => {
+    loadPendingImports();
+
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        loadPendingImports();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [loadPendingImports]);
+
+  useEffect(() => {
+    if (
+      isModalVisible ||
+      pendingSharedRecipeUrl ||
+      pendingImportQueue.length === 0
+    ) {
+      return;
+    }
+
+    const [nextImport, ...remainingImports] = pendingImportQueue;
+    setPendingImportQueue(remainingImports);
+    openSharedRecipeUrl(nextImport.recipeUrl, nextImport.id);
+  }, [
+    isModalVisible,
+    openSharedRecipeUrl,
+    pendingImportQueue,
+    pendingSharedRecipeUrl,
+  ]);
+
+  useEffect(() => {
+    const sharedUrl = Array.isArray(sharedRecipeUrlParam)
+      ? sharedRecipeUrlParam[0]
+      : sharedRecipeUrlParam;
+    if (typeof sharedUrl === "string" && sharedUrl.trim().length > 0) {
+      openSharedRecipeUrl(sharedUrl);
+    }
+  }, [openSharedRecipeUrl, sharedRecipeUrlParam]);
 
   useEffect(() => {
     if (
@@ -660,6 +802,12 @@ export default function MealsScreen() {
         mode={modalMode}
         meal={modalMode === "edit" ? selectedMeal : undefined}
         visible={isModalVisible}
+        draftOverrides={
+          pendingSharedRecipeUrl
+            ? { recipeUrl: pendingSharedRecipeUrl }
+            : undefined
+        }
+        autoFillOnOpen={Boolean(pendingSharedRecipeUrl)}
         onDismiss={handleDismissModal}
         onCreateMeal={handleCreateMeal}
         onUpdateMeal={handleUpdateMeal}
