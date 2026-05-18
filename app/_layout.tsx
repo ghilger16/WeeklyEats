@@ -9,6 +9,8 @@ export default function RootLayout() {
       <WeekStartControllerProvider>
         <FamilyMembersProvider>
           <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="onboarding/index" />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen
               name="modals/theme-select"

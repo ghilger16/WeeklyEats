@@ -39,10 +39,6 @@ import {
   updateWeekPlanStreak,
 } from "../../stores/weekPlanStorage";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
-import {
-  WeeklyWeekSettings,
-  deriveWeekPinsFromSettings,
-} from "../../components/plan-week/weekPlanner";
 import { buildMealSuggestions } from "../../components/plan-week/suggestions/suggestionMatcher";
 import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
 import { addDays, getNextWeekStartForDate } from "../../utils/weekDays";
@@ -52,7 +48,6 @@ import PlanDayChoiceStep, {
 import PlannedMealsSheet from "../../components/plan-week/planned-meals/PlannedMealsSheet";
 import DayPlannedToast from "../../components/plan-week/planned-meals/DayPlannedToast";
 import PlanWeekHeader from "../../components/plan-week/header/PlanWeekHeader";
-import WeeklyPlannerSteps from "../../components/plan-week/steps/WeeklyPlannerSteps";
 import WeeklyPlanTimeline from "../../components/plan-week/WeeklyPlanTimeline";
 import useDayPins from "../../hooks/plan-week/useDayPins";
 import usePlanSides from "../../hooks/plan-week/usePlanSides";
@@ -131,8 +126,6 @@ export default function PlanWeekModal() {
     useState<PlannedWeekDayKey | null>(null);
   const [plannedCardPreviewDay, setPlannedCardPreviewDay] =
     useState<PlannedWeekDayKey | null>(null);
-  const [hasCompletedPlannerSetup, setHasCompletedPlannerSetup] =
-    useState(false);
   const [resumePromptVisible, setResumePromptVisible] = useState(false);
   const [activeWizardAction, setActiveWizardAction] =
     useState<DayWizardAction | null>(null);
@@ -199,14 +192,6 @@ export default function PlanWeekModal() {
     handleRemoveSide,
     resetSides,
   } = usePlanSides({ activeDay });
-  const handlePlannerSetupComplete = useCallback(
-    (settings: WeeklyWeekSettings) => {
-      const nextPins = deriveWeekPinsFromSettings(settings);
-      replaceDayPins(nextPins);
-      setHasCompletedPlannerSetup(true);
-    },
-    [replaceDayPins]
-  );
   const planningWeekEnd = useMemo(
     () => addDays(planningWeekStart, 6),
     [planningWeekStart]
@@ -217,7 +202,6 @@ export default function PlanWeekModal() {
   );
 
   const handleResumeContinue = useCallback(() => {
-    setHasCompletedPlannerSetup(true);
     setResumePromptVisible(false);
   }, []);
 
@@ -229,7 +213,6 @@ export default function PlanWeekModal() {
     setPlannedWeek(emptyPlan);
     resetSides(emptySides);
     replaceDayPins(createEmptyDayPinsMap());
-    setHasCompletedPlannerSetup(false);
     setResumePromptVisible(false);
     setActiveDayIndex(0);
     setToastSeenDays(new Set());
@@ -242,11 +225,7 @@ export default function PlanWeekModal() {
       setCurrentWeekPlan(planningWeekStartISO, emptyPlan),
       setCurrentWeekSides(planningWeekStartISO, emptySides),
     ]);
-  }, [
-    planningWeekStartISO,
-    replaceDayPins,
-    resetSides,
-  ]);
+  }, [planningWeekStartISO, replaceDayPins, resetSides]);
   const isWeekComplete = useMemo(
     () => orderedDays.every((day) => Boolean(plannedWeek[day])),
     [orderedDays, plannedWeek]
@@ -687,20 +666,6 @@ export default function PlanWeekModal() {
     );
   }
 
-  if (!hasCompletedPlannerSetup) {
-    return (
-      <SafeAreaView
-        style={styles.plannerStepsSafeArea}
-        edges={["top", "left", "right", "bottom"]}
-      >
-        <WeeklyPlannerSteps
-          onComplete={handlePlannerSetupComplete}
-          onCancel={() => router.back()}
-        />
-      </SafeAreaView>
-    );
-  }
-
   if (toastDay) {
     return (
       <View style={styles.toastScreen}>
@@ -736,29 +701,29 @@ export default function PlanWeekModal() {
           showsVerticalScrollIndicator={false}
         >
           {!shouldShowTimeline && !activeWizardAction ? (
-          <PlanDayChoiceStep
-            dayKey={activeDay}
-            orderedDays={orderedDays}
-            plannedWeek={plannedWeek}
-            weekLabel={planningWeekLabel}
-            hasSeenPlannedToast={toastSeenDays.has(activeDay)}
-            onSelectOption={handleSelectWizardOption}
-            onSelectEatOut={handleSelectEatOut}
-            onSelectDay={(day) => {
-              const targetIndex = orderedDays.indexOf(day);
-              if (targetIndex !== -1) {
-                setActiveDayIndex(targetIndex);
-              }
-            }}
-            onSearchForMeal={() => {
-              setSearchTargetDay(activeDay);
-              setSearchModalVisible(true);
-            }}
-            plannedMeal={plannedMealForActiveDay}
-            sides={daySidesMap[activeDay] ?? []}
-            onSwapPlannedMeal={handleSwapPlannedMeal}
-          />
-        ) : null}
+            <PlanDayChoiceStep
+              dayKey={activeDay}
+              orderedDays={orderedDays}
+              plannedWeek={plannedWeek}
+              weekLabel={planningWeekLabel}
+              hasSeenPlannedToast={toastSeenDays.has(activeDay)}
+              onSelectOption={handleSelectWizardOption}
+              onSelectEatOut={handleSelectEatOut}
+              onSelectDay={(day) => {
+                const targetIndex = orderedDays.indexOf(day);
+                if (targetIndex !== -1) {
+                  setActiveDayIndex(targetIndex);
+                }
+              }}
+              onSearchForMeal={() => {
+                setSearchTargetDay(activeDay);
+                setSearchModalVisible(true);
+              }}
+              plannedMeal={plannedMealForActiveDay}
+              sides={daySidesMap[activeDay] ?? []}
+              onSwapPlannedMeal={handleSwapPlannedMeal}
+            />
+          ) : null}
 
           {!shouldShowTimeline && activeWizardAction ? (
             <View style={styles.plannerSection}>

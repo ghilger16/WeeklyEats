@@ -37,7 +37,7 @@ type Props = {
     showDifficulty?: boolean;
     showExpense?: boolean;
     showServed?: boolean;
-    ratingMode?: "family" | "summary";
+    ratingMode?: "family" | "summary" | "off";
     showEmoji?: boolean;
   };
 };
@@ -238,7 +238,7 @@ const MealListItem = memo(function MealListItem({
       })
       .filter((value) => value > 0);
     if (!scores.length) return null;
-    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+    const avg = scores.reduce<number>((a, b) => a + b, 0) / scores.length;
     return { avg, count: scores.length };
   }, [hasFamilyMembers, meal.familyRatings]);
 

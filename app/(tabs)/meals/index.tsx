@@ -6,6 +6,7 @@ import {
   FlatList,
   ListRenderItem,
   Linking,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -13,6 +14,11 @@ import {
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocalSearchParams } from "expo-router";
+import {
+  GestureHandlerRootView,
+  RectButton,
+  Swipeable,
+} from "react-native-gesture-handler";
 import MealListItem from "../../../components/meals/MealListItem";
 import FreezerAmountModal from "../../../components/meals/FreezerAmountModal";
 import DisplayOnCardsSheet from "../../../components/meals/DisplayOnCardsSheet";
@@ -92,6 +98,17 @@ const parseSharedRecipeUrl = (incomingUrl: string) => {
     return shared && shared.trim().length > 0 ? shared : null;
   } catch (error) {
     return null;
+  }
+};
+
+const getRecipeSourceLabel = (recipeUrl: string) => {
+  try {
+    const hostname = new URL(recipeUrl).hostname
+      .toLowerCase()
+      .replace(/^www\./, "");
+    return hostname || "link";
+  } catch (error) {
+    return "link";
   }
 };
 
@@ -391,13 +408,21 @@ export default function MealsScreen() {
     }
   }, []);
 
-  const clearActivePendingImport = useCallback(() => {
+  const resetActivePendingImport = useCallback(() => {
+    setPendingSharedRecipeImportId(null);
+  }, []);
+
+  const completeActivePendingImport = useCallback(() => {
     const importId = pendingSharedRecipeImportId;
+    setPendingSharedRecipeImportId(null);
+
     if (!importId) {
       return;
     }
 
-    setPendingSharedRecipeImportId(null);
+    setPendingImportQueue((prev) =>
+      prev.filter((pendingImport) => pendingImport.id !== importId)
+    );
     removePendingRecipeImport(importId).catch((error) => {
       console.warn("Unable to remove pending recipe import", error);
     });
@@ -458,6 +483,25 @@ export default function MealsScreen() {
     [updateMeal]
   );
 
+  const handleOpenPendingImport = useCallback(
+    (pendingImport: PendingRecipeImport) => {
+      openSharedRecipeUrl(pendingImport.recipeUrl, pendingImport.id);
+    },
+    [openSharedRecipeUrl]
+  );
+
+  const handleRemovePendingImport = useCallback(
+    (importId: string) => {
+      setPendingImportQueue((prev) =>
+        prev.filter((pendingImport) => pendingImport.id !== importId)
+      );
+      removePendingRecipeImport(importId).catch((error) => {
+        console.warn("Unable to remove pending recipe import", error);
+      });
+    },
+    []
+  );
+
   const renderMeal: ListRenderItem<Meal> = useCallback(
     ({ item }) => {
       const isFreezerTab = activeTab === "favorites";
@@ -492,6 +536,13 @@ export default function MealsScreen() {
   const keyExtractor = useCallback((item: Meal) => item.id, []);
 
   const listEmpty = useMemo(() => {
+    if (
+      activeTab === "all" &&
+      pendingImportQueue.length > 0 &&
+      !searchQuery.trim()
+    ) {
+      return null;
+    }
     if (activeTab === "all" && searchQuery.trim()) {
       return (
         <View style={styles.emptyState}>
@@ -510,7 +561,7 @@ export default function MealsScreen() {
         </Text>
       </View>
     );
-  }, [activeTab, searchQuery, styles]);
+  }, [activeTab, pendingImportQueue.length, searchQuery, styles]);
 
   const opacity = contentProgress.interpolate({
     inputRange: [0, 1],
@@ -525,12 +576,12 @@ export default function MealsScreen() {
   const freezerAmountMeal = freezerModalMeal ?? selectedFreezerMeal;
 
   const handleDismissModal = useCallback(() => {
-    clearActivePendingImport();
+    resetActivePendingImport();
     setModalVisible(false);
     setSelectedMealId(undefined);
     setModalMode("create");
     setPendingSharedRecipeUrl(null);
-  }, [clearActivePendingImport]);
+  }, [resetActivePendingImport]);
 
   const handleCreateMeal = useCallback(
     (draft: MealDraft) => {
@@ -542,9 +593,9 @@ export default function MealsScreen() {
         createdAt: draft.createdAt ?? now,
         updatedAt: draft.updatedAt ?? now,
       });
-      clearActivePendingImport();
+      completeActivePendingImport();
     },
-    [addMeal, clearActivePendingImport]
+    [addMeal, completeActivePendingImport]
   );
 
   const handleUpdateMeal = useCallback(
@@ -587,25 +638,6 @@ export default function MealsScreen() {
       subscription.remove();
     };
   }, [loadPendingImports]);
-
-  useEffect(() => {
-    if (
-      isModalVisible ||
-      pendingSharedRecipeUrl ||
-      pendingImportQueue.length === 0
-    ) {
-      return;
-    }
-
-    const [nextImport, ...remainingImports] = pendingImportQueue;
-    setPendingImportQueue(remainingImports);
-    openSharedRecipeUrl(nextImport.recipeUrl, nextImport.id);
-  }, [
-    isModalVisible,
-    openSharedRecipeUrl,
-    pendingImportQueue,
-    pendingSharedRecipeUrl,
-  ]);
 
   useEffect(() => {
     const sharedUrl = Array.isArray(sharedRecipeUrlParam)
@@ -655,6 +687,8 @@ export default function MealsScreen() {
   }, []);
 
   const isFreezerTab = activeTab === "favorites";
+  const shouldShowPendingImports =
+    activeTab === "all" && pendingImportQueue.length > 0;
 
   const addButtonConfig = useMemo(
     () =>
@@ -790,6 +824,80 @@ export default function MealsScreen() {
                     onChangeText={setSearchQuery}
                     onSortChange={handleSortChange}
                   />
+                  {shouldShowPendingImports ? (
+                    <View style={styles.pendingImportsSection}>
+                      <Text style={styles.pendingImportsTitle}>
+                        Pending imports
+                      </Text>
+                      <View style={styles.pendingImportsList}>
+                        {pendingImportQueue.map((pendingImport) => {
+                          const sourceLabel = getRecipeSourceLabel(
+                            pendingImport.recipeUrl
+                          );
+                          return (
+                            <GestureHandlerRootView
+                              key={pendingImport.id}
+                              style={styles.pendingImportGestureRoot}
+                            >
+                              <Swipeable
+                                friction={2}
+                                rightThreshold={64}
+                                renderRightActions={() => (
+                                  <RectButton
+                                    style={styles.pendingImportDeleteAction}
+                                    onPress={() =>
+                                      handleRemovePendingImport(
+                                        pendingImport.id
+                                      )
+                                    }
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Delete recipe from ${sourceLabel}`}
+                                  >
+                                    <Text
+                                      style={
+                                        styles.pendingImportDeleteActionText
+                                      }
+                                    >
+                                      Delete
+                                    </Text>
+                                  </RectButton>
+                                )}
+                              >
+                                <Pressable
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Review recipe from ${sourceLabel}`}
+                                  onPress={() =>
+                                    handleOpenPendingImport(pendingImport)
+                                  }
+                                  style={({ pressed }) => [
+                                    styles.pendingImportCard,
+                                    pressed && styles.pendingImportCardPressed,
+                                  ]}
+                                >
+                                  <View style={styles.pendingImportIcon}>
+                                    <Text style={styles.pendingImportIconText}>
+                                      URL
+                                    </Text>
+                                  </View>
+                                  <View style={styles.pendingImportDetails}>
+                                    <Text
+                                      style={styles.pendingImportTitle}
+                                      numberOfLines={1}
+                                    >
+                                      Recipe from {sourceLabel}
+                                    </Text>
+                                    <Text style={styles.pendingImportSubtitle}>
+                                      Tap to review auto-fill
+                                    </Text>
+                                  </View>
+                                </Pressable>
+                              </Swipeable>
+                            </GestureHandlerRootView>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
               ) : null
             }
@@ -841,7 +949,6 @@ export default function MealsScreen() {
     </>
   );
 }
-
 const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
     parentContainer: {
@@ -870,6 +977,84 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     searchHeader: {
       paddingBottom: theme.space.lg,
+      gap: theme.space.lg,
+    },
+    pendingImportsSection: {
+      gap: theme.space.sm,
+    },
+    pendingImportsTitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+    },
+    pendingImportsList: {
+      gap: theme.space.sm,
+    },
+    pendingImportGestureRoot: {
+      borderRadius: theme.radius.lg,
+    },
+    pendingImportCard: {
+      minHeight: 72,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1.5,
+      borderColor: theme.color.accent,
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255, 75, 145, 0.14)" : "#FFF0F6",
+      paddingHorizontal: theme.space.lg,
+      paddingVertical: theme.space.md,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+    },
+    pendingImportCardPressed: {
+      opacity: 0.85,
+    },
+    pendingImportIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: theme.radius.full,
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255, 75, 145, 0.22)" : "#FFE0EC",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    pendingImportIconText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
+    },
+    pendingImportDetails: {
+      flex: 1,
+      gap: theme.space.xs,
+    },
+    pendingImportTitle: {
+      color: theme.color.ink,
+      fontSize: 18,
+      fontWeight: theme.type.weight.bold,
+    },
+    pendingImportSubtitle: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    pendingImportDeleteAction: {
+      width: 104,
+      borderRadius: theme.radius.lg,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      marginLeft: theme.space.sm,
+    },
+    pendingImportDeleteActionText: {
+      color: theme.color.danger,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
     },
     freezerHelper: {
       marginTop: theme.space.lg,

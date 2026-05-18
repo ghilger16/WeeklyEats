@@ -7,20 +7,29 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app"
+      },
       "ios": {
-        "image": "macos-sonoma-14.6-xcode-16.1"
+        "image": "sdk-54"
       }
     },
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app"
+      },
       "ios": {
-        "image": "macos-sonoma-14.6-xcode-16.1"
+        "image": "sdk-54"
       }
     },
     "production": {
       "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app"
+      },
       "ios": {
-        "image": "macos-sonoma-14.6-xcode-16.1"
+        "image": "sdk-54"
       }
     }
   },

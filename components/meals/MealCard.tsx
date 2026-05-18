@@ -7,7 +7,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Switch,
   StyleSheet,
   Text,
   TextInput,
@@ -81,33 +80,12 @@ const EXPENSE_LEVELS = [
   { label: "$$$", value: 5 as const },
 ];
 
-const AUTO_FILL_SELECTION_DEFAULT = {
-  title: false,
-  ingredients: false,
-  difficulty: false,
-  expense: false,
-  prepNotes: false,
-} as const;
-
-type AutoFillSelectionKey = keyof typeof AUTO_FILL_SELECTION_DEFAULT;
-type AutoFillSelectionState = Record<AutoFillSelectionKey, boolean>;
-
-const labelForLevel = (
-  value: number | undefined,
-  levels: readonly { label: string; value: number }[]
-): string | undefined => {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return undefined;
-  }
-
-  const snapped = snapToLevelValue(value, levels);
-  const match = levels.find((level) => level.value === snapped);
-  if (match) {
-    return match.label;
-  }
-
-  const clamped = clampSliderValue(value);
-  return `Level ${clamped}`;
+type AutoFillPreviewDraft = {
+  title: string;
+  ingredients: string[];
+  difficulty?: number;
+  expense?: number;
+  prepNotes: string;
 };
 
 const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
@@ -201,10 +179,13 @@ export default function MealCard({
   } = useRecipeAutoFill(form.recipeUrl);
   const [isAutoFillPreviewVisible, setIsAutoFillPreviewVisible] =
     useState(false);
-  const [autoFillSelection, setAutoFillSelection] =
-    useState<AutoFillSelectionState>({
-      ...AUTO_FILL_SELECTION_DEFAULT,
-    });
+  const [autoFillDraft, setAutoFillDraft] =
+    useState<AutoFillPreviewDraft | null>(null);
+  const [newAutoFillIngredient, setNewAutoFillIngredient] = useState("");
+  const [
+    isAutoFillIngredientDeleteMode,
+    setIsAutoFillIngredientDeleteMode,
+  ] = useState(false);
   const autoFillTriggeredRef = useRef(false);
   const [isEmojiPickerVisible, setEmojiPickerVisible] = useState(false);
 
@@ -354,16 +335,6 @@ export default function MealCard({
     setIsIngredientDeleteMode((prev) => !prev);
   }, [hasIngredients]);
 
-  const handleToggleAutoFillSelection = useCallback(
-    (field: AutoFillSelectionKey, value: boolean) => {
-      setAutoFillSelection((prev) => ({
-        ...prev,
-        [field]: value,
-      }));
-    },
-    []
-  );
-
   const handleAutoFillPress = useCallback(async () => {
     clearError();
     const outcome = await requestAutoFill();
@@ -380,18 +351,15 @@ export default function MealCard({
         ? snapToLevelValue(outcome.data.expense, EXPENSE_LEVELS)
         : undefined;
 
-    const defaultSelection: AutoFillSelectionState = {
-      ...AUTO_FILL_SELECTION_DEFAULT,
-      title: Boolean(outcome.data.title),
-      ingredients: Boolean(outcome.data.ingredients?.length),
-      difficulty: typeof normalizedDifficulty === "number",
-      expense: typeof normalizedExpense === "number",
-      prepNotes:
-        typeof outcome.data.prepNotes === "string" &&
-        outcome.data.prepNotes.trim().length > 0,
-    };
-
-    setAutoFillSelection(defaultSelection);
+    setAutoFillDraft({
+      title: outcome.data.title?.trim() ?? "",
+      ingredients: outcome.data.ingredients ?? [],
+      difficulty: normalizedDifficulty,
+      expense: normalizedExpense,
+      prepNotes: outcome.data.prepNotes?.trim() ?? "",
+    });
+    setNewAutoFillIngredient("");
+    setIsAutoFillIngredientDeleteMode(false);
     setIsAutoFillPreviewVisible(true);
   }, [
     clearError,
@@ -422,113 +390,107 @@ export default function MealCard({
 
   const closeAutoFillPreview = useCallback(() => {
     setIsAutoFillPreviewVisible(false);
-    setAutoFillSelection({ ...AUTO_FILL_SELECTION_DEFAULT });
+    setAutoFillDraft(null);
+    setNewAutoFillIngredient("");
+    setIsAutoFillIngredientDeleteMode(false);
     resetAutoFill();
   }, [resetAutoFill]);
 
   const handleConfirmAutoFill = useCallback(() => {
-    if (!autoFillResult) {
+    if (!autoFillDraft) {
       return;
     }
 
-    const normalizedDifficulty =
-      typeof autoFillResult.difficulty === "number"
-        ? snapToLevelValue(autoFillResult.difficulty, DIFFICULTY_LEVELS)
-        : undefined;
-    const normalizedExpense =
-      typeof autoFillResult.expense === "number"
-        ? snapToLevelValue(autoFillResult.expense, EXPENSE_LEVELS)
-        : undefined;
-
-    if (autoFillSelection.title && autoFillResult.title) {
-      updateField("title", autoFillResult.title);
+    if (autoFillDraft.title.trim()) {
+      updateField("title", autoFillDraft.title.trim());
+      const nextEmoji = suggestEmojiForTitle(autoFillDraft.title);
+      if (nextEmoji) {
+        updateField("emoji", nextEmoji);
+      }
     }
 
-    if (
-      autoFillSelection.ingredients &&
-      autoFillResult.ingredients &&
-      autoFillResult.ingredients.length > 0
-    ) {
-      updateField("ingredients", autoFillResult.ingredients);
+    const cleanedIngredients = autoFillDraft.ingredients
+      .map((ingredient) => ingredient.trim())
+      .filter(Boolean);
+    if (cleanedIngredients.length > 0) {
+      updateField("ingredients", cleanedIngredients);
     }
 
-    if (autoFillSelection.difficulty && normalizedDifficulty !== undefined) {
-      updateField("difficulty", normalizedDifficulty);
+    if (typeof autoFillDraft.difficulty === "number") {
+      updateField("difficulty", autoFillDraft.difficulty);
     }
 
-    if (autoFillSelection.expense && normalizedExpense !== undefined) {
-      updateField("expense", normalizedExpense);
+    if (typeof autoFillDraft.expense === "number") {
+      updateField("expense", autoFillDraft.expense);
     }
 
-    if (
-      autoFillSelection.prepNotes &&
-      typeof autoFillResult.prepNotes === "string"
-    ) {
-      updateField("prepNotes", autoFillResult.prepNotes);
+    if (autoFillDraft.prepNotes.trim()) {
+      updateField("prepNotes", autoFillDraft.prepNotes.trim());
     }
 
     closeAutoFillPreview();
-  }, [autoFillResult, autoFillSelection, closeAutoFillPreview, updateField]);
+  }, [autoFillDraft, closeAutoFillPreview, updateField]);
 
   const isSaveDisabled = form.title.trim().length === 0;
   const hasAutoFillSelection = useMemo(
-    () => Object.values(autoFillSelection).some(Boolean),
-    [autoFillSelection]
+    () =>
+      Boolean(
+        autoFillDraft?.title.trim() ||
+          autoFillDraft?.ingredients.length ||
+          autoFillDraft?.difficulty ||
+          autoFillDraft?.expense ||
+          autoFillDraft?.prepNotes.trim()
+      ),
+    [autoFillDraft]
   );
   const trimmedRecipeUrl = form.recipeUrl?.trim() ?? "";
   const isAutoFillButtonDisabled =
     !trimmedRecipeUrl.length || isAutoFillLoading;
-  const autoFillFields = useMemo(() => {
-    if (!autoFillResult) {
-      return [] as Array<{
-        key: AutoFillSelectionKey;
-        label: string;
-        value?: string;
-        selectable: boolean;
-      }>;
+  const autoFillPreviewEmoji = useMemo(
+    () =>
+      autoFillDraft?.title
+        ? suggestEmojiForTitle(autoFillDraft.title) ?? form.emoji
+        : form.emoji,
+    [autoFillDraft?.title, form.emoji]
+  );
+
+  const updateAutoFillDraft = useCallback(
+    <K extends keyof AutoFillPreviewDraft>(
+      key: K,
+      value: AutoFillPreviewDraft[K]
+    ) => {
+      setAutoFillDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
+    },
+    []
+  );
+
+  const handleAddAutoFillIngredient = useCallback(() => {
+    const trimmed = newAutoFillIngredient.trim();
+    if (!trimmed) {
+      return;
     }
-
-    const difficultyLabel = labelForLevel(
-      autoFillResult.difficulty,
-      DIFFICULTY_LEVELS
+    setAutoFillDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            ingredients: [...prev.ingredients, trimmed],
+          }
+        : prev
     );
-    const expenseLabel = labelForLevel(autoFillResult.expense, EXPENSE_LEVELS);
+    setNewAutoFillIngredient("");
+    setIsAutoFillIngredientDeleteMode(false);
+  }, [newAutoFillIngredient]);
 
-    return [
-      {
-        key: "title" as const,
-        label: "Meal Title",
-        value: autoFillResult.title,
-        selectable: Boolean(autoFillResult.title),
-      },
-      {
-        key: "ingredients" as const,
-        label: "Key Ingredients",
-        value: autoFillResult.ingredients?.length
-          ? autoFillResult.ingredients.join("\n")
-          : undefined,
-        selectable: Boolean(autoFillResult.ingredients?.length),
-      },
-      {
-        key: "difficulty" as const,
-        label: "Difficulty",
-        value: difficultyLabel,
-        selectable: Boolean(difficultyLabel),
-      },
-      {
-        key: "expense" as const,
-        label: "Expense",
-        value: expenseLabel,
-        selectable: Boolean(expenseLabel),
-      },
-      {
-        key: "prepNotes" as const,
-        label: "Prep Notes",
-        value: autoFillResult.prepNotes,
-        selectable: Boolean(autoFillResult.prepNotes?.trim().length),
-      },
-    ];
-  }, [autoFillResult]);
+  const handleRemoveAutoFillIngredient = useCallback((index: number) => {
+    setAutoFillDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            ingredients: prev.ingredients.filter((_, i) => i !== index),
+          }
+        : prev
+    );
+  }, []);
 
   const handleSubmit = useCallback(() => {
     if (isEditMode) {
@@ -680,7 +642,7 @@ export default function MealCard({
                   }
                   if (autoFillResult) {
                     resetAutoFill();
-                    setAutoFillSelection({ ...AUTO_FILL_SELECTION_DEFAULT });
+                    setAutoFillDraft(null);
                     setIsAutoFillPreviewVisible(false);
                   }
                   updateField("recipeUrl", value);
@@ -952,55 +914,235 @@ export default function MealCard({
         <Modal
           transparent
           animationType="fade"
-          visible={isAutoFillPreviewVisible && Boolean(autoFillResult)}
+          visible={isAutoFillPreviewVisible && Boolean(autoFillDraft)}
           onRequestClose={closeAutoFillPreview}
         >
           <View style={styles.autoFillModalBackdrop}>
             <View style={styles.autoFillModalContent}>
-              <Text style={styles.autoFillModalTitle}>
-                Apply recipe details?
-              </Text>
-              {autoFillResult?.summary ? (
-                <Text style={styles.autoFillModalDescription}>
-                  {autoFillResult.summary}
-                </Text>
-              ) : null}
+              <View style={styles.autoFillModalHeader}>
+                <View style={styles.autoFillEmojiPreview}>
+                  <Text style={styles.autoFillEmojiGlyph}>
+                    {autoFillPreviewEmoji}
+                  </Text>
+                </View>
+                <View style={styles.autoFillHeaderText}>
+                  <Text style={styles.autoFillModalTitle}>
+                    Apply recipe details?
+                  </Text>
+                  {autoFillResult?.summary ? (
+                    <Text style={styles.autoFillModalDescription}>
+                      {autoFillResult.summary}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
 
-              <View style={styles.autoFillFieldGroup}>
-                {autoFillFields.map((field) => {
-                  const isActive = autoFillSelection[field.key];
-                  const isSelectable = field.selectable;
-                  return (
-                    <View style={styles.autoFillFieldRow} key={field.key}>
-                      <View style={styles.autoFillFieldContent}>
-                        <Text style={styles.autoFillFieldLabel}>
-                          {field.label}
-                        </Text>
-                        <Text style={styles.autoFillFieldValue}>
-                          {field.value ?? "No new suggestion"}
-                        </Text>
-                      </View>
-                      <Switch
-                        style={styles.autoFillSwitch}
-                        value={isSelectable && isActive}
-                        disabled={!isSelectable}
-                        onValueChange={(value) =>
-                          handleToggleAutoFillSelection(field.key, value)
+              <ScrollView
+                style={styles.autoFillModalScroll}
+                contentContainerStyle={styles.autoFillModalScrollContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.autoFillEditorSection}>
+                  <Text style={styles.autoFillFieldLabel}>Meal Title</Text>
+                  <TextInput
+                    placeholder="Meal title"
+                    placeholderTextColor={theme.color.subtleInk}
+                    style={styles.autoFillInput}
+                    value={autoFillDraft?.title ?? ""}
+                    onChangeText={(value) => updateAutoFillDraft("title", value)}
+                  />
+                </View>
+
+                <View style={styles.autoFillEditorSection}>
+                  <Text style={styles.autoFillFieldLabel}>Key Ingredients</Text>
+                  <View style={styles.ingredientsWrapper}>
+                    {autoFillDraft?.ingredients.length ? (
+                      autoFillDraft.ingredients.map((ingredient, index) => (
+                        <Pressable
+                          key={`${ingredient}-${index}`}
+                          style={({ pressed }) => [
+                            styles.chip,
+                            isAutoFillIngredientDeleteMode &&
+                              styles.chipDeleteMode,
+                            pressed &&
+                              isAutoFillIngredientDeleteMode &&
+                              styles.chipPressed,
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            isAutoFillIngredientDeleteMode
+                              ? `Remove ${ingredient}`
+                              : ingredient
+                          }
+                          onPress={() => {
+                            if (isAutoFillIngredientDeleteMode) {
+                              handleRemoveAutoFillIngredient(index);
+                            }
+                          }}
+                        >
+                          <Text style={styles.chipText}>{ingredient}</Text>
+                        </Pressable>
+                      ))
+                    ) : (
+                      <Text style={styles.ingredientsEmpty}>
+                        Add a few highlights for this meal.
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.addIngredientRow}>
+                    <TextInput
+                      placeholder="Add ingredient"
+                      placeholderTextColor={theme.color.subtleInk}
+                      style={styles.ingredientInput}
+                      value={newAutoFillIngredient}
+                      onChangeText={setNewAutoFillIngredient}
+                      onFocus={() => setIsAutoFillIngredientDeleteMode(false)}
+                      onSubmitEditing={handleAddAutoFillIngredient}
+                      returnKeyType="done"
+                    />
+                    <Pressable
+                      onPress={() => {
+                        if (!autoFillDraft?.ingredients.length) {
+                          return;
                         }
-                        trackColor={{
-                          false: theme.color.surfaceAlt,
-                          true: theme.color.accent,
-                        }}
-                        thumbColor={
-                          isSelectable && isActive
+                        setIsAutoFillIngredientDeleteMode((prev) => !prev);
+                      }}
+                      disabled={!autoFillDraft?.ingredients.length}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        isAutoFillIngredientDeleteMode
+                          ? "Exit ingredient delete mode"
+                          : "Delete ingredients"
+                      }
+                      style={({ pressed }) => [
+                        styles.ingredientTrashButton,
+                        pressed &&
+                          Boolean(autoFillDraft?.ingredients.length) &&
+                          styles.ingredientTrashButtonPressed,
+                        isAutoFillIngredientDeleteMode &&
+                          styles.ingredientTrashButtonActive,
+                        !autoFillDraft?.ingredients.length &&
+                          styles.ingredientTrashButtonDisabled,
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name={
+                          isAutoFillIngredientDeleteMode
+                            ? "trash-can"
+                            : "trash-can-outline"
+                        }
+                        size={18}
+                        color={
+                          !autoFillDraft?.ingredients.length
+                            ? theme.color.border
+                            : isAutoFillIngredientDeleteMode
                             ? theme.color.ink
-                            : theme.color.surface
+                            : theme.color.subtleInk
                         }
                       />
-                    </View>
-                  );
-                })}
-              </View>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.autoFillEditorSection}>
+                  <Text style={styles.autoFillFieldLabel}>Difficulty</Text>
+                  <View style={styles.levelChipRow}>
+                    {DIFFICULTY_LEVELS.map(({ label, value, colorKey }) => {
+                      const isSelected = autoFillDraft?.difficulty === value;
+                      const levelColor = theme.color[colorKey];
+                      return (
+                        <Pressable
+                          key={label}
+                          style={[
+                            styles.levelChip,
+                            {
+                              borderColor: levelColor,
+                              backgroundColor: isSelected
+                                ? levelColor
+                                : theme.color.surface,
+                            },
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: isSelected }}
+                          accessibilityLabel={`Set imported difficulty to ${label}`}
+                          onPress={() =>
+                            updateAutoFillDraft("difficulty", value)
+                          }
+                        >
+                          <View style={styles.levelChipContent}>
+                            {!isSelected ? (
+                              <View
+                                style={[
+                                  styles.levelChipDot,
+                                  { backgroundColor: levelColor },
+                                ]}
+                              />
+                            ) : null}
+                            <Text
+                              style={[
+                                styles.levelChipText,
+                                {
+                                  color: isSelected
+                                    ? theme.color.ink
+                                    : levelColor,
+                                },
+                              ]}
+                            >
+                              {label}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.autoFillEditorSection}>
+                  <Text style={styles.autoFillFieldLabel}>Expense</Text>
+                  <View style={styles.levelChipRow}>
+                    {EXPENSE_LEVELS.map(({ label, value }) => {
+                      const isSelected = autoFillDraft?.expense === value;
+                      return (
+                        <Pressable
+                          key={label}
+                          style={[
+                            styles.levelChip,
+                            isSelected && styles.levelChipSelectedExpense,
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: isSelected }}
+                          accessibilityLabel={`Set imported expense to ${label}`}
+                          onPress={() => updateAutoFillDraft("expense", value)}
+                        >
+                          <Text
+                            style={[
+                              styles.levelChipText,
+                              isSelected && styles.levelChipTextSelected,
+                            ]}
+                          >
+                            {label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.autoFillEditorSection}>
+                  <Text style={styles.autoFillFieldLabel}>Prep Notes</Text>
+                  <TextInput
+                    placeholder="Add reminders or prep steps"
+                    placeholderTextColor={theme.color.subtleInk}
+                    style={styles.autoFillNotesInput}
+                    multiline
+                    value={autoFillDraft?.prepNotes ?? ""}
+                    onChangeText={(value) =>
+                      updateAutoFillDraft("prepNotes", value)
+                    }
+                  />
+                </View>
+              </ScrollView>
 
               <View style={styles.autoFillModalActions}>
                 <Pressable
@@ -1331,10 +1473,33 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     autoFillModalContent: {
       width: "100%",
+      maxHeight: "86%",
       borderRadius: theme.radius.lg,
       backgroundColor: theme.color.surface,
       padding: theme.space.xl,
       gap: theme.space.lg,
+    },
+    autoFillModalHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+    },
+    autoFillEmojiPreview: {
+      width: 64,
+      height: 64,
+      borderRadius: theme.radius.lg,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: 1,
+      borderColor: theme.color.cardOutline,
+    },
+    autoFillEmojiGlyph: {
+      fontSize: 36,
+    },
+    autoFillHeaderText: {
+      flex: 1,
+      gap: theme.space.xs,
     },
     autoFillModalTitle: {
       color: theme.color.ink,
@@ -1344,6 +1509,38 @@ const createStyles = (theme: WeeklyTheme) =>
     autoFillModalDescription: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.base,
+    },
+    autoFillModalScroll: {
+      flexGrow: 0,
+    },
+    autoFillModalScrollContent: {
+      gap: theme.space.lg,
+      paddingBottom: theme.space.xs,
+    },
+    autoFillEditorSection: {
+      gap: theme.space.sm,
+    },
+    autoFillInput: {
+      backgroundColor: theme.color.surfaceAlt,
+      borderRadius: theme.radius.md,
+      paddingVertical: theme.space.sm,
+      paddingHorizontal: theme.space.md,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    autoFillNotesInput: {
+      backgroundColor: theme.color.surfaceAlt,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.sm,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      minHeight: 92,
+      textAlignVertical: "top",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
     },
     autoFillFieldGroup: {
       gap: theme.space.md,
