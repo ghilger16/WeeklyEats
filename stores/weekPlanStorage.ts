@@ -73,6 +73,11 @@ const normalizePlan = (
     plan.weekedPlanned = false;
   }
 
+  const plannedScopeValue = (raw as { plannedScope?: unknown }).plannedScope;
+  if (plannedScopeValue === "remaining" || plannedScopeValue === "full") {
+    plan.plannedScope = plannedScopeValue;
+  }
+
   const startIso =
     (raw as { weekStartISO?: unknown }).weekStartISO ?? weekStartISO;
   if (isValidISODateString(startIso)) {
@@ -324,6 +329,19 @@ export const clearCurrentWeekPlan = async (
     await Promise.all([savePlanMap(planMap), saveSidesMap(sidesMap)]);
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to clear plan", error);
+  }
+};
+
+export const clearWeekPlanData = async (): Promise<void> => {
+  try {
+    await Promise.all([
+      AsyncStorage.removeItem(WEEK_PLAN_MAP_KEY),
+      AsyncStorage.removeItem(WEEK_PLAN_SIDES_MAP_KEY),
+      AsyncStorage.removeItem(LEGACY_PLAN_KEY),
+      AsyncStorage.removeItem(LEGACY_PLAN_SIDES_KEY),
+    ]);
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to clear all plan data", error);
   }
 };
 

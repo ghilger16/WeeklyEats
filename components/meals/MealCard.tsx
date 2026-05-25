@@ -188,6 +188,7 @@ export default function MealCard({
   ] = useState(false);
   const autoFillTriggeredRef = useRef(false);
   const [isEmojiPickerVisible, setEmojiPickerVisible] = useState(false);
+  const [showTitleRequiredError, setShowTitleRequiredError] = useState(false);
 
   const suggestedEmoji = useMemo(
     () => suggestEmojiForTitle(form.title),
@@ -231,6 +232,7 @@ export default function MealCard({
     setForm(normalized);
     setPrepNotesDraft(normalized.prepNotes ?? "");
     setNewIngredient("");
+    setShowTitleRequiredError(false);
     autoFillTriggeredRef.current = false;
   }, [initialMeal, mode]);
 
@@ -261,6 +263,13 @@ export default function MealCard({
 
   const updateField = useCallback(
     <K extends keyof MealFormValues>(key: K, value: MealFormValues[K]) => {
+      if (
+        key === "title" &&
+        typeof value === "string" &&
+        value.trim().length > 0
+      ) {
+        setShowTitleRequiredError(false);
+      }
       setForm((prev) => ({
         ...prev,
         [key]: value,
@@ -396,16 +405,53 @@ export default function MealCard({
     resetAutoFill();
   }, [resetAutoFill]);
 
+  const createMealFromValues = useCallback(
+    (values: MealFormValues, prepNotesValue: string) => {
+      const trimmedTitle = values.title.trim();
+      if (!trimmedTitle) {
+        setShowTitleRequiredError(true);
+        return false;
+      }
+
+      const { id: _, updatedAt: __, createdAt: ___, ...rest } = values;
+      const sanitizedIngredients = (rest.ingredients ?? []).map((ingredient) =>
+        ingredient.trim()
+      );
+      const sanitizedPrepNotes = prepNotesValue.trim();
+      const normalizedFamilyRatings =
+        rest.familyRatings && Object.keys(rest.familyRatings).length > 0
+          ? rest.familyRatings
+          : undefined;
+
+      onCreateMeal({
+        ...rest,
+        title: trimmedTitle,
+        recipeUrl: rest.recipeUrl?.trim() ?? "",
+        ingredients: sanitizedIngredients,
+        prepNotes: sanitizedPrepNotes,
+        familyRatings: normalizedFamilyRatings,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      onClose();
+      return true;
+    },
+    [onClose, onCreateMeal]
+  );
+
   const handleConfirmAutoFill = useCallback(() => {
     if (!autoFillDraft) {
       return;
     }
 
+    const nextForm: MealFormValues = { ...form };
+    let nextPrepNotesDraft = prepNotesDraft;
+
     if (autoFillDraft.title.trim()) {
-      updateField("title", autoFillDraft.title.trim());
+      nextForm.title = autoFillDraft.title.trim();
       const nextEmoji = suggestEmojiForTitle(autoFillDraft.title);
       if (nextEmoji) {
-        updateField("emoji", nextEmoji);
+        nextForm.emoji = nextEmoji;
       }
     }
 
@@ -413,25 +459,59 @@ export default function MealCard({
       .map((ingredient) => ingredient.trim())
       .filter(Boolean);
     if (cleanedIngredients.length > 0) {
-      updateField("ingredients", cleanedIngredients);
+      nextForm.ingredients = cleanedIngredients;
     }
 
     if (typeof autoFillDraft.difficulty === "number") {
-      updateField("difficulty", autoFillDraft.difficulty);
+      nextForm.difficulty = autoFillDraft.difficulty;
     }
 
     if (typeof autoFillDraft.expense === "number") {
-      updateField("expense", autoFillDraft.expense);
+      nextForm.expense = autoFillDraft.expense;
     }
 
     if (autoFillDraft.prepNotes.trim()) {
-      updateField("prepNotes", autoFillDraft.prepNotes.trim());
+      nextForm.prepNotes = autoFillDraft.prepNotes.trim();
+      nextPrepNotesDraft = autoFillDraft.prepNotes.trim();
     }
 
-    closeAutoFillPreview();
-  }, [autoFillDraft, closeAutoFillPreview, updateField]);
+    if (!isEditMode) {
+      if (!createMealFromValues(nextForm, nextPrepNotesDraft)) {
+        return;
+      }
+      closeAutoFillPreview();
+      return;
+    }
 
-  const isSaveDisabled = form.title.trim().length === 0;
+    setForm(nextForm);
+    setPrepNotesDraft(nextPrepNotesDraft);
+    closeAutoFillPreview();
+  }, [
+    autoFillDraft,
+    closeAutoFillPreview,
+    createMealFromValues,
+    form,
+    isEditMode,
+    prepNotesDraft,
+  ]);
+
+  const isCreateDirty = useMemo(() => {
+    if (isEditMode) {
+      return false;
+    }
+    const initial = normalizeMeal(initialMeal);
+    return (
+      form.title.trim().length > 0 ||
+      (form.recipeUrl ?? "").trim().length > 0 ||
+      (form.ingredients ?? []).length > 0 ||
+      (prepNotesDraft ?? "").trim().length > 0 ||
+      form.emoji !== initial.emoji ||
+      form.rating !== initial.rating ||
+      form.difficulty !== initial.difficulty ||
+      form.expense !== initial.expense ||
+      Boolean(form.isFavorite) !== Boolean(initial.isFavorite)
+    );
+  }, [form, initialMeal, isEditMode, prepNotesDraft]);
   const hasAutoFillSelection = useMemo(
     () =>
       Boolean(
@@ -497,33 +577,8 @@ export default function MealCard({
       return;
     }
 
-    const trimmedTitle = form.title.trim();
-    if (!trimmedTitle) {
-      return;
-    }
-
-    const { id: _, updatedAt: __, createdAt: ___, ...rest } = form;
-    const sanitizedIngredients = (rest.ingredients ?? []).map((ingredient) =>
-      ingredient.trim()
-    );
-    const sanitizedPrepNotes = prepNotesDraft.trim();
-    const normalizedFamilyRatings =
-      rest.familyRatings && Object.keys(rest.familyRatings).length > 0
-        ? rest.familyRatings
-        : undefined;
-
-    onCreateMeal({
-      ...rest,
-      title: trimmedTitle,
-      recipeUrl: rest.recipeUrl?.trim() ?? "",
-      ingredients: sanitizedIngredients,
-      prepNotes: sanitizedPrepNotes,
-      familyRatings: normalizedFamilyRatings,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    onClose();
-  }, [form, isEditMode, onClose, onCreateMeal, prepNotesDraft]);
+    createMealFromValues(form, prepNotesDraft);
+  }, [createMealFromValues, form, isEditMode, prepNotesDraft]);
 
   return (
     <View style={styles.container}>
@@ -531,47 +586,43 @@ export default function MealCard({
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 80}
       >
-        <FlexGrid gutterWidth={theme.space.lg} gutterHeight={theme.space.md}>
-          <FlexGrid.Row alignItems="center" wrap={false}>
-            <FlexGrid.Col span={6} grow={1}>
-              {isEditMode ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Back"
-                  onPress={onClose}
-                  style={styles.backButton}
-                >
-                  <MaterialCommunityIcons
-                    name="arrow-left"
-                    size={24}
-                    color={theme.color.subtleInk}
-                  />
-                </Pressable>
-              ) : (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Add meal"
-                  onPress={handleSubmit}
-                  disabled={isSaveDisabled}
-                  style={[
-                    styles.addIconButton,
-                    isSaveDisabled && styles.addIconButtonDisabled,
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="plus-circle"
-                    size={24}
-                    color={
-                      isSaveDisabled
-                        ? theme.color.subtleInk
-                        : theme.color.accent
-                    }
-                  />
-                </Pressable>
-              )}
-            </FlexGrid.Col>
-          </FlexGrid.Row>
-        </FlexGrid>
+        <View style={styles.headerRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            onPress={onClose}
+            style={styles.backButton}
+          >
+            <MaterialCommunityIcons
+              name="arrow-left"
+              size={24}
+              color={theme.color.subtleInk}
+            />
+          </Pressable>
+
+          {isEditMode ? (
+            <View style={styles.headerSpacer} />
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Save meal"
+              onPress={handleSubmit}
+              style={({ pressed }) => [
+                styles.addIconButton,
+                isCreateDirty && styles.addIconButtonDirty,
+                pressed && styles.addIconButtonPressed,
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="plus-circle"
+                size={24}
+                color={
+                  isCreateDirty ? theme.color.accent : theme.color.subtleInk
+                }
+              />
+            </Pressable>
+          )}
+        </View>
 
         <ScrollView
           ref={scrollRef}
@@ -617,10 +668,23 @@ export default function MealCard({
             <TextInput
               placeholder="e.g. Chicken Stir Fry"
               placeholderTextColor={theme.color.subtleInk}
-              style={styles.input}
+              style={[
+                styles.input,
+                showTitleRequiredError && styles.inputError,
+              ]}
               value={form.title}
-              onChangeText={(value) => updateField("title", value)}
+              onChangeText={(value) => {
+                if (showTitleRequiredError && value.trim()) {
+                  setShowTitleRequiredError(false);
+                }
+                updateField("title", value);
+              }}
             />
+            {showTitleRequiredError ? (
+              <Text style={styles.fieldErrorText} accessibilityRole="alert">
+                Meal Title is required.
+              </Text>
+            ) : null}
           </View>
 
           <View style={styles.section}>
@@ -1198,6 +1262,16 @@ const createStyles = (theme: WeeklyTheme) =>
       flex: 1,
       backgroundColor: theme.color.bg,
     },
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: theme.space.md,
+    },
+    headerSpacer: {
+      width: 44,
+      height: 44,
+    },
     backButton: {
       width: 44,
       height: 44,
@@ -1207,7 +1281,6 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
-      marginLeft: theme.space.md,
     },
     addIconButton: {
       width: 44,
@@ -1218,10 +1291,13 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
-      marginLeft: theme.space.md,
     },
-    addIconButtonDisabled: {
-      opacity: 0.6,
+    addIconButtonDirty: {
+      borderColor: theme.color.accent,
+      backgroundColor: theme.color.focus,
+    },
+    addIconButtonPressed: {
+      opacity: 0.85,
     },
     headerFreezerCol: {
       alignItems: "flex-end",
@@ -1313,6 +1389,15 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingHorizontal: theme.space.lg,
       color: theme.color.ink,
       fontSize: theme.type.size.base,
+    },
+    inputError: {
+      borderWidth: 1,
+      borderColor: theme.color.danger,
+    },
+    fieldErrorText: {
+      color: theme.color.danger,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
     },
     linkInput: {
       flexDirection: "row",

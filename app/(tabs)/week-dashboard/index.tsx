@@ -32,23 +32,45 @@ import {
   formatWeekdayDate,
   getNextWeekStartForDate,
   startOfDay,
+  WEEK_DAY_TO_INDEX,
 } from "../../../utils/weekDays";
 import {
+  PLANNED_WEEK_DISPLAY_NAMES,
   PLANNED_WEEK_LABELS,
+  PLANNED_WEEK_ORDER,
   createEmptyCurrentPlannedWeek,
   createEmptyCurrentWeekSides,
   PlannedWeekDayKey,
 } from "../../../types/weekPlan";
 import {
+  clearWeekPlanData,
+  getWeekPlanStreak,
   setCurrentWeekPlan,
   setCurrentWeekSides,
-  getWeekPlanStreak,
 } from "../../../stores/weekPlanStorage";
+import { clearStoredDayPins } from "../../../stores/dayPinsStorage";
+import {
+  clearTodayWidgetPayload,
+  saveTodayWidgetPayload,
+} from "../../../stores/todayWidgetStorage";
 import { clearServedMeals } from "../../../stores/servedMealsStorage";
 import type { ServedOutcome } from "../../../components/week-dashboard/servedActions";
 import { getRandomCelebrationMessage } from "../../../components/week-dashboard/celebrations";
 import { FamilyRatingValue } from "../../../types/meals";
 import { setFamilyRatingValue } from "../../../utils/familyRatings";
+import {
+  formatPlanningDayRange,
+  getRemainingPlanningDays,
+} from "../../../utils/remainingWeekPlanning";
+
+const getDayBefore = (day: PlannedWeekDayKey): PlannedWeekDayKey => {
+  const targetIndex = (WEEK_DAY_TO_INDEX[day] + 6) % 7;
+  return (
+    PLANNED_WEEK_ORDER.find(
+      (candidate) => WEEK_DAY_TO_INDEX[candidate] === targetIndex
+    ) ?? "sun"
+  );
+};
 
 export default function WeekDashboardScreen() {
   const router = useRouter();
@@ -64,14 +86,6 @@ export default function WeekDashboardScreen() {
   const [streakCount, setStreakCount] = useState(0);
   const [isStreakModalOpen, setStreakModalOpen] = useState(false);
   const dashboardAnim = useRef(new Animated.Value(0)).current;
-  const plannedDayCount = useMemo(
-    () =>
-      orderedDays.reduce(
-        (acc, day) => (typeof plan?.[day] === "string" ? acc + 1 : acc),
-        0
-      ),
-    [orderedDays, plan]
-  );
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollEnabledRef = useRef(true);
 
@@ -142,6 +156,21 @@ export default function WeekDashboardScreen() {
   } = useCurrentWeekPlan({
     today: effectiveDate,
   });
+  const nextWeekStart = useMemo(
+    () => getNextWeekStartForDate(startDay, startOfDay(effectiveDate)),
+    [effectiveDate, startDay]
+  );
+  const { plan: nextWeekPlan } = useCurrentWeekPlan({
+    weekStartOverride: nextWeekStart,
+  });
+  const plannedDayCount = useMemo(
+    () =>
+      orderedDays.reduce(
+        (acc, day) => (typeof plan?.[day] === "string" ? acc + 1 : acc),
+        0
+      ),
+    [orderedDays, plan]
+  );
   const {
     entries: servedEntries,
     logServedMeal,
@@ -208,6 +237,36 @@ export default function WeekDashboardScreen() {
       return entryDate === todayDate;
     });
   }, [servedEntries, today]);
+
+  const todayWidgetSidesKey = today?.sides.join("\u0001") ?? "";
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    if (!today?.meal) {
+      void clearTodayWidgetPayload();
+      return;
+    }
+
+    const recipeUrl = today.meal.recipeUrl?.trim();
+    void saveTodayWidgetPayload({
+      title: today.meal.title,
+      icon: today.meal.emoji || "🍽️",
+      dateLabel: formatWeekdayDate(today.plannedDate),
+      sides: today.sides,
+      recipeUrl: recipeUrl || undefined,
+    });
+  }, [
+    isLoading,
+    today?.meal?.id,
+    today?.meal?.title,
+    today?.meal?.emoji,
+    today?.meal?.recipeUrl,
+    today?.plannedDateISO,
+    todayWidgetSidesKey,
+  ]);
 
   const unmarkedDays = useMemo(
     () =>
@@ -323,11 +382,46 @@ export default function WeekDashboardScreen() {
 
   const showPlanButton = useMemo(() => {
     const reference = startOfDay(effectiveDate);
-    const nextWeekStart = getNextWeekStartForDate(startDay, reference);
     const diffMs = nextWeekStart.getTime() - reference.getTime();
     const oneDayMs = 24 * 60 * 60 * 1000;
     return diffMs <= oneDayMs;
-  }, [effectiveDate, startDay]);
+  }, [effectiveDate, nextWeekStart]);
+  const remainingPlanningDays = useMemo(
+    () => getRemainingPlanningDays(startDay, effectiveDate),
+    [effectiveDate, startDay]
+  );
+  const remainingPlanningRange = useMemo(
+    () => formatPlanningDayRange(remainingPlanningDays),
+    [remainingPlanningDays]
+  );
+  const resetDayName = PLANNED_WEEK_DISPLAY_NAMES[startDay];
+  const planningReminderDayName =
+    PLANNED_WEEK_DISPLAY_NAMES[getDayBefore(startDay)];
+  const showSetupCard =
+    !isLoading && !showWeekPlanDetails && plannedDayCount === 0;
+  const isPartialCurrentWeekPlan =
+    showWeekPlanDetails &&
+    plannedDayCount > 0 &&
+    plannedDayCount < orderedDays.length;
+  const shouldPromptNextWeekAfterRemainingPlan =
+    showWeekPlanDetails &&
+    (plan?.plannedScope === "remaining" || isPartialCurrentWeekPlan) &&
+    nextWeekPlan?.weekedPlanned !== true;
+  const showTopPlanButton =
+    (showPlanButton || shouldPromptNextWeekAfterRemainingPlan) &&
+    !showSetupCard;
+
+  const handleGoToMeals = useCallback(() => {
+    router.push("/meals?showMealStarter=1");
+  }, [router]);
+
+  const handlePlanRemainingWeek = useCallback(() => {
+    router.push("/modals/plan-week?mode=remaining");
+  }, [router]);
+
+  const handlePlanNextWeek = useCallback(() => {
+    router.push("/modals/plan-week");
+  }, [router]);
 
   const handlePrevDay = useCallback(() => {
     if (!dateControlsEnabled) {
@@ -346,27 +440,18 @@ export default function WeekDashboardScreen() {
   const handleClearWeekPlan = useCallback(async () => {
     const emptyPlan = createEmptyCurrentPlannedWeek({ weekStartISO });
     const emptySides = createEmptyCurrentWeekSides();
-    const reference = startOfDay(effectiveDate);
-    const nextWeekStart = getNextWeekStartForDate(startDay, reference);
-    const nextWeekStartISO = nextWeekStart.toISOString().slice(0, 10);
     setPlanState(emptyPlan);
     setSidesState(emptySides);
     await Promise.all([
-      setCurrentWeekPlan(weekStartISO, emptyPlan),
-      setCurrentWeekSides(weekStartISO, emptySides),
-      setCurrentWeekPlan(
-        nextWeekStartISO,
-        createEmptyCurrentPlannedWeek({ weekStartISO: nextWeekStartISO })
-      ),
-      setCurrentWeekSides(nextWeekStartISO, createEmptyCurrentWeekSides()),
+      clearWeekPlanData(),
+      clearStoredDayPins(),
+      clearTodayWidgetPayload(),
     ]);
     await refreshWeekPlan();
   }, [
-    effectiveDate,
     refreshWeekPlan,
     setPlanState,
     setSidesState,
-    startDay,
     weekStartISO,
   ]);
 
@@ -375,16 +460,41 @@ export default function WeekDashboardScreen() {
     await refreshServedMeals();
   }, [refreshServedMeals]);
 
+  const remainingPlannedDayCount = useMemo(
+    () =>
+      remainingPlanningDays.reduce(
+        (acc, day) => (typeof plan?.[day] === "string" ? acc + 1 : acc),
+        0
+      ),
+    [plan, remainingPlanningDays]
+  );
+  const shouldUseRemainingResumeProgress =
+    (plan?.plannedScope === "remaining" || isPartialCurrentWeekPlan) &&
+    remainingPlanningDays.length > 0;
+  const resumePlannedCount = shouldUseRemainingResumeProgress
+    ? remainingPlannedDayCount
+    : plannedDayCount;
+  const resumeTotalCount = shouldUseRemainingResumeProgress
+    ? remainingPlanningDays.length
+    : orderedDays.length;
+  const handleResumePlanning = useCallback(() => {
+    router.push(
+      shouldUseRemainingResumeProgress
+        ? "/modals/plan-week?mode=remaining"
+        : "/modals/plan-week"
+    );
+  }, [router, shouldUseRemainingResumeProgress]);
+
   const renderPlanningCTA = useCallback(
     (mode: "start" | "resume", onPrimary: () => void, onSkip?: () => void) => {
       const isResume = mode === "resume";
       const primaryLabel = isResume ? "Resume planning" : "Start planning";
       const title = isResume ? "You're partway through" : "Ready when you are";
       const subtitle = isResume
-        ? `You planned ${plannedDayCount} of ${orderedDays.length} nights. Jump back in where you left off.`
+        ? `You planned ${resumePlannedCount} of ${resumeTotalCount} nights. Jump back in where you left off.`
         : "Pick dinners for the week in a few minutes. You can always change them later.";
-      const progress = orderedDays.length
-        ? Math.min(1, plannedDayCount / orderedDays.length)
+      const progress = resumeTotalCount
+        ? Math.min(1, resumePlannedCount / resumeTotalCount)
         : 0;
       return (
         <View style={styles.planningCardCta}>
@@ -397,7 +507,7 @@ export default function WeekDashboardScreen() {
                 <View style={{ flex: 1 - progress }} />
               </View>
               <Text style={styles.progressLabel}>
-                {plannedDayCount}/{orderedDays.length}
+                {resumePlannedCount}/{resumeTotalCount}
               </Text>
             </View>
           ) : (
@@ -432,8 +542,108 @@ export default function WeekDashboardScreen() {
         </View>
       );
     },
-    [orderedDays.length, plannedDayCount]
+    [resumePlannedCount, resumeTotalCount]
   );
+
+  const setupCard = useMemo(() => {
+    if (!showSetupCard) {
+      return null;
+    }
+
+    if (meals.length === 0) {
+      return (
+        <View style={styles.setupCard}>
+          <View style={styles.setupIconWrap}>
+            <MaterialCommunityIcons
+              name="silverware-fork-knife"
+              size={24}
+              color={theme.color.accent}
+            />
+          </View>
+          <Text style={styles.setupTitle}>Add a few meals first</Text>
+          <Text style={styles.setupSubtitle}>
+            Weekly Eats plans from your meal library. Add meals manually or
+            share recipe links from Safari, then come back here to build your
+            week.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go to meals"
+            onPress={handleGoToMeals}
+            style={({ pressed }) => [
+              styles.setupPrimaryButton,
+              pressed && styles.setupButtonPressed,
+            ]}
+          >
+            <Text style={styles.setupPrimaryText}>Go to Meals</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.setupCard}>
+        <View style={styles.setupIconWrap}>
+          <MaterialCommunityIcons
+            name="calendar-week"
+            size={24}
+            color={theme.color.accent}
+          />
+        </View>
+        <Text style={styles.setupTitle}>Ready to plan?</Text>
+        <Text style={styles.setupSubtitle}>
+          Your weekly shopping day is {resetDayName}, so your planning rhythm is
+          every {planningReminderDayName}. For today, choose what you want to
+          set up.
+        </Text>
+        {remainingPlanningDays.length > 0 ? (
+          <Text style={styles.setupHelper}>
+            Rest of this week covers {remainingPlanningRange}.
+          </Text>
+        ) : null}
+        <View style={styles.setupActions}>
+          {remainingPlanningDays.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Plan the rest of the current week"
+              onPress={handlePlanRemainingWeek}
+              style={({ pressed }) => [
+                styles.setupPrimaryButton,
+                pressed && styles.setupButtonPressed,
+              ]}
+            >
+              <Text style={styles.setupPrimaryText}>
+                Plan rest of this week
+              </Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Plan next week"
+            onPress={handlePlanNextWeek}
+            style={({ pressed }) => [
+              styles.setupPrimaryButton,
+              pressed && styles.setupButtonPressed,
+            ]}
+          >
+            <Text style={styles.setupPrimaryText}>Plan next week</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }, [
+    handleGoToMeals,
+    handlePlanNextWeek,
+    handlePlanRemainingWeek,
+    meals.length,
+    planningReminderDayName,
+    remainingPlanningDays.length,
+    remainingPlanningRange,
+    resetDayName,
+    showSetupCard,
+    styles,
+    theme.color.accent,
+  ]);
 
   const header = useMemo(
     () => (
@@ -556,7 +766,7 @@ export default function WeekDashboardScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {showPlanButton ? (
+            {showTopPlanButton ? (
               <Pressable
                 style={({ pressed }) => [
                   styles.planButton,
@@ -586,6 +796,8 @@ export default function WeekDashboardScreen() {
                 />
               </Pressable>
             ) : null}
+
+            {setupCard}
 
             <View style={styles.stack}>
               {showWeekPlanDetails ? (
@@ -617,14 +829,16 @@ export default function WeekDashboardScreen() {
                   />
                 </>
               ) : plannedDayCount > 0 ? (
-                renderPlanningCTA("resume", () => router.push("/modals/plan-week"))
+                renderPlanningCTA("resume", handleResumePlanning)
               ) : null}
-              <ServedList
-                servedWeek={servedWeek}
-                meals={meals}
-                title="Served Meals"
-                onFamilyRatingChange={handleFamilyRatingChange}
-              />
+              {servedWeek.length > 0 ? (
+                <ServedList
+                  servedWeek={servedWeek}
+                  meals={meals}
+                  title="Served Meals"
+                  onFamilyRatingChange={handleFamilyRatingChange}
+                />
+              ) : null}
             </View>
           </ScrollView>
         </TabParent>
@@ -690,6 +904,77 @@ const createStyles = (theme: WeeklyTheme) =>
     planButtonSubtitle: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
+    },
+    setupCard: {
+      backgroundColor: theme.color.surface,
+      borderRadius: theme.radius.lg,
+      paddingHorizontal: theme.space.xl,
+      paddingVertical: theme.space.xl,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      gap: theme.space.md,
+      shadowColor: "#000",
+      shadowOpacity: 0.05,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 3,
+    },
+    setupIconWrap: {
+      width: 48,
+      height: 48,
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.color.focus,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    setupTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+    },
+    setupSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      lineHeight: theme.type.size.base * 1.4,
+    },
+    setupHelper: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    setupActions: {
+      gap: theme.space.sm,
+    },
+    setupPrimaryButton: {
+      minHeight: theme.component.button.height,
+      borderRadius: theme.component.button.radius,
+      backgroundColor: theme.color.accent,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: theme.space.lg,
+    },
+    setupPrimaryText: {
+      color: "#FFFFFF",
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    setupSecondaryButton: {
+      minHeight: theme.component.button.height,
+      borderRadius: theme.component.button.radius,
+      backgroundColor: theme.color.focus,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: theme.space.lg,
+      borderWidth: 1,
+      borderColor: theme.color.accent,
+    },
+    setupSecondaryText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    setupButtonPressed: {
+      opacity: 0.85,
     },
     stack: {
       gap: theme.space["2xl"],

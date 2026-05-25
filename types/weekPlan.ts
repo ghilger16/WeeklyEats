@@ -12,6 +12,7 @@ export type PlannedWeekDayKey =
 export type CurrentPlannedWeek = {
   weekedPlanned?: boolean;
   weekStartISO?: string;
+  plannedScope?: "full" | "remaining";
 } & Record<PlannedWeekDayKey, Meal["id"] | null>;
 export type CurrentWeekSides = Record<PlannedWeekDayKey, string[]>;
 
@@ -46,7 +47,11 @@ export const PLANNED_WEEK_DISPLAY_NAMES: Record<PlannedWeekDayKey, string> = {
 };
 
 export const createEmptyCurrentPlannedWeek = (
-  options: { weekedPlanned?: boolean; weekStartISO?: string } = {}
+  options: {
+    weekedPlanned?: boolean;
+    weekStartISO?: string;
+    plannedScope?: CurrentPlannedWeek["plannedScope"];
+  } = {}
 ): CurrentPlannedWeek => {
   const basePlan = PLANNED_WEEK_ORDER.reduce<
     Record<PlannedWeekDayKey, Meal["id"] | null>
@@ -59,6 +64,7 @@ export const createEmptyCurrentPlannedWeek = (
     ...basePlan,
     weekedPlanned: options.weekedPlanned ?? false,
     weekStartISO: options.weekStartISO,
+    plannedScope: options.plannedScope,
   };
 };
 

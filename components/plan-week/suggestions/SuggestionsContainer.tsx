@@ -44,6 +44,7 @@ type Props = {
   pins: DayPinsState;
   onPinsChange: (next: DayPinsState) => void;
   hideContent?: boolean;
+  showPinBoard?: boolean;
   sides: string[];
   onAddSide: (value: string) => void;
   onRemoveSide: (index: number) => void;
@@ -83,6 +84,7 @@ export default function SuggestionsContainer({
   pins,
   onPinsChange,
   hideContent = false,
+  showPinBoard = true,
   sides,
   onAddSide,
   onRemoveSide,
@@ -354,14 +356,16 @@ export default function SuggestionsContainer({
 
   return (
     <View style={styles.container}>
-      <PinBoard
-        value={pins}
-        onChange={onPinsChange}
-        dayKey={dayKey}
-        onRequestInventory={handleToggleInventory}
-        pulseChipTrigger={inventoryPulseTrigger}
-        isInventoryOpen={isInventoryVisible}
-      />
+      {showPinBoard ? (
+        <PinBoard
+          value={pins}
+          onChange={onPinsChange}
+          dayKey={dayKey}
+          onRequestInventory={handleToggleInventory}
+          pulseChipTrigger={inventoryPulseTrigger}
+          isInventoryOpen={isInventoryVisible}
+        />
+      ) : null}
       {content}
     </View>
   );
