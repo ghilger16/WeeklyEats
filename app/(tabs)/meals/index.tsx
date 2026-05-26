@@ -6,6 +6,7 @@ import {
   FlatList,
   ListRenderItem,
   Linking,
+  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -28,11 +29,15 @@ import MealModalOverlay from "../../../components/meals/MealModalOverlay";
 import MealSearchInput, {
   type MealSortSelection,
 } from "../../../components/meals/MealSearchInput";
+import DayPlannedToast from "../../../components/plan-week/planned-meals/DayPlannedToast";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useMeals } from "../../../hooks/useMeals";
+import { useWeekStartController } from "../../../providers/week-start/WeekStartController";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 import { Meal, MealDraft, createMealId } from "../../../types/meals";
+import { addSavedMealIdeaToWeekPlan } from "../../../stores/weekPlanStorage";
+import { getNextWeekStartForDate } from "../../../utils/weekDays";
 import {
   getPendingRecipeImports,
   removePendingRecipeImport,
@@ -118,6 +123,7 @@ export default function MealsScreen() {
   }>();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const { startDay } = useWeekStartController();
   const {
     meals,
     favorites,
@@ -159,6 +165,10 @@ export default function MealsScreen() {
     showEmoji: true,
   });
   const [isDisplaySheetOpen, setDisplaySheetOpen] = useState(false);
+  const [suggestToastVisible, setSuggestToastVisible] = useState(false);
+  const [pendingSuggestMeal, setPendingSuggestMeal] = useState<Meal | null>(
+    null
+  );
   const contentProgress = useRef(new Animated.Value(0)).current;
 
   const animateContent = useCallback(
@@ -483,6 +493,32 @@ export default function MealsScreen() {
     [updateMeal]
   );
 
+  const handleSuggestNextWeek = useCallback(
+    (meal: Meal) => {
+      setPendingSuggestMeal(meal);
+    },
+    [],
+  );
+
+  const handleCancelSuggestNextWeek = useCallback(() => {
+    setPendingSuggestMeal(null);
+  }, []);
+
+  const handleConfirmSuggestNextWeek = useCallback(async () => {
+    if (!pendingSuggestMeal) {
+      return;
+    }
+    const meal = pendingSuggestMeal;
+    setPendingSuggestMeal(null);
+    const nextWeekStartISO = getNextWeekStartForDate(startDay)
+      .toISOString()
+      .slice(0, 10);
+    await addSavedMealIdeaToWeekPlan(nextWeekStartISO, meal);
+    setSuggestToastVisible(true);
+  }, [pendingSuggestMeal, startDay]);
+
+  const pendingSuggestMealTitle = pendingSuggestMeal?.title ?? "";
+
   const handleOpenPendingImport = useCallback(
     (pendingImport: PendingRecipeImport) => {
       openSharedRecipeUrl(pendingImport.recipeUrl, pendingImport.id);
@@ -516,6 +552,9 @@ export default function MealsScreen() {
           }
           onRemoveFromFreezer={
             isFreezerTab ? () => handleRemoveFromFreezer(item.id) : undefined
+          }
+          onSuggestNextWeek={
+            isFreezerTab ? undefined : () => handleSuggestNextWeek(item)
           }
           servedRank={servedRankMap.get(item.id)}
           displayOptions={displayOptions}
@@ -946,6 +985,61 @@ export default function MealsScreen() {
         title="Add to freezer"
         subtitle="Pick a meal to add to your freezer inventory."
       />
+      <Modal
+        visible={Boolean(pendingSuggestMeal)}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelSuggestNextWeek}
+      >
+        <View style={styles.confirmBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel saving meal for next week"
+            onPress={handleCancelSuggestNextWeek}
+          />
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Save for next week?</Text>
+            <Text style={styles.confirmMessage}>
+              {pendingSuggestMealTitle} will appear in Suggested by You during
+              planning.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cancel saving meal for next week"
+                onPress={handleCancelSuggestNextWeek}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.confirmCancelButton,
+                  pressed && styles.confirmButtonPressed,
+                ]}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Save meal for next week"
+                onPress={handleConfirmSuggestNextWeek}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.confirmSaveButton,
+                  pressed && styles.confirmButtonPressed,
+                ]}
+              >
+                <Text style={styles.confirmSaveText}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {suggestToastVisible ? (
+        <DayPlannedToast
+          title="Added to Suggested by You"
+          subtitle="Saved for next week's planning."
+          onComplete={() => setSuggestToastVisible(false)}
+        />
+      ) : null}
     </>
   );
 }
@@ -1078,6 +1172,70 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       lineHeight: theme.type.size.sm * 1.4,
+    },
+    confirmBackdrop: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(0,0,0,0.48)",
+      paddingHorizontal: theme.space.xl,
+    },
+    confirmCard: {
+      width: "100%",
+      maxWidth: 360,
+      borderRadius: theme.radius.xl,
+      backgroundColor: theme.color.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      padding: theme.space.xl,
+      gap: theme.space.md,
+    },
+    confirmTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+    },
+    confirmMessage: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      lineHeight: theme.type.size.base * 1.4,
+    },
+    confirmActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap: theme.space.sm,
+      marginTop: theme.space.sm,
+    },
+    confirmButton: {
+      minHeight: 44,
+      minWidth: 96,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: theme.space.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
+    confirmCancelButton: {
+      backgroundColor: theme.color.surfaceAlt,
+      borderColor: theme.color.cardOutline,
+    },
+    confirmSaveButton: {
+      backgroundColor: theme.color.accent,
+      borderColor: theme.color.accent,
+    },
+    confirmButtonPressed: {
+      opacity: 0.85,
+    },
+    confirmCancelText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    confirmSaveText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
     },
     emptyState: {
       alignItems: "center",

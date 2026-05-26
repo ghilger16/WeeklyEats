@@ -13,6 +13,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
+import DayPinsControls from "../plan-week/DayPinsControls";
+import {
+  DayPinsState,
+  normalizeDayPinsState,
+} from "../../types/dayPins";
+import { buildMealSuggestions } from "../plan-week/suggestions/suggestionMatcher";
 
 type Props = {
   visible: boolean;
@@ -25,6 +31,8 @@ type Props = {
   sides?: string[];
   onAddSide?: (value: string) => void;
   onRemoveSide?: (index: number) => void;
+  pins?: DayPinsState;
+  onPinsChange?: (next: DayPinsState) => void;
 };
 
 export default function MealSearchModal({
@@ -38,6 +46,8 @@ export default function MealSearchModal({
   sides = [],
   onAddSide,
   onRemoveSide,
+  pins,
+  onPinsChange,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -63,15 +73,31 @@ export default function MealSearchModal({
     }
   }, [isSideDeleteMode, sides.length]);
 
+  const normalizedPins = useMemo(
+    () => normalizeDayPinsState(pins),
+    [pins]
+  );
+  const hasActivePins = Boolean(
+    normalizedPins.effort ||
+      normalizedPins.expense ||
+      normalizedPins.reuseWeeks ||
+      normalizedPins.freezerNight ||
+      normalizedPins.familyStar
+  );
+
   const filteredMeals = useMemo(() => {
     const normalized = query.trim().toLowerCase();
+    const sourceMeals =
+      pins && hasActivePins
+        ? buildMealSuggestions(meals, normalizedPins).map((entry) => entry.meal)
+        : meals;
     if (!normalized) {
-      return meals;
+      return sourceMeals;
     }
-    return meals.filter((meal) =>
+    return sourceMeals.filter((meal) =>
       meal.title.toLowerCase().includes(normalized)
     );
-  }, [meals, query]);
+  }, [hasActivePins, meals, normalizedPins, pins, query]);
 
   const handleSelect = (meal: Meal) => {
     if (onAddSide) {
@@ -254,6 +280,14 @@ export default function MealSearchModal({
                   <Text style={styles.title}>{title}</Text>
                   <Text style={styles.subtitle}>{subtitle}</Text>
                 </View>
+
+                {pins && onPinsChange ? (
+                  <DayPinsControls
+                    value={normalizedPins}
+                    onChange={onPinsChange}
+                    mode="editable"
+                  />
+                ) : null}
 
                 <View style={styles.searchRow}>
                   <MaterialCommunityIcons

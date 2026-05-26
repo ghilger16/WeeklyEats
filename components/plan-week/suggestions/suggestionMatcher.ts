@@ -24,6 +24,9 @@ const effortToDifficultySet = (effort: EffortOption | null | undefined) => {
   if (effort === "easy_medium") {
     return new Set<DifficultyKey>(["easy", "medium"]);
   }
+  if (effort === "easy_medium_hard") {
+    return new Set<DifficultyKey>(["easy", "medium", "hard"]);
+  }
   if (effort === "medium_hard") {
     return new Set<DifficultyKey>(["medium", "hard"]);
   }
@@ -115,7 +118,7 @@ export const buildMealSuggestions = (
       }
       if (shouldFilterByDifficulty) {
         const mealDifficulty = difficultyFromValue(meal.difficulty);
-        if (!allowedDifficulty.has(mealDifficulty)) {
+        if (!allowedDifficulty?.has(mealDifficulty)) {
           return false;
         }
       }

@@ -9,6 +9,7 @@ export type EffortOption =
   | "medium"
   | "hard"
   | "easy_medium"
+  | "easy_medium_hard"
   | "medium_hard";
 export type ExpenseOption = "$" | "$$" | "$$$";
 export type ReuseOption = 1 | 2 | 3 | 4;
@@ -76,6 +77,7 @@ const VALID_EFFORT_VALUES: EffortOption[] = [
   "medium",
   "hard",
   "easy_medium",
+  "easy_medium_hard",
   "medium_hard",
 ];
 
@@ -123,6 +125,7 @@ export const effortLabelMap: Record<EffortOption, string> = {
   medium: "Medium",
   hard: "Hard",
   easy_medium: "Easy + Medium",
+  easy_medium_hard: "Easy + Medium + Hard",
   medium_hard: "Medium + Hard",
 };
 

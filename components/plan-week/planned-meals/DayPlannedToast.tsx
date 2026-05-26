@@ -34,7 +34,7 @@ const DayPlannedToast = ({ dayName, title, subtitle, onComplete }: Props) => {
           useNativeDriver: true,
         }),
       ]),
-      Animated.delay(800),
+      Animated.delay(1500),
       Animated.parallel([
         Animated.timing(opacity, {
           toValue: 0,

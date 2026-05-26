@@ -32,6 +32,7 @@ type Props = {
   isFreezer?: boolean;
   onFreezerPress?: () => void;
   onRemoveFromFreezer?: () => void;
+  onSuggestNextWeek?: () => void;
   servedRank?: number;
   displayOptions?: {
     showDifficulty?: boolean;
@@ -72,6 +73,7 @@ const MealListItem = memo(function MealListItem({
   isFreezer = false,
   onFreezerPress,
   onRemoveFromFreezer,
+  onSuggestNextWeek,
   servedRank,
   displayOptions,
 }: Props) {
@@ -145,6 +147,11 @@ const MealListItem = memo(function MealListItem({
     onPress();
   };
 
+  const handleSuggestNextWeekPress = () => {
+    swipeableRef.current?.close();
+    onSuggestNextWeek?.();
+  };
+
   const resolveExpenseTier = () => {
     if (typeof meal.expense === "number") {
       if (meal.expense <= 2) {
@@ -188,23 +195,42 @@ const MealListItem = memo(function MealListItem({
   ];
 
   const renderRightActions = () => (
-    <RectButton
-      style={styles.deleteAction}
-      onPress={handleDeletePress}
-      accessibilityRole="button"
-      accessibilityLabel={
-        isFreezer ? `Remove ${meal.title} from freezer` : `Delete ${meal.title}`
-      }
-    >
-      <MaterialCommunityIcons
-        name={isFreezer ? "close-circle" : "trash-can"}
-        size={24}
-        color={theme.color.ink}
-      />
-      <Text style={styles.deleteActionText}>
-        {isFreezer ? "Remove" : "Delete"}
-      </Text>
-    </RectButton>
+    <View style={styles.swipeActions}>
+      <RectButton
+        style={[styles.swipeAction, styles.deleteAction]}
+        onPress={handleDeletePress}
+        accessibilityRole="button"
+        accessibilityLabel={
+          isFreezer
+            ? `Remove ${meal.title} from freezer`
+            : `Delete ${meal.title}`
+        }
+      >
+        <MaterialCommunityIcons
+          name={isFreezer ? "close-circle" : "trash-can"}
+          size={24}
+          color={theme.color.ink}
+        />
+        <Text style={styles.deleteActionText}>
+          {isFreezer ? "Remove" : "Delete"}
+        </Text>
+      </RectButton>
+      {onSuggestNextWeek ? (
+        <RectButton
+          style={[styles.swipeAction, styles.suggestAction]}
+          onPress={handleSuggestNextWeekPress}
+          accessibilityRole="button"
+          accessibilityLabel={`Suggest ${meal.title} for next week`}
+        >
+          <MaterialCommunityIcons
+            name="calendar-plus"
+            size={24}
+            color={theme.color.accent}
+          />
+          <Text style={styles.suggestActionText}>Suggest</Text>
+        </RectButton>
+      ) : null}
+    </View>
   );
 
   const { isFamilyStar } = useMemo(() => {
@@ -491,18 +517,34 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.medium,
       textAlign: "right",
     },
-    deleteAction: {
+    swipeActions: {
+      flexDirection: "row",
+      alignItems: "stretch",
+      gap: theme.space.sm,
+      marginLeft: theme.space.sm,
+    },
+    swipeAction: {
       backgroundColor: theme.color.surface,
       justifyContent: "center",
       alignItems: "center",
-      width: 104,
+      width: 96,
       borderRadius: theme.radius.lg,
-      marginLeft: theme.space.sm,
       paddingVertical: theme.space.sm,
       gap: theme.space.xs,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.cardOutline,
     },
+    suggestAction: {
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    suggestActionText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+    },
+    deleteAction: {},
     deleteActionText: {
       color: theme.color.danger,
       fontSize: theme.type.size.sm,

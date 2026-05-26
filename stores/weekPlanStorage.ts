@@ -2,11 +2,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   CurrentPlannedWeek,
   CurrentWeekSides,
+  SavedMealIdea,
   PlannedWeekDayKey,
   createEmptyCurrentPlannedWeek,
   createEmptyCurrentWeekSides,
   PLANNED_WEEK_ORDER,
 } from "../types/weekPlan";
+import { Meal } from "../types/meals";
 
 const LEGACY_PLAN_KEY = "@weeklyeats/weekPlan";
 const LEGACY_PLAN_SIDES_KEY = "@weeklyeats/weekPlanSides";
@@ -84,6 +86,32 @@ const normalizePlan = (
     plan.weekStartISO = startIso;
   } else if (weekStartISO) {
     plan.weekStartISO = weekStartISO;
+  }
+
+  const savedIdeasValue = (raw as { savedIdeas?: unknown }).savedIdeas;
+  if (Array.isArray(savedIdeasValue)) {
+    plan.savedIdeas = savedIdeasValue
+      .map((entry): SavedMealIdea | null => {
+        if (!entry || typeof entry !== "object") {
+          return null;
+        }
+        const maybe = entry as Partial<SavedMealIdea>;
+        if (
+          typeof maybe.mealId !== "string" ||
+          typeof maybe.title !== "string" ||
+          typeof maybe.emoji !== "string" ||
+          typeof maybe.suggestedAt !== "string"
+        ) {
+          return null;
+        }
+        return {
+          mealId: maybe.mealId,
+          title: maybe.title,
+          emoji: maybe.emoji,
+          suggestedAt: maybe.suggestedAt,
+        };
+      })
+      .filter(Boolean) as SavedMealIdea[];
   }
 
   return plan;
@@ -243,9 +271,9 @@ export const getCurrentWeekPlan = async (
   planMap = cleanupStalePlans(planMap, normalizedStart);
   const hasAnyPlans = Object.keys(planMap).length > 0;
 
-  let plan = planMap[normalizedStart];
+  let plan: CurrentPlannedWeek | undefined = planMap[normalizedStart];
   if (!plan && !hasAnyPlans) {
-    plan = (await migrateLegacyPlan(normalizedStart)) ?? null;
+    plan = (await migrateLegacyPlan(normalizedStart)) ?? undefined;
   }
 
   if (!plan) {
@@ -278,6 +306,53 @@ export const setCurrentWeekPlan = async (
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to persist plan", error);
   }
+};
+
+export const addSavedMealIdeaToWeekPlan = async (
+  weekStartISO: string,
+  meal: Pick<Meal, "id" | "title" | "emoji">
+): Promise<CurrentPlannedWeek> => {
+  const normalizedStart = isValidISODateString(weekStartISO)
+    ? weekStartISO.slice(0, 10)
+    : weekStartISO;
+  const plan = await getCurrentWeekPlan(normalizedStart);
+  const currentIdeas = plan.savedIdeas ?? [];
+  const existing = currentIdeas.find((idea) => idea.mealId === meal.id);
+  if (existing) {
+    return plan;
+  }
+  const nextPlan: CurrentPlannedWeek = {
+    ...plan,
+    weekStartISO: normalizedStart,
+    savedIdeas: [
+      ...currentIdeas,
+      {
+        mealId: meal.id,
+        title: meal.title,
+        emoji: meal.emoji,
+        suggestedAt: new Date().toISOString(),
+      },
+    ],
+  };
+  await setCurrentWeekPlan(normalizedStart, nextPlan);
+  return nextPlan;
+};
+
+export const removeSavedMealIdeaFromWeekPlan = async (
+  weekStartISO: string,
+  mealId: Meal["id"]
+): Promise<CurrentPlannedWeek> => {
+  const normalizedStart = isValidISODateString(weekStartISO)
+    ? weekStartISO.slice(0, 10)
+    : weekStartISO;
+  const plan = await getCurrentWeekPlan(normalizedStart);
+  const nextPlan: CurrentPlannedWeek = {
+    ...plan,
+    weekStartISO: normalizedStart,
+    savedIdeas: (plan.savedIdeas ?? []).filter((idea) => idea.mealId !== mealId),
+  };
+  await setCurrentWeekPlan(normalizedStart, nextPlan);
+  return nextPlan;
 };
 
 export const getCurrentWeekSides = async (

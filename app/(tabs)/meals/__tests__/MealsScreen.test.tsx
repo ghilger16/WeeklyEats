@@ -173,6 +173,14 @@ jest.mock("../../../../providers/theme/ThemeController", () => {
     }),
   };
 });
+jest.mock("../../../../providers/week-start/WeekStartController", () => ({
+  useWeekStartController: jest.fn().mockReturnValue({
+    startDay: "mon",
+    orderedDays: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    setStartDay: jest.fn().mockResolvedValue(undefined),
+    isHydrated: true,
+  }),
+}));
 
 const mockMeals: Meal[] = [
   {

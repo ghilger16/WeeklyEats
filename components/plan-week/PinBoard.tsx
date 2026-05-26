@@ -21,28 +21,22 @@ import {
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
-import { PLANNED_WEEK_DISPLAY_NAMES } from "../../types/weekPlan";
+import {
+  PLANNED_WEEK_DISPLAY_NAMES,
+  PlannedWeekDayKey,
+} from "../../types/weekPlan";
 import {
   DayPinsState,
-  EffortOption,
-  ExpenseOption,
   MoodOption,
   MEAL_TYPE_OPTIONS,
   MealTypeOption,
   PinInclusion,
-  ReuseOption,
   cycleArrayInclusion,
-  cycleInclusion,
-  createEmptyDayPinsState,
-  effortLabelMap,
-  expenseLabelMap,
-  hasAnyPins,
   normalizeDayPinsState,
-  reuseLabelMap,
 } from "../../types/dayPins";
 import { MealBadge } from "../meals/MealBadge";
 import { renderPin, PinIndicatorVariant } from "../pins/renderPin";
-import { MaterialCommunityIcons as CommunityIcons } from "@expo/vector-icons";
+import DayPinsControls from "./DayPinsControls";
 
 type DifficultyIndicatorLevel = "easy" | "medium" | "hard";
 
@@ -73,7 +67,7 @@ const moodBadgeMap: Record<MoodOption, MoodBadgeDescriptor[]> = {
 type Props = {
   value: DayPinsState;
   onChange: (next: DayPinsState) => void;
-  dayKey?: string;
+  dayKey?: PlannedWeekDayKey;
   onRequestInventory?: () => void;
   pulseChipTrigger?: { id: string; nonce: number } | null;
   isInventoryOpen?: boolean;
@@ -101,7 +95,6 @@ const PinBoard = ({
   isInventoryOpen,
 }: Props) => {
   const normalizedValue = useMemo(() => normalizeDayPinsState(value), [value]);
-  const hasPins = hasAnyPins(normalizedValue);
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [pulsingChipId, setPulsingChipId] = useState<string | null>(null);
@@ -134,7 +127,7 @@ const PinBoard = ({
         ...patch,
       });
     },
-    [normalizedValue, onChange]
+    [normalizedValue, onChange],
   );
 
   const handleFamilyStarChipPress = useCallback(() => {
@@ -143,40 +136,6 @@ const PinBoard = ({
     updateState({ familyStar: next });
     triggerChipPulse("family-star");
   }, [normalizedValue.familyStar, triggerChipPulse, updateState]);
-
-  const handleEffortChipPress = useCallback(() => {
-    const order: Array<EffortOption | null> = [
-      "easy",
-      "medium",
-      "hard",
-      "easy_medium",
-      "medium_hard",
-      null,
-    ];
-    const currentIndex = order.indexOf(normalizedValue.effort ?? null);
-    const next = order[(currentIndex + 1) % order.length];
-    Haptics.selectionAsync().catch(() => {});
-    updateState({ effort: next });
-    triggerChipPulse("effort");
-  }, [normalizedValue.effort, triggerChipPulse, updateState]);
-
-  const handleExpenseCycle = useCallback(() => {
-    const order: Array<ExpenseOption | null> = ["$", "$$", "$$$", null];
-    const currentIndex = order.indexOf(normalizedValue.expense ?? null);
-    const next = order[(currentIndex + 1) % order.length];
-    Haptics.selectionAsync().catch(() => {});
-    updateState({ expense: next });
-    triggerChipPulse("expense");
-  }, [normalizedValue.expense, triggerChipPulse, updateState]);
-
-  const handleReuseCycle = useCallback(() => {
-    const order: Array<ReuseOption | null> = [1, 2, 3, 4, null];
-    const currentIndex = order.indexOf(normalizedValue.reuseWeeks ?? null);
-    const next = order[(currentIndex + 1) % order.length];
-    Haptics.selectionAsync().catch(() => {});
-    updateState({ reuseWeeks: next });
-    triggerChipPulse("reuse");
-  }, [normalizedValue.reuseWeeks, triggerChipPulse, updateState]);
 
   const handleFreezerToggle = useCallback(() => {
     Haptics.selectionAsync().catch(() => {});
@@ -192,7 +151,7 @@ const PinBoard = ({
       const next = cycleArrayInclusion(
         normalizedValue.types,
         normalizedValue.excludedTypes,
-        typeId
+        typeId,
       );
       Haptics.selectionAsync().catch(() => {});
       updateState({
@@ -204,8 +163,8 @@ const PinBoard = ({
       const chipId = next.include.includes(typeId)
         ? `type-${typeId}`
         : next.exclude.includes(typeId)
-        ? `type-${typeId}-exclude`
-        : `type-${typeId}`;
+          ? `type-${typeId}-exclude`
+          : `type-${typeId}`;
       triggerChipPulse(chipId);
     },
     [
@@ -213,7 +172,7 @@ const PinBoard = ({
       normalizedValue.types,
       triggerChipPulse,
       updateState,
-    ]
+    ],
   );
 
   const renderBoardIndicator = useCallback(
@@ -221,7 +180,7 @@ const PinBoard = ({
       label: string | undefined,
       variant: PinIndicatorVariant,
       levels?: DifficultyIndicatorLevel[],
-      value?: string
+      value?: string,
     ) => (
       <View style={styles.boardIndicatorContent}>
         {label ? <Text style={styles.boardIndicatorLabel}>{label}</Text> : null}
@@ -234,7 +193,7 @@ const PinBoard = ({
         })}
       </View>
     ),
-    [styles.boardIndicatorContent, styles.boardIndicatorLabel, theme]
+    [styles.boardIndicatorContent, styles.boardIndicatorLabel, theme],
   );
 
   const boardChips = useMemo<BoardChipDescriptor[]>(() => {
@@ -260,33 +219,6 @@ const PinBoard = ({
       });
     }
 
-    if (normalizedValue.effort && !normalizedValue.mood) {
-      const effortLevelsMap: Record<EffortOption, DifficultyIndicatorLevel[]> =
-        {
-          easy: ["easy"],
-          medium: ["medium"],
-          hard: ["hard"],
-          easy_medium: ["easy", "medium"],
-          medium_hard: ["medium", "hard"],
-        };
-      chips.push({
-        id: "effort",
-        label: `EFFORT: ${effortLabelMap[
-          normalizedValue.effort
-        ].toUpperCase()}`,
-        mode: "value",
-        onPress: handleEffortChipPress,
-        accessibilityLabel: `Effort filter ${
-          effortLabelMap[normalizedValue.effort]
-        }`,
-        content: renderBoardIndicator(
-          "Difficulty",
-          "difficulty",
-          effortLevelsMap[normalizedValue.effort]
-        ),
-      });
-    }
-
     normalizedValue.types.forEach((typeId) => {
       const meta = MEAL_TYPE_OPTIONS.find((item) => item.id === typeId);
       chips.push({
@@ -309,42 +241,6 @@ const PinBoard = ({
       });
     });
 
-    if (normalizedValue.expense) {
-      chips.push({
-        id: "expense",
-        label: `EXPENSE: ${expenseLabelMap[normalizedValue.expense]}`,
-        mode: "value",
-        onPress: handleExpenseCycle,
-        accessibilityLabel: `Expense filter ${
-          expenseLabelMap[normalizedValue.expense]
-        }`,
-        content: renderBoardIndicator(
-          "Expense",
-          "expense",
-          undefined,
-          expenseLabelMap[normalizedValue.expense]
-        ),
-      });
-    }
-
-    if (normalizedValue.reuseWeeks) {
-      chips.push({
-        id: "reuse",
-        label: `REUSE: ${reuseLabelMap[normalizedValue.reuseWeeks]}`,
-        mode: "value",
-        onPress: handleReuseCycle,
-        accessibilityLabel: `Reuse interval ${
-          reuseLabelMap[normalizedValue.reuseWeeks]
-        }`,
-        content: renderBoardIndicator(
-          "Reuse",
-          "reuse",
-          undefined,
-          reuseLabelMap[normalizedValue.reuseWeeks]
-        ),
-      });
-    }
-
     if (normalizedValue.freezerNight) {
       chips.push({
         id: "freezer",
@@ -358,21 +254,15 @@ const PinBoard = ({
 
     return chips;
   }, [
-    handleExpenseCycle,
     handleFamilyStarChipPress,
     handleFreezerToggle,
-    handleReuseCycle,
     handleTypeChipPress,
-    handleEffortChipPress,
     renderBoardIndicator,
-    normalizedValue.effort,
     normalizedValue.excludedTypes,
-    normalizedValue.expense,
     normalizedValue.familyStar,
     normalizedValue.freezerNight,
     normalizedValue.mood,
     normalizedValue.moodMode,
-    normalizedValue.reuseWeeks,
     normalizedValue.types,
   ]);
 
@@ -386,8 +276,8 @@ const PinBoard = ({
   const renderPinGrid = useCallback(
     (items: ReactNode[], keyPrefix: string) => (
       <FlexGrid
-        gutterWidth={theme.space.xs}
-        gutterHeight={theme.space.xs}
+        gutterWidth={Math.max(theme.space.xs - 3, 0)}
+        gutterHeight={Math.max(theme.space.xs - 3, 0)}
         hasGutterWidthAtBorders={false}
         hasGutterHeightAtBorders={false}
       >
@@ -406,7 +296,7 @@ const PinBoard = ({
         </FlexGrid.Row>
       </FlexGrid>
     ),
-    [styles.pinColumn, theme.space.sm]
+    [styles.pinColumn, theme.space.xs],
   );
 
   return (
@@ -445,7 +335,9 @@ const PinBoard = ({
         <View style={styles.boardHeaderRow}>
           <View>
             <Text style={styles.boardTitle}>
-              {dayKey ? `${PLANNED_WEEK_DISPLAY_NAMES[dayKey]} Pins` : "Day Pins"}
+              {dayKey
+                ? `${PLANNED_WEEK_DISPLAY_NAMES[dayKey]} Pins`
+                : "Day Pins"}
             </Text>
             <Text style={styles.boardSubtitle}>
               Pins tailor your meal suggestions.
@@ -471,7 +363,12 @@ const PinBoard = ({
             </Pressable>
           ) : null}
         </View>
-        {hasPins ? (
+        <DayPinsControls
+          value={normalizedValue}
+          onChange={onChange}
+          mode="editable"
+        />
+        {boardChips.length ? (
           renderPinGrid(
             boardChips.map((chip) => (
               <BoardChip
@@ -482,13 +379,9 @@ const PinBoard = ({
                 isPulsing={pulsingChipId === chip.id}
               />
             )),
-            "board"
+            "board",
           )
-        ) : (
-          <Text style={styles.emptyBoardText}>
-            Pins you earn will live here for quick editing.
-          </Text>
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -559,15 +452,15 @@ const BoardChip = ({
     descriptor.mode === "include"
       ? styles.boardChipInclude
       : descriptor.mode === "exclude"
-      ? styles.boardChipExclude
-      : styles.boardChipValue;
+        ? styles.boardChipExclude
+        : styles.boardChipValue;
 
   const textStateStyle =
     descriptor.mode === "include"
       ? styles.boardChipLabelActive
       : descriptor.mode === "exclude"
-      ? styles.boardChipLabelDanger
-      : styles.boardChipLabelActive;
+        ? styles.boardChipLabelDanger
+        : styles.boardChipLabelActive;
 
   return (
     <AnimatedPressable
@@ -718,15 +611,17 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.bold,
     },
+    boardOffLabel: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
+      textTransform: "uppercase",
+    },
     boardChipLabelActive: {
       color: theme.color.ink,
     },
     boardChipLabelDanger: {
       color: theme.color.danger,
-    },
-    emptyBoardText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
     },
     inventoryIconButton: {
       padding: theme.space.sm,

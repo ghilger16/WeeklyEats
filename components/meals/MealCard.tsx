@@ -80,6 +80,11 @@ const EXPENSE_LEVELS = [
   { label: "$$$", value: 5 as const },
 ];
 
+const capitalizeMealTitleWords = (value: string) =>
+  value.replace(/(^|[\s-/])([a-z])/g, (match, prefix, letter) =>
+    `${prefix}${letter.toUpperCase()}`
+  );
+
 type AutoFillPreviewDraft = {
   title: string;
   ingredients: string[];
@@ -674,10 +679,11 @@ export default function MealCard({
               ]}
               value={form.title}
               onChangeText={(value) => {
-                if (showTitleRequiredError && value.trim()) {
+                const formattedValue = capitalizeMealTitleWords(value);
+                if (showTitleRequiredError && formattedValue.trim()) {
                   setShowTitleRequiredError(false);
                 }
-                updateField("title", value);
+                updateField("title", formattedValue);
               }}
             />
             {showTitleRequiredError ? (

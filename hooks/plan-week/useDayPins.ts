@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DayPinsPerWeek,
   DayPinsState,
-  PlannedWeekDayKey,
   createEmptyDayPinsMap,
   normalizeDayPinsState,
 } from "../../types/dayPins";
+import { PlannedWeekDayKey } from "../../types/weekPlan";
 import {
   getStoredDayPins,
   setStoredDayPins,

@@ -9,10 +9,18 @@ export type PlannedWeekDayKey =
   | "sat"
   | "sun";
 
+export type SavedMealIdea = {
+  mealId: Meal["id"];
+  title: string;
+  emoji: string;
+  suggestedAt: string;
+};
+
 export type CurrentPlannedWeek = {
   weekedPlanned?: boolean;
   weekStartISO?: string;
   plannedScope?: "full" | "remaining";
+  savedIdeas?: SavedMealIdea[];
 } & Record<PlannedWeekDayKey, Meal["id"] | null>;
 export type CurrentWeekSides = Record<PlannedWeekDayKey, string[]>;
 
@@ -65,6 +73,7 @@ export const createEmptyCurrentPlannedWeek = (
     weekedPlanned: options.weekedPlanned ?? false,
     weekStartISO: options.weekStartISO,
     plannedScope: options.plannedScope,
+    savedIdeas: [],
   };
 };
 

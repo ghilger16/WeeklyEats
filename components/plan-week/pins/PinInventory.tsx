@@ -110,11 +110,9 @@ export const isInventoryPinActive = (
 ) => {
   switch (pin) {
     case "difficulty":
-      return Boolean(value.effort);
     case "expense":
-      return Boolean(value.expense);
     case "reuse":
-      return Boolean(value.reuseWeeks);
+      return true;
     case "family":
       return value.familyStar === "include";
     case "freezer":

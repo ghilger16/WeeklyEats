@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import {
@@ -45,7 +45,11 @@ import { useWeekStartController } from "../../providers/week-start/WeekStartCont
 import { buildMealSuggestions } from "../../components/plan-week/suggestions/suggestionMatcher";
 import SuggestMealModal from "../../components/plan-week/suggestions/SuggestMealModal";
 import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
-import { addDays, getNextWeekStartForDate } from "../../utils/weekDays";
+import {
+  addDays,
+  getNextWeekStartForDate,
+  getWeekStartForDate,
+} from "../../utils/weekDays";
 import PlanDayChoiceStep, {
   DayWizardAction,
 } from "../../components/plan-week/steps/PlanDayChoiceStep";
@@ -58,14 +62,20 @@ import usePlanSides from "../../hooks/plan-week/usePlanSides";
 import MealSearchModal from "../../components/meals/MealSearchModal";
 import MealModalOverlay from "../../components/meals/MealModalOverlay";
 import PinBoard from "../../components/plan-week/PinBoard";
+import MealInspirationSection, {
+  MealPool,
+  MealPoolId,
+} from "../../components/plan-week/MealInspirationSection";
 import PinInventory, {
   InventoryPinId,
   isInventoryPinActive,
 } from "../../components/plan-week/pins/PinInventory";
 import {
+  DayPinsState,
   createEmptyDayPinsMap,
   normalizeDayPinsState,
 } from "../../types/dayPins";
+import { getRemainingPlanningDays } from "../../utils/remainingWeekPlanning";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>(
@@ -78,6 +88,7 @@ const createInitialSuggestionIndex = () =>
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SUMMARY_MAX_TRANSLATE = SCREEN_HEIGHT;
+const SHOW_MAIN_PIN_BOARD = false;
 
 const formatWeekRangeLabel = (start: Date, end: Date) => {
   const startLabel = start.toLocaleDateString(undefined, {
@@ -92,15 +103,45 @@ const formatWeekRangeLabel = (start: Date, end: Date) => {
   return `${startLabel} – ${endLabel}`;
 };
 
+const hasFreezerInventory = (meal: Meal) =>
+  Boolean(
+    meal.isFavorite ||
+      meal.freezerAmount?.trim() ||
+      meal.freezerQuantity?.trim() ||
+      meal.freezerAddedAt,
+  );
+
+const isFamilyStarMeal = (meal: Meal) => {
+  const familyRatings = Object.values(meal.familyRatings ?? {}).filter(
+    (value) => value > 0,
+  );
+  if (familyRatings.length > 0) {
+    return familyRatings.every((value) => value === 3);
+  }
+  return (meal.rating ?? 0) >= 4.5;
+};
+
 export default function PlanWeekModal() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ mode?: string }>();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals, updateMeal } = useMeals();
   const { orderedDays, startDay } = useWeekStartController();
+  const isRemainingMode = params.mode === "remaining";
+  const sessionDays = useMemo(() => {
+    if (!isRemainingMode) {
+      return orderedDays;
+    }
+    const remainingDays = getRemainingPlanningDays(startDay);
+    return remainingDays.length ? remainingDays : orderedDays;
+  }, [isRemainingMode, orderedDays, startDay]);
   const planningWeekStart = useMemo(
-    () => getNextWeekStartForDate(startDay),
-    [startDay],
+    () =>
+      isRemainingMode
+        ? getWeekStartForDate(startDay)
+        : getNextWeekStartForDate(startDay),
+    [isRemainingMode, startDay],
   );
   const planningWeekStartISO = useMemo(
     () => planningWeekStart.toISOString().slice(0, 10),
@@ -173,6 +214,11 @@ export default function PlanWeekModal() {
     nonce: number;
   } | null>(null);
   const [viewingMealId, setViewingMealId] = useState<Meal["id"] | null>(null);
+  const [selectedSavedIdeaMealId, setSelectedSavedIdeaMealId] = useState<
+    Meal["id"] | null
+  >(null);
+  const [selectedMealPoolId, setSelectedMealPoolId] =
+    useState<MealPoolId | null>(null);
 
   const animateSummaryTo = useCallback(
     (toValue: number, duration: number, easing: (value: number) => number) =>
@@ -213,7 +259,7 @@ export default function PlanWeekModal() {
   }, [animateSummaryTo, isSummaryVisible, theme.motion.duration.normal]);
 
   const activeDay =
-    orderedDays[activeDayIndex] ?? orderedDays[0] ?? PLANNED_WEEK_ORDER[0];
+    sessionDays[activeDayIndex] ?? sessionDays[0] ?? PLANNED_WEEK_ORDER[0];
   const {
     dayPinsMap,
     activeDayPins,
@@ -229,13 +275,28 @@ export default function PlanWeekModal() {
     handleRemoveSide,
     resetSides,
   } = usePlanSides({ activeDay });
+  const planningRangeStart = useMemo(() => {
+    if (!isRemainingMode || !sessionDays.length) {
+      return planningWeekStart;
+    }
+    const firstDay = sessionDays[0];
+    const dayOffset = orderedDays.indexOf(firstDay);
+    return addDays(planningWeekStart, Math.max(dayOffset, 0));
+  }, [isRemainingMode, orderedDays, planningWeekStart, sessionDays]);
   const planningWeekEnd = useMemo(
-    () => addDays(planningWeekStart, 6),
-    [planningWeekStart],
+    () => {
+      if (!isRemainingMode || !sessionDays.length) {
+        return addDays(planningWeekStart, 6);
+      }
+      const activeEndDay = sessionDays[sessionDays.length - 1];
+      const dayOffset = orderedDays.indexOf(activeEndDay);
+      return addDays(planningWeekStart, Math.max(dayOffset, 0));
+    },
+    [isRemainingMode, orderedDays, planningWeekStart, sessionDays],
   );
   const planningWeekLabel = useMemo(
-    () => formatWeekRangeLabel(planningWeekStart, planningWeekEnd),
-    [planningWeekEnd, planningWeekStart],
+    () => formatWeekRangeLabel(planningRangeStart, planningWeekEnd),
+    [planningRangeStart, planningWeekEnd],
   );
 
   const handleResumeContinue = useCallback(() => {
@@ -273,14 +334,14 @@ export default function PlanWeekModal() {
     ]);
   }, [planningWeekStartISO, replaceDayPins, resetSides]);
   const isWeekComplete = useMemo(
-    () => orderedDays.every((day) => Boolean(plannedWeek[day])),
-    [orderedDays, plannedWeek],
+    () => sessionDays.every((day) => Boolean(plannedWeek[day])),
+    [sessionDays, plannedWeek],
   );
   const isDayPlanningStep = Boolean(activeWizardAction);
 
   useEffect(() => {
     setActiveDayIndex(0);
-  }, [orderedDays]);
+  }, [sessionDays]);
 
   useEffect(() => {
     if (isLoading) {
@@ -374,6 +435,40 @@ export default function PlanWeekModal() {
     [meals],
   );
 
+  const mealPools = useMemo<MealPool[]>(() => {
+    const savedIdeaMeals = (plannedWeek.savedIdeas ?? [])
+      .map((idea) => meals.find((meal) => meal.id === idea.mealId))
+      .filter(Boolean) as Meal[];
+    return [
+      {
+        id: "suggestedByYou",
+        title: "Suggested by You",
+        subtitle: "Meals you saved for this week.",
+        nextIcon: "❄️",
+        emptyText: "Meals you save for planning will appear here.",
+        meals: savedIdeaMeals,
+      },
+      {
+        id: "freezerMeals",
+        title: "Freezer Meals",
+        subtitle: "Meals ready from your freezer.",
+        nextIcon: "⭐",
+        chipIcon: "❄️",
+        emptyText: "Freezer-ready meals will appear here.",
+        meals: meals.filter(hasFreezerInventory),
+      },
+      {
+        id: "familyStars",
+        title: "Family Stars",
+        subtitle: "Your highest-rated meals.",
+        nextIcon: "💡",
+        chipIcon: "⭐",
+        emptyText: "Top-rated family meals will appear here.",
+        meals: meals.filter(isFamilyStarMeal),
+      },
+    ];
+  }, [meals, plannedWeek.savedIdeas]);
+
   const plannedMealIds = useMemo(
     () =>
       new Set(
@@ -403,9 +498,14 @@ export default function PlanWeekModal() {
   const activeSuggestion = activeSuggestionEntry?.meal;
   const activeSuggestionContext = activeSuggestionEntry?.context;
   const suggestModalDay = suggestTargetDay ?? activeDay;
+  const searchModalTitleDay = searchTargetDay ?? activeDay;
   const suggestModalPins = useMemo(
     () => normalizeDayPinsState(dayPinsMap[suggestModalDay]),
     [dayPinsMap, suggestModalDay],
+  );
+  const searchModalPins = useMemo(
+    () => normalizeDayPinsState(dayPinsMap[searchModalTitleDay]),
+    [dayPinsMap, searchModalTitleDay],
   );
   const suggestModalPool = useMemo(
     () => buildMealSuggestions(filteredMeals, suggestModalPins, plannedMealIds),
@@ -463,7 +563,11 @@ export default function PlanWeekModal() {
   }, []);
 
   const saveMealToDay = useCallback(
-    async (day: PlannedWeekDayKey, meal: Meal) => {
+    async (
+      day: PlannedWeekDayKey,
+      meal: Meal,
+      options: { removeSavedIdea?: boolean } = {},
+    ) => {
       if (isPlannerSaving) {
         return;
       }
@@ -474,8 +578,16 @@ export default function PlanWeekModal() {
         [day]: meal.id,
         weekedPlanned: false,
         weekStartISO: planningWeekStartISO,
+        plannedScope: isRemainingMode ? "remaining" : "full",
+        savedIdeas: options.removeSavedIdea
+          ? (plannedWeek.savedIdeas ?? []).filter(
+              (idea) => idea.mealId !== meal.id,
+            )
+          : plannedWeek.savedIdeas ?? [],
       };
       setPlannedWeek(nextPlan);
+      setSelectedSavedIdeaMealId(null);
+      setSelectedMealPoolId(null);
       setPendingPlannedDay(day);
       try {
         await Promise.all([
@@ -504,7 +616,64 @@ export default function PlanWeekModal() {
       plannedWeek,
       planningWeekStartISO,
       savedIndicatorDay,
+      isRemainingMode,
     ],
+  );
+
+  const handleSelectMealPoolMeal = useCallback(
+    (meal: Meal, poolId: MealPoolId) => {
+      if (expandedDrawerDay) {
+        saveMealToDay(expandedDrawerDay, meal, {
+          removeSavedIdea: poolId === "suggestedByYou",
+        });
+        return;
+      }
+      Haptics.selectionAsync().catch(() => {});
+      const shouldClear =
+        selectedSavedIdeaMealId === meal.id && selectedMealPoolId === poolId;
+      setSelectedSavedIdeaMealId(shouldClear ? null : meal.id);
+      setSelectedMealPoolId(shouldClear ? null : poolId);
+    },
+    [
+      expandedDrawerDay,
+      saveMealToDay,
+      selectedMealPoolId,
+      selectedSavedIdeaMealId,
+    ],
+  );
+
+  const handlePlanMealPoolMealForDay = useCallback(
+    (day: PlannedWeekDayKey) => {
+      const meal = meals.find(
+        (candidate) => candidate.id === selectedSavedIdeaMealId,
+      );
+      if (!meal) {
+        return;
+      }
+      saveMealToDay(day, meal, {
+        removeSavedIdea: selectedMealPoolId === "suggestedByYou",
+      });
+    },
+    [meals, saveMealToDay, selectedMealPoolId, selectedSavedIdeaMealId],
+  );
+
+  const handleRemoveSavedIdea = useCallback(
+    async (mealId: Meal["id"]) => {
+      const nextPlan: CurrentPlannedWeek = {
+        ...plannedWeek,
+        weekStartISO: planningWeekStartISO,
+        savedIdeas: (plannedWeek.savedIdeas ?? []).filter(
+          (idea) => idea.mealId !== mealId,
+        ),
+      };
+      setPlannedWeek(nextPlan);
+      if (selectedSavedIdeaMealId === mealId) {
+        setSelectedSavedIdeaMealId(null);
+        setSelectedMealPoolId(null);
+      }
+      await setCurrentWeekPlan(planningWeekStartISO, nextPlan);
+    },
+    [plannedWeek, planningWeekStartISO, selectedSavedIdeaMealId],
   );
 
   const handleAddMeal = useCallback(() => {
@@ -594,14 +763,14 @@ export default function PlanWeekModal() {
 
   const handleSuggestDrawerDay = useCallback(
     (day: PlannedWeekDayKey) => {
-      const targetIndex = orderedDays.indexOf(day);
+      const targetIndex = sessionDays.indexOf(day);
       if (targetIndex !== -1) {
         setActiveDayIndex(targetIndex);
       }
       setSuggestTargetDay(day);
       setSuggestModalVisible(true);
     },
-    [orderedDays],
+    [sessionDays],
   );
 
   const handleDismissSuggestModal = useCallback(() => {
@@ -629,6 +798,24 @@ export default function PlanWeekModal() {
       [suggestModalDay]: (prev[suggestModalDay] ?? 0) + 1,
     }));
   }, [suggestModalDay, suggestModalPool.length]);
+
+  const handleSuggestModalPinsChange = useCallback(
+    (next: DayPinsState) => {
+      handleDayPinsChange(suggestModalDay, next);
+      setSuggestionIndexMap((prev) => ({
+        ...prev,
+        [suggestModalDay]: 0,
+      }));
+    },
+    [handleDayPinsChange, suggestModalDay],
+  );
+
+  const handleSearchModalPinsChange = useCallback(
+    (next: DayPinsState) => {
+      handleDayPinsChange(searchModalTitleDay, next);
+    },
+    [handleDayPinsChange, searchModalTitleDay],
+  );
 
   const handleSelectWizardOption = useCallback(
     (action: DayWizardAction) => {
@@ -668,15 +855,17 @@ export default function PlanWeekModal() {
   );
 
   const runSavePlanCelebration = useCallback(async () => {
-    if (!orderedDays.length) {
+    if (!sessionDays.length) {
       return;
     }
     setIsCelebratingSave(true);
     setCelebratedDayIndex(null);
-    const streak = await updateWeekPlanStreak(planningWeekStart);
+    const streak = isRemainingMode
+      ? { count: 0, lastCompletedWeekStartIso: null }
+      : await updateWeekPlanStreak(planningWeekStart);
     const delay = (ms: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, ms));
-    for (let i = 0; i < orderedDays.length; i += 1) {
+    for (let i = 0; i < sessionDays.length; i += 1) {
       setCelebratedDayIndex(i);
       await Haptics.selectionAsync().catch(() => {});
       await delay(140);
@@ -693,7 +882,7 @@ export default function PlanWeekModal() {
     });
     setCelebratedDayIndex(null);
     setIsCelebratingSave(false);
-  }, [orderedDays, planningWeekLabel, planningWeekStart]);
+  }, [isRemainingMode, sessionDays, planningWeekLabel, planningWeekStart]);
 
   const handleSavePlan = useCallback(async () => {
     if (isSaving || isCelebratingSave) {
@@ -705,13 +894,17 @@ export default function PlanWeekModal() {
         ...plannedWeek,
         weekedPlanned: true,
         weekStartISO: planningWeekStartISO,
+        plannedScope: isRemainingMode ? "remaining" : "full",
       };
       setPlannedWeek(completedPlan);
-      await Promise.all([
+      const saveTasks: Promise<unknown>[] = [
         setCurrentWeekPlan(planningWeekStartISO, completedPlan),
         setCurrentWeekSides(planningWeekStartISO, daySidesMap),
-        addWeekPlanHistory(completedPlan),
-      ]);
+      ];
+      if (!isRemainingMode) {
+        saveTasks.push(addWeekPlanHistory(completedPlan));
+      }
+      await Promise.all(saveTasks);
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success,
       ).catch(() => {});
@@ -726,6 +919,9 @@ export default function PlanWeekModal() {
     plannedWeek,
     router,
     runSavePlanCelebration,
+    isRemainingMode,
+    planningWeekStartISO,
+    daySidesMap,
   ]);
 
   const handleToastComplete = useCallback(() => {
@@ -737,11 +933,11 @@ export default function PlanWeekModal() {
       next.add(toastDay);
       return next;
     });
-    const currentIndex = orderedDays.indexOf(toastDay);
-    if (currentIndex !== -1 && orderedDays.length > 0) {
+    const currentIndex = sessionDays.indexOf(toastDay);
+    if (currentIndex !== -1 && sessionDays.length > 0) {
       const nextIndex = Math.min(
         currentIndex + 1,
-        Math.max(orderedDays.length - 1, 0),
+        Math.max(sessionDays.length - 1, 0),
       );
       setActiveDayIndex(nextIndex);
     }
@@ -750,13 +946,14 @@ export default function PlanWeekModal() {
     setExpandedDrawerDay(null);
     setToastDay(null);
     setPendingPlannedDay(null);
-  }, [orderedDays, toastDay]);
+  }, [sessionDays, toastDay]);
 
   const handleSwapPlannedMeal = useCallback(
     async (day: PlannedWeekDayKey) => {
       const nextPlan: CurrentPlannedWeek = { ...plannedWeek, [day]: null };
       nextPlan.weekStartISO = planningWeekStartISO;
       nextPlan.weekedPlanned = false;
+      nextPlan.plannedScope = isRemainingMode ? "remaining" : "full";
       setPlannedWeek(nextPlan);
       setPlannedCardPreviewDay(null);
       setPendingPlannedDay(null);
@@ -766,7 +963,7 @@ export default function PlanWeekModal() {
         setCurrentWeekSides(planningWeekStartISO, daySidesMap),
       ]);
     },
-    [daySidesMap, plannedWeek, planningWeekStartISO],
+    [daySidesMap, plannedWeek, planningWeekStartISO, isRemainingMode],
   );
 
   const handleViewPlannedMeal = useCallback((meal: Meal) => {
@@ -810,6 +1007,7 @@ export default function PlanWeekModal() {
       [targetDay]: plannerSelection.meal.id,
       weekedPlanned: false,
       weekStartISO: planningWeekStartISO,
+      plannedScope: isRemainingMode ? "remaining" : "full",
     };
     setPlannedWeek(nextPlan);
     try {
@@ -841,6 +1039,7 @@ export default function PlanWeekModal() {
     pendingPlannedDay,
     planningWeekStartISO,
     daySidesMap,
+    isRemainingMode,
   ]);
 
   const summaryPanResponder = useMemo(
@@ -883,7 +1082,6 @@ export default function PlanWeekModal() {
   );
 
   const shouldShowTimeline = isWeekComplete && !isSummaryVisible;
-  const searchModalTitleDay = searchTargetDay ?? activeDay;
   const viewingMeal = useMemo(
     () => meals.find((meal) => meal.id === viewingMealId) ?? null,
     [meals, viewingMealId],
@@ -955,7 +1153,7 @@ export default function PlanWeekModal() {
           }
           onOpenSummary={handleOpenSummary}
           isDayPlanningStep={isDayPlanningStep}
-          orderedDays={orderedDays}
+          orderedDays={sessionDays}
           plannedWeek={plannedWeek}
           activeDay={activeDay}
         />
@@ -971,26 +1169,41 @@ export default function PlanWeekModal() {
                 <Text style={styles.compactWeekLabel}>{planningWeekLabel}</Text>
               </View>
 
-              <View style={styles.mainPinBoardSection}>
-                <PinBoard
-                  value={activeDayPins}
-                  onChange={(next) => handleDayPinsChange(activeDay, next)}
-                  dayKey={activeDay}
-                  onRequestInventory={handleTogglePinInventory}
-                  pulseChipTrigger={inventoryPulseTrigger}
-                  isInventoryOpen={isPinInventoryVisible}
-                />
-                {isPinInventoryVisible ? (
-                  <PinInventory
+              {SHOW_MAIN_PIN_BOARD ? (
+                <View style={styles.mainPinBoardSection}>
+                  <PinBoard
                     value={activeDayPins}
-                    onAdd={handleAddInventoryPin}
+                    onChange={(next) => handleDayPinsChange(activeDay, next)}
+                    dayKey={activeDay}
+                    onRequestInventory={handleTogglePinInventory}
+                    pulseChipTrigger={inventoryPulseTrigger}
+                    isInventoryOpen={isPinInventoryVisible}
                   />
-                ) : null}
-              </View>
+                  {isPinInventoryVisible ? (
+                    <PinInventory
+                      value={activeDayPins}
+                      onAdd={handleAddInventoryPin}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+
+              <MealInspirationSection
+                pools={mealPools}
+                orderedDays={sessionDays}
+                selectedMealId={selectedSavedIdeaMealId}
+                onSelectMeal={handleSelectMealPoolMeal}
+                onSelectDay={handlePlanMealPoolMealForDay}
+                onRemoveSuggestedMeal={handleRemoveSavedIdea}
+              />
 
               <View style={styles.weekRowsList}>
-                {orderedDays.map((day, index) => {
+                {sessionDays.map((day, index) => {
                   const plannedMeal = getPlannedMealForDay(day);
+                  const sides = daySidesMap[day] ?? [];
+                  const plannedMealLabel = plannedMeal
+                    ? [plannedMeal.title, ...sides].join(" • ")
+                    : "Unplanned";
                   const isActive = day === activeDay;
                   const isExpanded = expandedDrawerDay === day;
                   return (
@@ -1036,7 +1249,7 @@ export default function PlanWeekModal() {
                             numberOfLines={1}
                             ellipsizeMode="tail"
                           >
-                            {plannedMeal?.title ?? "Unplanned"}
+                            {plannedMealLabel}
                           </Text>
                         </View>
                         <MaterialCommunityIcons
@@ -1212,14 +1425,14 @@ export default function PlanWeekModal() {
 
             <PlanDayChoiceStep
               dayKey={activeDay}
-              orderedDays={orderedDays}
+              orderedDays={sessionDays}
               plannedWeek={plannedWeek}
               weekLabel={planningWeekLabel}
               hasSeenPlannedToast={toastSeenDays.has(activeDay)}
               onSelectOption={handleSelectWizardOption}
               onSelectEatOut={handleSelectEatOut}
               onSelectDay={(day) => {
-                const targetIndex = orderedDays.indexOf(day);
+                const targetIndex = sessionDays.indexOf(day);
                 if (targetIndex !== -1) {
                   setActiveDayIndex(targetIndex);
                 }
@@ -1264,7 +1477,7 @@ export default function PlanWeekModal() {
 
           {shouldShowTimeline ? (
             <WeeklyPlanTimeline
-              orderedDays={orderedDays}
+              orderedDays={sessionDays}
               plannedWeek={plannedWeek}
               meals={meals}
               daySidesMap={daySidesMap}
@@ -1315,7 +1528,7 @@ export default function PlanWeekModal() {
             onPress={handleCloseSummary}
           />
           <PlannedMealsSheet
-            orderedDays={orderedDays}
+            orderedDays={sessionDays}
             plannedWeek={plannedWeek}
             meals={meals}
             daySidesMap={daySidesMap}
@@ -1340,6 +1553,11 @@ export default function PlanWeekModal() {
         onDismiss={handleDismissSuggestModal}
         onAddMeal={handleAddSuggestedMeal}
         onSuggestAnother={handleSuggestAnother}
+        sides={daySidesMap[suggestModalDay] ?? []}
+        onAddSide={(side) => handleAddSide(suggestModalDay, side)}
+        onRemoveSide={(index) => handleRemoveSide(suggestModalDay, index)}
+        pins={suggestModalPins}
+        onPinsChange={handleSuggestModalPinsChange}
       />
       <MealSearchModal
         visible={isSearchModalVisible}
@@ -1351,6 +1569,8 @@ export default function PlanWeekModal() {
         sides={daySidesMap[searchModalTitleDay] ?? []}
         onAddSide={(side) => handleAddSide(searchModalTitleDay, side)}
         onRemoveSide={(index) => handleRemoveSide(searchModalTitleDay, index)}
+        pins={searchModalPins}
+        onPinsChange={handleSearchModalPinsChange}
       />
       <MealModalOverlay
         visible={Boolean(viewingMeal)}
