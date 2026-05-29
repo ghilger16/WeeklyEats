@@ -117,6 +117,19 @@ const getRecipeSourceLabel = (recipeUrl: string) => {
   }
 };
 
+const normalizeRecipeUrl = (recipeUrl?: string | null) => {
+  if (!recipeUrl) {
+    return "";
+  }
+  try {
+    const parsed = new URL(recipeUrl.trim());
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "").toLowerCase();
+  } catch (error) {
+    return recipeUrl.trim().replace(/\/$/, "").toLowerCase();
+  }
+};
+
 export default function MealsScreen() {
   const { url: sharedRecipeUrlParam } = useLocalSearchParams<{
     url?: string | string[];
@@ -519,6 +532,16 @@ export default function MealsScreen() {
 
   const pendingSuggestMealTitle = pendingSuggestMeal?.title ?? "";
 
+  const activePendingImport = useMemo(
+    () =>
+      pendingSharedRecipeImportId
+        ? pendingImportQueue.find(
+            (pendingImport) => pendingImport.id === pendingSharedRecipeImportId
+          ) ?? null
+        : null,
+    [pendingImportQueue, pendingSharedRecipeImportId]
+  );
+
   const handleOpenPendingImport = useCallback(
     (pendingImport: PendingRecipeImport) => {
       openSharedRecipeUrl(pendingImport.recipeUrl, pendingImport.id);
@@ -625,16 +648,55 @@ export default function MealsScreen() {
   const handleCreateMeal = useCallback(
     (draft: MealDraft) => {
       const now = new Date().toISOString();
-      const id = createMealId();
-      addMeal({
-        id,
-        ...draft,
-        createdAt: draft.createdAt ?? now,
-        updatedAt: draft.updatedAt ?? now,
-      });
+      const draftRecipeUrl = draft.recipeUrl?.trim() ?? "";
+      const normalizedDraftUrl = normalizeRecipeUrl(draftRecipeUrl);
+      const duplicateMeal = normalizedDraftUrl
+        ? meals.find(
+            (meal) => normalizeRecipeUrl(meal.recipeUrl) === normalizedDraftUrl
+          )
+        : null;
+      const meal: Meal = duplicateMeal
+        ? {
+            ...duplicateMeal,
+            ...draft,
+            id: duplicateMeal.id,
+            recipeUrl: draftRecipeUrl || duplicateMeal.recipeUrl,
+            createdAt: duplicateMeal.createdAt ?? draft.createdAt ?? now,
+            updatedAt: now,
+          }
+        : {
+            id: createMealId(),
+            ...draft,
+            recipeUrl: draftRecipeUrl,
+            createdAt: draft.createdAt ?? now,
+            updatedAt: draft.updatedAt ?? now,
+          };
+
+      if (duplicateMeal) {
+        updateMeal(meal);
+      } else {
+        addMeal(meal);
+      }
+
+      if (activePendingImport?.planForLater) {
+        const nextWeekStartISO = getNextWeekStartForDate(startDay)
+          .toISOString()
+          .slice(0, 10);
+        addSavedMealIdeaToWeekPlan(nextWeekStartISO, meal).catch((error) => {
+          console.warn("Unable to save pending recipe as next week idea", error);
+        });
+      }
+
       completeActivePendingImport();
     },
-    [addMeal, completeActivePendingImport]
+    [
+      activePendingImport,
+      addMeal,
+      completeActivePendingImport,
+      meals,
+      startDay,
+      updateMeal,
+    ]
   );
 
   const handleUpdateMeal = useCallback(
@@ -951,7 +1013,11 @@ export default function MealsScreen() {
         visible={isModalVisible}
         draftOverrides={
           pendingSharedRecipeUrl
-            ? { recipeUrl: pendingSharedRecipeUrl }
+            ? {
+                recipeUrl: pendingSharedRecipeUrl,
+                title: activePendingImport?.title,
+                createdAt: activePendingImport?.createdAt,
+              }
             : undefined
         }
         autoFillOnOpen={Boolean(pendingSharedRecipeUrl)}

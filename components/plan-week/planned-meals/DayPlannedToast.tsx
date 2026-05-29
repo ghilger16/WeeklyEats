@@ -8,10 +8,17 @@ type Props = {
   dayName?: string;
   title?: string;
   subtitle?: string;
+  dimBackground?: boolean;
   onComplete?: () => void;
 };
 
-const DayPlannedToast = ({ dayName, title, subtitle, onComplete }: Props) => {
+const DayPlannedToast = ({
+  dayName,
+  title,
+  subtitle,
+  dimBackground = true,
+  onComplete,
+}: Props) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const opacity = useRef(new Animated.Value(0)).current;
@@ -53,7 +60,13 @@ const DayPlannedToast = ({ dayName, title, subtitle, onComplete }: Props) => {
   }, [opacity, scale, onComplete]);
 
   return (
-    <Animated.View style={[styles.overlay, { opacity }]}>
+    <Animated.View
+      style={[
+        styles.overlay,
+        !dimBackground && styles.overlayTransparent,
+        { opacity },
+      ]}
+    >
       <Animated.View style={[styles.toast, { transform: [{ scale }] }]}>
         <View style={styles.iconBadge}>
           <MaterialCommunityIcons name="check" size={24} color={theme.color.ink} />
@@ -79,6 +92,9 @@ const createStyles = (theme: WeeklyTheme) =>
       justifyContent: "center",
       backgroundColor: "rgba(0,0,0,0.35)",
       zIndex: 50,
+    },
+    overlayTransparent: {
+      backgroundColor: "transparent",
     },
     toast: {
       minWidth: 260,

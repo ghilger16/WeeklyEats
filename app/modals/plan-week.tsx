@@ -56,7 +56,6 @@ import PlanDayChoiceStep, {
 import PlannedMealsSheet from "../../components/plan-week/planned-meals/PlannedMealsSheet";
 import DayPlannedToast from "../../components/plan-week/planned-meals/DayPlannedToast";
 import PlanWeekHeader from "../../components/plan-week/header/PlanWeekHeader";
-import WeeklyPlanTimeline from "../../components/plan-week/WeeklyPlanTimeline";
 import useDayPins from "../../hooks/plan-week/useDayPins";
 import usePlanSides from "../../hooks/plan-week/usePlanSides";
 import MealSearchModal from "../../components/meals/MealSearchModal";
@@ -241,6 +240,11 @@ export default function PlanWeekModal() {
   const [loadedCalendarWeekKey, setLoadedCalendarWeekKey] = useState<
     string | null
   >(null);
+  const rowCelebrationScales = useMemo(
+    () => sessionDays.map(() => new Animated.Value(1)),
+    [sessionDays],
+  );
+  const fallbackRowCelebrationScale = useRef(new Animated.Value(1)).current;
 
   const animateSummaryTo = useCallback(
     (toValue: number, duration: number, easing: (value: number) => number) =>
@@ -468,6 +472,31 @@ export default function PlanWeekModal() {
       useNativeDriver: true,
     }).start();
   }, [drawerProgress, expandedDrawerDay]);
+
+  useEffect(() => {
+    if (celebratedDayIndex === null) {
+      rowCelebrationScales.forEach((entry) => entry.setValue(1));
+      return;
+    }
+
+    const target = rowCelebrationScales[celebratedDayIndex];
+    if (!target) {
+      return;
+    }
+
+    Animated.sequence([
+      Animated.spring(target, {
+        toValue: 1.025,
+        useNativeDriver: true,
+        bounciness: 5,
+      }),
+      Animated.spring(target, {
+        toValue: 1,
+        useNativeDriver: true,
+        bounciness: 4,
+      }),
+    ]).start();
+  }, [celebratedDayIndex, rowCelebrationScales]);
 
   useEffect(() => {
     if (!inventoryPulseTrigger) {
@@ -952,7 +981,7 @@ export default function PlanWeekModal() {
     for (let i = 0; i < sessionDays.length; i += 1) {
       setCelebratedDayIndex(i);
       await Haptics.selectionAsync().catch(() => {});
-      await delay(140);
+      await delay(160);
     }
     const baseMessage = `Plan saved for ${planningWeekLabel}`;
     const streakLine = streak.count > 0 ? `🔥 ${streak.count}-week streak` : "";
@@ -1165,7 +1194,6 @@ export default function PlanWeekModal() {
     ],
   );
 
-  const shouldShowTimeline = isWeekComplete && !isSummaryVisible;
   const viewingMeal = useMemo(
     () => meals.find((meal) => meal.id === viewingMealId) ?? null,
     [meals, viewingMealId],
@@ -1224,6 +1252,21 @@ export default function PlanWeekModal() {
     );
   }
 
+  if (saveToastPayload) {
+    return (
+      <View style={styles.toastScreen}>
+        <DayPlannedToast
+          title={saveToastPayload.title}
+          subtitle={saveToastPayload.subtitle}
+          onComplete={() => {
+            saveToastPayload.onComplete?.();
+            setSaveToastPayload(null);
+          }}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.swipeContainer}>
       <SafeAreaView
@@ -1237,9 +1280,7 @@ export default function PlanWeekModal() {
           }
           onOpenSummary={handleOpenSummary}
           onToggleCalendar={
-            !isDayPlanningStep && !shouldShowTimeline
-              ? handleToggleCalendarContext
-              : undefined
+            !isDayPlanningStep ? handleToggleCalendarContext : undefined
           }
           isCalendarEnabled={isCalendarContextVisible}
           isDayPlanningStep={isDayPlanningStep}
@@ -1253,7 +1294,7 @@ export default function PlanWeekModal() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {!shouldShowTimeline && !activeWizardAction ? (
+          {!activeWizardAction ? (
             <View style={styles.weekRowsSection}>
               <View style={styles.compactWeekSelector}>
                 <Text style={styles.compactWeekLabel}>{planningWeekLabel}</Text>
@@ -1305,13 +1346,19 @@ export default function PlanWeekModal() {
                     : [];
                   const isActive = day === activeDay;
                   const isExpanded = expandedDrawerDay === day;
+                  const isCelebrated =
+                    celebratedDayIndex !== null && index <= celebratedDayIndex;
+                  const rowScale =
+                    rowCelebrationScales[index] ?? fallbackRowCelebrationScale;
                   return (
-                    <View
+                    <Animated.View
                       key={day}
                       style={[
                         styles.weekDrawer,
                         isExpanded && styles.weekDrawerExpanded,
                         isActive && styles.weekRowActive,
+                        isCelebrated && styles.weekDrawerCelebrated,
+                        { transform: [{ scale: rowScale }] },
                       ]}
                     >
                       <Pressable
@@ -1336,9 +1383,21 @@ export default function PlanWeekModal() {
                         ]}
                       >
                         <View style={styles.weekRow}>
-                          <Text style={styles.weekRowDay}>
-                            {PLANNED_WEEK_LABELS[day]}
-                          </Text>
+                          <View style={styles.weekRowDaySlot}>
+                            {isCelebrated ? (
+                              <View style={styles.weekRowDayCheck}>
+                                <MaterialCommunityIcons
+                                  name="check"
+                                  size={16}
+                                  color={theme.color.ink}
+                                />
+                              </View>
+                            ) : (
+                              <Text style={styles.weekRowDay}>
+                                {PLANNED_WEEK_LABELS[day]}
+                              </Text>
+                            )}
+                          </View>
                           <View style={styles.weekRowMeal}>
                             {plannedMeal ? (
                               <Text style={styles.weekRowEmoji}>
@@ -1495,7 +1554,7 @@ export default function PlanWeekModal() {
                           )}
                         </Animated.View>
                       ) : null}
-                    </View>
+                    </Animated.View>
                   );
                 })}
               </View>
@@ -1553,7 +1612,7 @@ export default function PlanWeekModal() {
             />
           */}
 
-          {!shouldShowTimeline && activeWizardAction ? (
+          {activeWizardAction ? (
             <View style={styles.plannerSection}>
               {isLoading && !initializedRef.current ? (
                 <ActivityIndicator color={theme.color.accent} />
@@ -1581,21 +1640,12 @@ export default function PlanWeekModal() {
             </View>
           ) : null}
 
-          {shouldShowTimeline ? (
-            <WeeklyPlanTimeline
-              orderedDays={sessionDays}
-              plannedWeek={plannedWeek}
-              meals={meals}
-              daySidesMap={daySidesMap}
-              celebratedIndex={celebratedDayIndex}
-            />
-          ) : null}
         </ScrollView>
 
         <View style={styles.footer}>
           {isWeekComplete &&
             !isSummaryVisible &&
-            (activeWizardAction || shouldShowTimeline) && (
+            activeWizardAction && (
               <Pressable
                 onPress={handleSavePlan}
                 disabled={isSaving || isCelebratingSave}
@@ -1614,16 +1664,6 @@ export default function PlanWeekModal() {
               </Pressable>
             )}
         </View>
-        {saveToastPayload ? (
-          <DayPlannedToast
-            title={saveToastPayload.title}
-            subtitle={saveToastPayload.subtitle}
-            onComplete={() => {
-              saveToastPayload.onComplete?.();
-              setSaveToastPayload(null);
-            }}
-          />
-        ) : null}
       </SafeAreaView>
       {isSummaryVisible && (
         <View style={styles.summaryBackdrop}>
@@ -1902,6 +1942,13 @@ const createStyles = (theme: WeeklyTheme) =>
       shadowOffset: { width: 0, height: 6 },
       elevation: 3,
     },
+    weekDrawerCelebrated: {
+      borderColor: theme.color.accent,
+      backgroundColor:
+        theme.mode === "dark"
+          ? "rgba(255, 75, 145, 0.08)"
+          : "rgba(255, 75, 145, 0.05)",
+    },
     weekRow: {
       flex: 1,
       flexDirection: "row",
@@ -1917,12 +1964,24 @@ const createStyles = (theme: WeeklyTheme) =>
     weekRowPressed: {
       opacity: 0.9,
     },
-    weekRowDay: {
+    weekRowDaySlot: {
       width: 52,
+      alignItems: "flex-start",
+      justifyContent: "center",
+    },
+    weekRowDay: {
       color: theme.color.accent,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.bold,
       letterSpacing: 0,
+    },
+    weekRowDayCheck: {
+      width: 26,
+      height: 26,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.accent,
     },
     weekRowMeal: {
       flex: 1,

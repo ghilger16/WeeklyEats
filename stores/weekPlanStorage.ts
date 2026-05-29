@@ -561,3 +561,18 @@ export const addWeekPlanHistory = async (
 export const getWeekPlanHistory = async (): Promise<WeekPlanHistoryEntry[]> => {
   return getWeekPlanHistoryInternal();
 };
+
+export const removeSampleWeekPlanHistory =
+  async (): Promise<WeekPlanHistoryEntry[]> => {
+    const existing = await getWeekPlanHistoryInternal();
+    const filtered = existing.filter(
+      (entry) =>
+        !PLANNED_WEEK_ORDER.some((day) =>
+          (entry.plan[day] ?? "").toString().startsWith("sample")
+        )
+    );
+    if (filtered.length !== existing.length) {
+      await saveWeekPlanHistoryInternal(filtered);
+    }
+    return filtered;
+  };

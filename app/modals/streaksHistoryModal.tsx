@@ -12,35 +12,29 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useMeals } from "../../hooks/useMeals";
-import { useWeekStartController } from "../../providers/week-start/WeekStartController";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import {
   WeekPlanHistoryEntry,
-  addWeekPlanHistory,
-  getWeekPlanHistory,
   getWeekPlanStreak,
+  removeSampleWeekPlanHistory,
 } from "../../stores/weekPlanStorage";
-import {
-  PLANNED_WEEK_ORDER,
-  createEmptyCurrentPlannedWeek,
-} from "../../types/weekPlan";
-import {
-  addDays,
-  formatWeekdayDate,
-  getWeekStartForDate,
-  startOfDay,
-} from "../../utils/weekDays";
+import { PLANNED_WEEK_ORDER } from "../../types/weekPlan";
+import { addDays, formatWeekdayDate } from "../../utils/weekDays";
 import { WeeklyTheme } from "../../styles/theme";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_OFFSET = 85;
+
+const isSampleHistoryEntry = (entry: WeekPlanHistoryEntry) =>
+  PLANNED_WEEK_ORDER.some((day) =>
+    (entry.plan[day] ?? "").toString().startsWith("sample"),
+  );
 
 export default function StreaksHistoryModal() {
   const router = useRouter();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals } = useMeals();
-  const { startDay } = useWeekStartController();
 
   const [streakCount, setStreakCount] = useState(0);
   const [history, setHistory] = useState<WeekPlanHistoryEntry[]>([]);
@@ -48,79 +42,42 @@ export default function StreaksHistoryModal() {
     string | null
   >(null);
 
-  const refreshStreak = useCallback(async () => {
+  const refreshStreak = useCallback(async (historyLength = history.length) => {
     const streak = await getWeekPlanStreak();
     if (streak.count && streak.count > 0) {
       setStreakCount(streak.count);
-    } else if (history.length) {
-      setStreakCount(history.length);
+    } else if (historyLength) {
+      setStreakCount(historyLength);
     } else {
       setStreakCount(0);
     }
   }, [history.length]);
 
   const refreshHistory = useCallback(async () => {
-    const entries = await getWeekPlanHistory();
+    const entries = (await removeSampleWeekPlanHistory()).filter(
+      (entry) => !isSampleHistoryEntry(entry),
+    );
     setHistory(entries);
     if (entries.length && (!streakCount || streakCount < entries.length)) {
       setStreakCount(entries.length);
+    } else if (!entries.length) {
+      setStreakCount(0);
     }
+    return entries;
   }, [streakCount]);
-
-  const addSampleHistory = useCallback(async () => {
-    const existing = await getWeekPlanHistory();
-    const mealIds = meals.map((m) => m.id).filter(Boolean);
-    const today = startOfDay(new Date());
-    const starts = [0, -7, -14].map((offset) =>
-      getWeekStartForDate(startDay, addDays(today, offset))
-    );
-
-    await Promise.all(
-      starts.map(async (start) => {
-        const iso = start.toISOString().slice(0, 10);
-        const plan = createEmptyCurrentPlannedWeek({
-          weekStartISO: iso,
-          weekedPlanned: true,
-        });
-        PLANNED_WEEK_ORDER.forEach((dayKey, idx) => {
-          const mealId =
-            mealIds.length > 0
-              ? mealIds[(idx + start.getTime()) % mealIds.length]
-              : `sample-${idx + 1}`;
-          plan[dayKey] = mealId;
-        });
-        await addWeekPlanHistory(plan);
-      })
-    );
-
-    await refreshHistory();
-    await refreshStreak();
-  }, [meals, refreshHistory, refreshStreak, startDay]);
 
   useFocusEffect(
     useCallback(() => {
       DeviceEventEmitter.emit("streakModalOpen");
       const load = async () => {
-        const entries = await getWeekPlanHistory();
-        const needsSamples =
-          entries.length < 3 ||
-          entries.some((entry) =>
-            PLANNED_WEEK_ORDER.some((day) =>
-              (entry.plan[day] ?? "").toString().startsWith("sample")
-            )
-          );
-        if (needsSamples) {
-          await addSampleHistory();
-        } else {
-          setHistory(entries);
-          await refreshStreak();
-        }
+        const entries = await refreshHistory();
+        await refreshStreak(entries.length);
       };
       load();
       return () => {
         DeviceEventEmitter.emit("streakModalClose");
       };
-    }, [addSampleHistory, refreshStreak])
+    }, [refreshHistory, refreshStreak])
   );
 
   const formatWeekRange = useCallback((weekStartISO: string) => {
@@ -134,12 +91,8 @@ export default function StreaksHistoryModal() {
       .filter((id): id is string => typeof id === "string")
       .map((id) => {
         const meal = meals.find((m) => m.id === id);
-        if (meal?.name) {
-          return meal.name;
-        }
-        if (id.startsWith("sample-")) {
-          const suffix = id.split("-").pop();
-          return `Sample Meal ${suffix}`;
+        if (meal?.title) {
+          return meal.title;
         }
         return id;
       });
@@ -282,17 +235,6 @@ export default function StreaksHistoryModal() {
                   <Text style={styles.historyEmpty}>
                     No completed weeks saved yet.
                   </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Add sample streak data"
-                    onPress={addSampleHistory}
-                    style={({ pressed }) => [
-                      styles.modalCloseButton,
-                      pressed && styles.modalCloseButtonPressed,
-                    ]}
-                  >
-                    <Text style={styles.modalCloseText}>Add sample data</Text>
-                  </Pressable>
                 </View>
               )}
             </ScrollView>

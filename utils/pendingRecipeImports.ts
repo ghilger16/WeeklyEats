@@ -3,8 +3,14 @@ import { NativeModules, Platform } from "react-native";
 export type PendingRecipeImport = {
   id: string;
   recipeUrl: string;
+  title?: string;
+  url?: string;
+  domain?: string;
+  imageUrl?: string;
+  createdAt?: string;
   sharedAt?: string;
   source?: string;
+  planForLater?: boolean;
 };
 
 type PendingRecipeImportsModule = {
@@ -24,12 +30,20 @@ const isPendingRecipeImport = (
   }
 
   const item = value as Record<string, unknown>;
-  return (
-    typeof item.id === "string" &&
-    item.id.trim().length > 0 &&
-    typeof item.recipeUrl === "string" &&
-    item.recipeUrl.trim().length > 0
-  );
+  const recipeUrl =
+    typeof item.recipeUrl === "string" ? item.recipeUrl : item.url;
+
+  if (
+    typeof item.id !== "string" ||
+    item.id.trim().length === 0 ||
+    typeof recipeUrl !== "string" ||
+    recipeUrl.trim().length === 0
+  ) {
+    return false;
+  }
+
+  item.recipeUrl = recipeUrl;
+  return true;
 };
 
 export const getPendingRecipeImports = async (): Promise<
