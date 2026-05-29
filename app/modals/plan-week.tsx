@@ -70,12 +70,19 @@ import PinInventory, {
   InventoryPinId,
   isInventoryPinActive,
 } from "../../components/plan-week/pins/PinInventory";
+import CalendarEventLines from "../../components/plan-week/CalendarEventLines";
 import {
   DayPinsState,
   createEmptyDayPinsMap,
   normalizeDayPinsState,
 } from "../../types/dayPins";
 import { getRemainingPlanningDays } from "../../utils/remainingWeekPlanning";
+import {
+  PlanningCalendarEvent,
+  formatEventTime,
+  getWeekEvents,
+  groupEventsByDay,
+} from "../../utils/calendar-service";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>(
@@ -89,6 +96,13 @@ const createInitialSuggestionIndex = () =>
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SUMMARY_MAX_TRANSLATE = SCREEN_HEIGHT;
 const SHOW_MAIN_PIN_BOARD = false;
+
+const formatDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 const formatWeekRangeLabel = (start: Date, end: Date) => {
   const startLabel = start.toLocaleDateString(undefined, {
@@ -219,6 +233,14 @@ export default function PlanWeekModal() {
   >(null);
   const [selectedMealPoolId, setSelectedMealPoolId] =
     useState<MealPoolId | null>(null);
+  const [isCalendarContextVisible, setCalendarContextVisible] =
+    useState(false);
+  const [planningCalendarEvents, setPlanningCalendarEvents] = useState<
+    PlanningCalendarEvent[]
+  >([]);
+  const [loadedCalendarWeekKey, setLoadedCalendarWeekKey] = useState<
+    string | null
+  >(null);
 
   const animateSummaryTo = useCallback(
     (toValue: number, duration: number, easing: (value: number) => number) =>
@@ -240,6 +262,11 @@ export default function PlanWeekModal() {
       return;
     }
     setIsSummaryVisible(true);
+  }, []);
+
+  const handleToggleCalendarContext = useCallback(() => {
+    Haptics.selectionAsync().catch(() => {});
+    setCalendarContextVisible((current) => !current);
   }, []);
 
   const handleCloseSummary = useCallback(async () => {
@@ -297,6 +324,29 @@ export default function PlanWeekModal() {
   const planningWeekLabel = useMemo(
     () => formatWeekRangeLabel(planningRangeStart, planningWeekEnd),
     [planningRangeStart, planningWeekEnd],
+  );
+  const dayDateMap = useMemo(
+    () =>
+      PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, string>>(
+        (acc, day) => {
+          const dayOffset = orderedDays.indexOf(day);
+          acc[day] = formatDateKey(
+            addDays(planningWeekStart, Math.max(dayOffset, 0)),
+          );
+          return acc;
+        },
+        {} as Record<PlannedWeekDayKey, string>,
+      ),
+    [orderedDays, planningWeekStart],
+  );
+  const calendarWeekKey = useMemo(
+    () =>
+      `${formatDateKey(planningRangeStart)}:${formatDateKey(planningWeekEnd)}`,
+    [planningRangeStart, planningWeekEnd],
+  );
+  const groupedCalendarEvents = useMemo(
+    () => groupEventsByDay(planningCalendarEvents),
+    [planningCalendarEvents],
   );
 
   const handleResumeContinue = useCallback(() => {
@@ -426,6 +476,40 @@ export default function PlanWeekModal() {
     const timeout = setTimeout(() => setInventoryPulseTrigger(null), 0);
     return () => clearTimeout(timeout);
   }, [inventoryPulseTrigger]);
+
+  useEffect(() => {
+    if (!isCalendarContextVisible || loadedCalendarWeekKey === calendarWeekKey) {
+      return;
+    }
+
+    let isCancelled = false;
+    getWeekEvents(planningRangeStart, planningWeekEnd)
+      .then((events) => {
+        if (isCancelled) {
+          return;
+        }
+        setPlanningCalendarEvents(events);
+        setLoadedCalendarWeekKey(calendarWeekKey);
+      })
+      .catch(() => {
+        if (isCancelled) {
+          return;
+        }
+        setPlanningCalendarEvents([]);
+        setLoadedCalendarWeekKey(calendarWeekKey);
+        setCalendarContextVisible(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    calendarWeekKey,
+    isCalendarContextVisible,
+    loadedCalendarWeekKey,
+    planningRangeStart,
+    planningWeekEnd,
+  ]);
 
   const filteredMeals = useMemo(
     () =>
@@ -1152,6 +1236,12 @@ export default function PlanWeekModal() {
             isDayPlanningStep ? handleBackToWizardOptions : () => router.back()
           }
           onOpenSummary={handleOpenSummary}
+          onToggleCalendar={
+            !isDayPlanningStep && !shouldShowTimeline
+              ? handleToggleCalendarContext
+              : undefined
+          }
+          isCalendarEnabled={isCalendarContextVisible}
           isDayPlanningStep={isDayPlanningStep}
           orderedDays={sessionDays}
           plannedWeek={plannedWeek}
@@ -1204,64 +1294,80 @@ export default function PlanWeekModal() {
                   const plannedMealLabel = plannedMeal
                     ? [plannedMeal.title, ...sides].join(" • ")
                     : "Unplanned";
+                  const dayEvents = isCalendarContextVisible
+                    ? (groupedCalendarEvents[dayDateMap[day]] ?? []).map(
+                        (event) => ({
+                          id: event.id,
+                          title: event.title,
+                          timeLabel: formatEventTime(event),
+                        }),
+                      )
+                    : [];
                   const isActive = day === activeDay;
                   const isExpanded = expandedDrawerDay === day;
                   return (
-                    <Pressable
+                    <View
                       key={day}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Select ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
-                      onPress={() => {
-                        LayoutAnimation.configureNext(
-                          LayoutAnimation.create(
-                            200,
-                            LayoutAnimation.Types.easeInEaseOut,
-                            LayoutAnimation.Properties.opacity,
-                          ),
-                        );
-                        setActiveDayIndex(index);
-                        setExpandedDrawerDay((current) =>
-                          current === day ? null : day,
-                        );
-                      }}
-                      style={({ pressed }) => [
+                      style={[
                         styles.weekDrawer,
                         isExpanded && styles.weekDrawerExpanded,
                         isActive && styles.weekRowActive,
-                        pressed && styles.weekRowPressed,
                       ]}
                     >
-                      <View style={styles.weekRow}>
-                        <Text style={styles.weekRowDay}>
-                          {PLANNED_WEEK_LABELS[day]}
-                        </Text>
-                        <View style={styles.weekRowMeal}>
-                          {plannedMeal ? (
-                            <Text style={styles.weekRowEmoji}>
-                              {plannedMeal.emoji}
-                            </Text>
-                          ) : null}
-                          <Text
-                            style={[
-                              styles.weekRowTitle,
-                              !plannedMeal && styles.weekRowTitleMuted,
-                            ]}
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                          >
-                            {plannedMealLabel}
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Select ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
+                        onPress={() => {
+                          LayoutAnimation.configureNext(
+                            LayoutAnimation.create(
+                              200,
+                              LayoutAnimation.Types.easeInEaseOut,
+                              LayoutAnimation.Properties.opacity,
+                            ),
+                          );
+                          setActiveDayIndex(index);
+                          setExpandedDrawerDay((current) =>
+                            current === day ? null : day,
+                          );
+                        }}
+                        style={({ pressed }) => [
+                          styles.weekRowPressable,
+                          pressed && styles.weekRowPressed,
+                        ]}
+                      >
+                        <View style={styles.weekRow}>
+                          <Text style={styles.weekRowDay}>
+                            {PLANNED_WEEK_LABELS[day]}
                           </Text>
+                          <View style={styles.weekRowMeal}>
+                            {plannedMeal ? (
+                              <Text style={styles.weekRowEmoji}>
+                                {plannedMeal.emoji}
+                              </Text>
+                            ) : null}
+                            <Text
+                              style={[
+                                styles.weekRowTitle,
+                                !plannedMeal && styles.weekRowTitleMuted,
+                              ]}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
+                              {plannedMealLabel}
+                            </Text>
+                          </View>
+                          <MaterialCommunityIcons
+                            name={isExpanded ? "chevron-up" : "chevron-right"}
+                            size={28}
+                            color={
+                              isExpanded
+                                ? theme.color.accent
+                                : theme.color.subtleInk
+                            }
+                          />
                         </View>
-                        <MaterialCommunityIcons
-                          name={isExpanded ? "chevron-up" : "chevron-right"}
-                          size={28}
-                          color={
-                            isExpanded
-                              ? theme.color.accent
-                              : theme.color.subtleInk
-                          }
-                        />
-                      </View>
+                      </Pressable>
+                      <CalendarEventLines events={dayEvents} />
                       {isExpanded ? (
                         <Animated.View
                           style={[
@@ -1389,7 +1495,7 @@ export default function PlanWeekModal() {
                           )}
                         </Animated.View>
                       ) : null}
-                    </Pressable>
+                    </View>
                   );
                 })}
               </View>
@@ -1801,6 +1907,9 @@ const createStyles = (theme: WeeklyTheme) =>
       flexDirection: "row",
       alignItems: "center",
       gap: theme.space.md,
+    },
+    weekRowPressable: {
+      flex: 1,
     },
     weekRowActive: {
       borderColor: theme.color.cardOutline,

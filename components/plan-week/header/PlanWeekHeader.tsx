@@ -14,6 +14,8 @@ type PlanWeekHeaderProps = {
   isSummaryVisible: boolean;
   onClose: () => void;
   onOpenSummary: () => void;
+  onToggleCalendar?: () => void;
+  isCalendarEnabled?: boolean;
   isDayPlanningStep?: boolean;
   orderedDays?: PlannedWeekDayKey[];
   plannedWeek?: CurrentPlannedWeek;
@@ -25,6 +27,8 @@ const PlanWeekHeader = ({
   isSummaryVisible,
   onClose,
   onOpenSummary,
+  onToggleCalendar,
+  isCalendarEnabled = false,
   isDayPlanningStep = false,
   orderedDays,
   plannedWeek,
@@ -34,6 +38,10 @@ const PlanWeekHeader = ({
   const styles = useMemo(() => createStyles(theme), [theme]);
   const showDaysIndicator =
     isDayPlanningStep && orderedDays && plannedWeek && activeDay;
+  const showCalendarToggle = Boolean(onToggleCalendar);
+  const isRightActionActive = showCalendarToggle
+    ? isCalendarEnabled
+    : isSummaryVisible;
 
   return (
     <View style={styles.header}>
@@ -46,7 +54,9 @@ const PlanWeekHeader = ({
         style={styles.headerButton}
       >
         <MaterialCommunityIcons
-          name={isDayPlanningStep ? ("chevron-left" as const) : ("close" as const)}
+          name={
+            isDayPlanningStep ? ("chevron-left" as const) : ("close" as const)
+          }
           size={22}
           color={theme.color.ink}
         />
@@ -64,15 +74,29 @@ const PlanWeekHeader = ({
         )}
       </View>
       <Pressable
-        onPress={onOpenSummary}
+        onPress={showCalendarToggle ? onToggleCalendar : onOpenSummary}
         accessibilityRole="button"
-        accessibilityLabel="View planned meals summary"
-        style={[styles.headerButton, isSummaryVisible && styles.headerButtonActive]}
+        accessibilityLabel={
+          showCalendarToggle
+            ? isCalendarEnabled
+              ? "Hide calendar events"
+              : "Show calendar events"
+            : "View planned meals summary"
+        }
+        accessibilityState={{ selected: isRightActionActive }}
+        style={[
+          styles.headerButton,
+          isRightActionActive && styles.headerButtonActive,
+        ]}
       >
         <MaterialCommunityIcons
-          name="clipboard-text-outline"
+          name={
+            showCalendarToggle
+              ? "calendar-month-outline"
+              : "clipboard-text-outline"
+          }
           size={22}
-          color={isSummaryVisible ? theme.color.accent : theme.color.ink}
+          color={isRightActionActive ? theme.color.accent : theme.color.ink}
         />
       </Pressable>
     </View>

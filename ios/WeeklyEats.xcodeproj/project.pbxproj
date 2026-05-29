@@ -13,11 +13,11 @@
 		4D8CFBCEE5A8AADD672B1512 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2031511B4C81BD5BCC98F9B /* ExpoModulesProvider.swift */; };
 		8FE15A8E674011B259131E27 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A0F8BBA39E634887619E0A99 /* PrivacyInfo.xcprivacy */; };
 		A98D05E02F204D7900A14F78 /* Share.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A98D05D62F204D7900A14F78 /* Share.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B4A100001234567890000001 /* PendingRecipeImports.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A100001234567890000003 /* PendingRecipeImports.swift */; };
+		B4A100001234567890000002 /* PendingRecipeImports.m in Sources */ = {isa = PBXBuildFile; fileRef = B4A100001234567890000004 /* PendingRecipeImports.m */; };
 		B4A200000000000000000001 /* TodayWidgetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A200000000000000000003 /* TodayWidgetBridge.swift */; };
 		B4A200000000000000000002 /* TodayWidgetBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B4A200000000000000000004 /* TodayWidgetBridge.m */; };
 		B4A300000000000000000001 /* TodayWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B4A300000000000000000005 /* TodayWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		B4A100001234567890000001 /* PendingRecipeImports.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A100001234567890000003 /* PendingRecipeImports.swift */; };
-		B4A100001234567890000002 /* PendingRecipeImports.m in Sources */ = {isa = PBXBuildFile; fileRef = B4A100001234567890000004 /* PendingRecipeImports.m */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */

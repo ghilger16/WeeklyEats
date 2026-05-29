@@ -53,6 +53,14 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Allow Weekly Eats to read calendar events for dinner planning context.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Allow Weekly Eats to read calendar events for dinner planning context.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Allow Weekly Eats to check reminder access required by iOS calendar services.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Allow Weekly Eats to check reminder access required by iOS calendar services.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>
