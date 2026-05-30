@@ -136,7 +136,9 @@ export default function MealCard({
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const scrollRef = useRef<ScrollView | null>(null);
+  const autoFillScrollRef = useRef<ScrollView | null>(null);
   const notesSectionOffsetRef = useRef(0);
+  const autoFillNotesSectionOffsetRef = useRef(0);
   const prevMealKeyRef = useRef<string | undefined>(undefined);
   const [form, setForm] = useState<MealFormValues>(() =>
     normalizeMeal(initialMeal)
@@ -186,6 +188,7 @@ export default function MealCard({
     useState(false);
   const [autoFillDraft, setAutoFillDraft] =
     useState<AutoFillPreviewDraft | null>(null);
+  const [autoFillKeyboardHeight, setAutoFillKeyboardHeight] = useState(0);
   const [newAutoFillIngredient, setNewAutoFillIngredient] = useState("");
   const [
     isAutoFillIngredientDeleteMode,
@@ -194,6 +197,24 @@ export default function MealCard({
   const autoFillTriggeredRef = useRef(false);
   const [isEmojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [showTitleRequiredError, setShowTitleRequiredError] = useState(false);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setAutoFillKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setAutoFillKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const suggestedEmoji = useMemo(
     () => suggestEmojiForTitle(form.title),
@@ -576,6 +597,15 @@ export default function MealCard({
         : prev
     );
   }, []);
+
+  const scrollAutoFillNotesIntoView = useCallback(() => {
+    setTimeout(() => {
+      autoFillScrollRef.current?.scrollTo({
+        y: Math.max(autoFillNotesSectionOffsetRef.current - theme.space.lg, 0),
+        animated: true,
+      });
+    }, Platform.OS === "ios" ? 260 : 120);
+  }, [theme.space.lg]);
 
   const handleSubmit = useCallback(() => {
     if (isEditMode) {
@@ -987,7 +1017,11 @@ export default function MealCard({
           visible={isAutoFillPreviewVisible && Boolean(autoFillDraft)}
           onRequestClose={closeAutoFillPreview}
         >
-          <View style={styles.autoFillModalBackdrop}>
+          <KeyboardAvoidingView
+            style={styles.autoFillModalBackdrop}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+          >
             <View style={styles.autoFillModalContent}>
               <View style={styles.autoFillModalHeader}>
                 <View style={styles.autoFillEmojiPreview}>
@@ -1008,8 +1042,15 @@ export default function MealCard({
               </View>
 
               <ScrollView
+                ref={autoFillScrollRef}
                 style={styles.autoFillModalScroll}
-                contentContainerStyle={styles.autoFillModalScrollContent}
+                contentContainerStyle={[
+                  styles.autoFillModalScrollContent,
+                  autoFillKeyboardHeight > 0 && {
+                    paddingBottom:
+                      autoFillKeyboardHeight + theme.space["2xl"],
+                  },
+                ]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
@@ -1199,7 +1240,13 @@ export default function MealCard({
                   </View>
                 </View>
 
-                <View style={styles.autoFillEditorSection}>
+                <View
+                  style={styles.autoFillEditorSection}
+                  onLayout={({ nativeEvent }) => {
+                    autoFillNotesSectionOffsetRef.current =
+                      nativeEvent.layout.y;
+                  }}
+                >
                   <Text style={styles.autoFillFieldLabel}>Prep Notes</Text>
                   <TextInput
                     placeholder="Add reminders or prep steps"
@@ -1210,6 +1257,7 @@ export default function MealCard({
                     onChangeText={(value) =>
                       updateAutoFillDraft("prepNotes", value)
                     }
+                    onFocus={scrollAutoFillNotesIntoView}
                   />
                 </View>
               </ScrollView>
@@ -1248,7 +1296,7 @@ export default function MealCard({
                 </Pressable>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
         <EmojiPickerModal
           visible={isEmojiPickerVisible}

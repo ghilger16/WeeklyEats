@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Meal } from "../types/meals";
-import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../types/specialMeals";
+import { getSpecialMealById } from "../types/specialMeals";
 import { useWeekStartController } from "../providers/week-start/WeekStartController";
 import {
   CurrentPlannedWeek,
@@ -28,10 +28,7 @@ const matchMeal = (meals: Meal[], mealId: string | null | undefined) => {
   if (!mealId) {
     return undefined;
   }
-  if (mealId === EAT_OUT_MEAL_ID) {
-    return EAT_OUT_MEAL;
-  }
-  return meals.find((meal) => meal.id === mealId);
+  return getSpecialMealById(mealId) ?? meals.find((meal) => meal.id === mealId);
 };
 
 export type WeekPlanDay = {

@@ -29,6 +29,7 @@ export default function CurrentWeekList({
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const canEdit = Boolean(onReorder);
 
   const upcomingDays = useMemo(
     () => rawDays.filter((day) => day.status === "upcoming"),
@@ -82,6 +83,9 @@ export default function CurrentWeekList({
   }, [draggingKey]);
 
   const toggleEditing = useCallback(() => {
+    if (!canEdit) {
+      return;
+    }
     if (isEditing) {
       onReorder?.(sortedDaysRef.current);
       setDraggingKey(null);
@@ -108,6 +112,7 @@ export default function CurrentWeekList({
     }
   }, [
     dragOffset,
+    canEdit,
     isEditing,
     onDragStateChange,
     onReorder,
@@ -329,22 +334,24 @@ export default function CurrentWeekList({
           </View>
           <Text style={styles.headerTitle}>{title}</Text>
         </View>
-        <Pressable
-          style={styles.headerButton}
-          accessibilityRole="button"
-          accessibilityLabel={
-            isEditing
-              ? "Finish editing week order"
-              : "Edit or reorder upcoming meals"
-          }
-          onPress={toggleEditing}
-        >
-          <MaterialCommunityIcons
-            name={isEditing ? "check" : "swap-vertical"}
-            size={20}
-            color={theme.color.subtleInk}
-          />
-        </Pressable>
+        {canEdit ? (
+          <Pressable
+            style={styles.headerButton}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isEditing
+                ? "Finish editing week order"
+                : "Edit or reorder upcoming meals"
+            }
+            onPress={toggleEditing}
+          >
+            <MaterialCommunityIcons
+              name={isEditing ? "check" : "swap-vertical"}
+              size={20}
+              color={theme.color.subtleInk}
+            />
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.divider} />

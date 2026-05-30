@@ -112,7 +112,7 @@ export const buildMealSuggestions = (
       }
       if (shouldFilterByExpense) {
         const mealExpense = getExpenseTier(meal);
-        if (mealExpense !== desiredExpense) {
+        if (mealExpense > desiredExpense) {
           return false;
         }
       }

@@ -9,7 +9,7 @@ import {
   PLANNED_WEEK_LABELS,
 } from "../../types/weekPlan";
 import { Meal } from "../../types/meals";
-import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
+import { getSpecialMealById } from "../../types/specialMeals";
 
 type WeeklyPlanTimelineProps = {
   orderedDays: PlannedWeekDayKey[];
@@ -32,9 +32,9 @@ const WeeklyPlanTimeline = ({
   const rows = orderedDays.map((day) => {
     const mealId = plannedWeek[day];
     const plannedMeal = mealId
-      ? mealId === EAT_OUT_MEAL_ID
-        ? EAT_OUT_MEAL
-        : meals.find((candidate) => candidate.id === mealId) ?? null
+      ? getSpecialMealById(mealId) ??
+        meals.find((candidate) => candidate.id === mealId) ??
+        null
       : null;
     const sides = daySidesMap[day] ?? [];
     return {

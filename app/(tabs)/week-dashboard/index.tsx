@@ -160,7 +160,12 @@ export default function WeekDashboardScreen() {
     () => getNextWeekStartForDate(startDay, startOfDay(effectiveDate)),
     [effectiveDate, startDay]
   );
-  const { plan: nextWeekPlan } = useCurrentWeekPlan({
+  const {
+    plan: nextWeekPlan,
+    days: nextWeekDays,
+    refresh: refreshNextWeekPlan,
+  } = useCurrentWeekPlan({
+    today: effectiveDate,
     weekStartOverride: nextWeekStart,
   });
   const plannedDayCount = useMemo(
@@ -170,6 +175,19 @@ export default function WeekDashboardScreen() {
         0
       ),
     [orderedDays, plan]
+  );
+  const nextWeekPlannedDayCount = useMemo(
+    () =>
+      orderedDays.reduce(
+        (acc, day) =>
+          typeof nextWeekPlan?.[day] === "string" ? acc + 1 : acc,
+        0
+      ),
+    [nextWeekPlan, orderedDays]
+  );
+  const plannedNextWeekDays = useMemo(
+    () => nextWeekDays.filter((day) => typeof day.mealId === "string"),
+    [nextWeekDays]
   );
   const {
     entries: servedEntries,
@@ -184,9 +202,15 @@ export default function WeekDashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       refreshWeekPlan();
+      refreshNextWeekPlan();
       refreshServedMeals();
       refreshStreak();
-    }, [refreshServedMeals, refreshStreak, refreshWeekPlan])
+    }, [
+      refreshNextWeekPlan,
+      refreshServedMeals,
+      refreshStreak,
+      refreshWeekPlan,
+    ])
   );
 
   const handleFamilyRatingChange = useCallback(
@@ -384,7 +408,7 @@ export default function WeekDashboardScreen() {
     const reference = startOfDay(effectiveDate);
     const diffMs = nextWeekStart.getTime() - reference.getTime();
     const oneDayMs = 24 * 60 * 60 * 1000;
-    return diffMs <= oneDayMs;
+    return diffMs <= oneDayMs * 2;
   }, [effectiveDate, nextWeekStart]);
   const remainingPlanningDays = useMemo(
     () => getRemainingPlanningDays(startDay, effectiveDate),
@@ -406,10 +430,13 @@ export default function WeekDashboardScreen() {
   const shouldPromptNextWeekAfterRemainingPlan =
     showWeekPlanDetails &&
     (plan?.plannedScope === "remaining" || isPartialCurrentWeekPlan) &&
-    nextWeekPlan?.weekedPlanned !== true;
-  const showTopPlanButton =
-    (showPlanButton || shouldPromptNextWeekAfterRemainingPlan) &&
-    !showSetupCard;
+    nextWeekPlannedDayCount === 0;
+  const canPlanNextWeek =
+    showPlanButton &&
+    nextWeekPlannedDayCount === 0 &&
+    (nextWeekPlan?.weekedPlanned !== true ||
+      shouldPromptNextWeekAfterRemainingPlan);
+  const showTopPlanButton = canPlanNextWeek && !showSetupCard;
 
   const handleGoToMeals = useCallback(() => {
     router.push("/meals?showMealStarter=1");
@@ -447,8 +474,9 @@ export default function WeekDashboardScreen() {
       clearStoredDayPins(),
       clearTodayWidgetPayload(),
     ]);
-    await refreshWeekPlan();
+    await Promise.all([refreshWeekPlan(), refreshNextWeekPlan()]);
   }, [
+    refreshNextWeekPlan,
     refreshWeekPlan,
     setPlanState,
     setSidesState,
@@ -617,17 +645,19 @@ export default function WeekDashboardScreen() {
               </Text>
             </Pressable>
           ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Plan next week"
-            onPress={handlePlanNextWeek}
-            style={({ pressed }) => [
-              styles.setupPrimaryButton,
-              pressed && styles.setupButtonPressed,
-            ]}
-          >
-            <Text style={styles.setupPrimaryText}>Plan next week</Text>
-          </Pressable>
+          {canPlanNextWeek ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Plan next week"
+              onPress={handlePlanNextWeek}
+              style={({ pressed }) => [
+                styles.setupPrimaryButton,
+                pressed && styles.setupButtonPressed,
+              ]}
+            >
+              <Text style={styles.setupPrimaryText}>Plan next week</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     );
@@ -635,6 +665,7 @@ export default function WeekDashboardScreen() {
     handleGoToMeals,
     handlePlanNextWeek,
     handlePlanRemainingWeek,
+    canPlanNextWeek,
     meals.length,
     planningReminderDayName,
     remainingPlanningDays.length,
@@ -827,6 +858,12 @@ export default function WeekDashboardScreen() {
                       ]);
                     }}
                   />
+                  {nextWeekPlannedDayCount > 0 ? (
+                    <CurrentWeekList
+                      days={plannedNextWeekDays}
+                      title="Next Week Plan"
+                    />
+                  ) : null}
                 </>
               ) : plannedDayCount > 0 ? (
                 renderPlanningCTA("resume", handleResumePlanning)

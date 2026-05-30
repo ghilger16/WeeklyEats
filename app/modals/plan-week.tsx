@@ -7,7 +7,6 @@ import {
   Animated,
   Dimensions,
   Easing,
-  LayoutAnimation,
   PanResponder,
   Platform,
   Pressable,
@@ -23,6 +22,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { useMeals } from "../../hooks/useMeals";
+import { useServedMeals } from "../../hooks/useServedMeals";
 import SuggestionsContainer from "../../components/plan-week/suggestions/SuggestionsContainer";
 import {
   CurrentPlannedWeek,
@@ -44,7 +44,11 @@ import {
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
 import { buildMealSuggestions } from "../../components/plan-week/suggestions/suggestionMatcher";
 import SuggestMealModal from "../../components/plan-week/suggestions/SuggestMealModal";
-import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
+import {
+  EAT_OUT_MEAL,
+  FLEX_NIGHT_MEAL,
+  getSpecialMealById,
+} from "../../types/specialMeals";
 import {
   addDays,
   getNextWeekStartForDate,
@@ -56,6 +60,7 @@ import PlanDayChoiceStep, {
 import PlannedMealsSheet from "../../components/plan-week/planned-meals/PlannedMealsSheet";
 import DayPlannedToast from "../../components/plan-week/planned-meals/DayPlannedToast";
 import PlanWeekHeader from "../../components/plan-week/header/PlanWeekHeader";
+import PlannedDayEditModal from "../../components/plan-week/PlannedDayEditModal";
 import useDayPins from "../../hooks/plan-week/useDayPins";
 import usePlanSides from "../../hooks/plan-week/usePlanSides";
 import MealSearchModal from "../../components/meals/MealSearchModal";
@@ -167,6 +172,7 @@ export default function PlanWeekModal() {
   } = useCurrentWeekPlan({
     weekStartOverride: planningWeekStart,
   });
+  const { entries: servedEntries } = useServedMeals();
   const initializedRef = useRef(false);
 
   const [plannedWeek, setPlannedWeek] = useState<CurrentPlannedWeek>(() =>
@@ -181,7 +187,6 @@ export default function PlanWeekModal() {
   const summaryTranslateY = useRef(
     new Animated.Value(SUMMARY_MAX_TRANSLATE),
   ).current;
-  const drawerProgress = useRef(new Animated.Value(0)).current;
   const summaryClosingRef = useRef(false);
   const [plannerSelection, setPlannerSelection] = useState<{
     day: PlannedWeekDayKey | null;
@@ -220,6 +225,8 @@ export default function PlanWeekModal() {
   const [suggestTargetDay, setSuggestTargetDay] =
     useState<PlannedWeekDayKey | null>(null);
   const [expandedDrawerDay, setExpandedDrawerDay] =
+    useState<PlannedWeekDayKey | null>(null);
+  const [plannedEditDay, setPlannedEditDay] =
     useState<PlannedWeekDayKey | null>(null);
   const [isPinInventoryVisible, setPinInventoryVisible] = useState(false);
   const [inventoryPulseTrigger, setInventoryPulseTrigger] = useState<{
@@ -461,19 +468,6 @@ export default function PlanWeekModal() {
   ]);
 
   useEffect(() => {
-    if (!expandedDrawerDay) {
-      return;
-    }
-    drawerProgress.setValue(0);
-    Animated.timing(drawerProgress, {
-      toValue: 1,
-      duration: 200,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [drawerProgress, expandedDrawerDay]);
-
-  useEffect(() => {
     if (celebratedDayIndex === null) {
       rowCelebrationScales.forEach((entry) => entry.setValue(1));
       return;
@@ -640,10 +634,10 @@ export default function PlanWeekModal() {
     if (!mealId) {
       return undefined;
     }
-    if (mealId === EAT_OUT_MEAL_ID) {
-      return EAT_OUT_MEAL;
-    }
-    return meals.find((candidate) => candidate.id === mealId);
+    return (
+      getSpecialMealById(mealId) ??
+      meals.find((candidate) => candidate.id === mealId)
+    );
   }, [activeDay, meals, plannedWeek]);
 
   const getPlannedMealForDay = useCallback(
@@ -652,12 +646,33 @@ export default function PlanWeekModal() {
       if (!mealId) {
         return undefined;
       }
-      if (mealId === EAT_OUT_MEAL_ID) {
-        return EAT_OUT_MEAL;
-      }
-      return meals.find((candidate) => candidate.id === mealId);
+      return (
+        getSpecialMealById(mealId) ??
+        meals.find((candidate) => candidate.id === mealId)
+      );
     },
     [meals, plannedWeek],
+  );
+  const plannedEditMeal = plannedEditDay
+    ? getPlannedMealForDay(plannedEditDay)
+    : undefined;
+  const plannedEditLastServedISO = useMemo(() => {
+    if (!plannedEditMeal) {
+      return null;
+    }
+    return (
+      servedEntries.find(
+        (entry) =>
+          entry.mealId === plannedEditMeal.id && entry.outcome === "served",
+      )?.servedAtISO ?? null
+    );
+  }, [plannedEditMeal, servedEntries]);
+  const getMealLastServedISO = useCallback(
+    (mealId: Meal["id"]) =>
+      servedEntries.find(
+        (entry) => entry.mealId === mealId && entry.outcome === "served",
+      )?.servedAtISO ?? null,
+    [servedEntries],
   );
 
   const handleSelectPlannerDay = useCallback((day: PlannedWeekDayKey) => {
@@ -861,19 +876,6 @@ export default function PlanWeekModal() {
     saveMealToDay(activeDay, EAT_OUT_MEAL);
   }, [activeDay, saveMealToDay]);
 
-  const handleEatOutDrawerDay = useCallback(
-    (day: PlannedWeekDayKey) => {
-      setExpandedDrawerDay(null);
-      saveMealToDay(day, EAT_OUT_MEAL);
-    },
-    [saveMealToDay],
-  );
-
-  const handleSearchDrawerDay = useCallback((day: PlannedWeekDayKey) => {
-    setSearchTargetDay(day);
-    setSearchModalVisible(true);
-  }, []);
-
   const handleSuggestDrawerDay = useCallback(
     (day: PlannedWeekDayKey) => {
       const targetIndex = sessionDays.indexOf(day);
@@ -886,10 +888,42 @@ export default function PlanWeekModal() {
     [sessionDays],
   );
 
+  const handleChangePlannedDay = useCallback(
+    (day: PlannedWeekDayKey) => {
+      setPlannedEditDay(null);
+      handleSuggestDrawerDay(day);
+    },
+    [handleSuggestDrawerDay],
+  );
+
   const handleDismissSuggestModal = useCallback(() => {
     setSuggestModalVisible(false);
     setSuggestTargetDay(null);
   }, []);
+
+  const handleEatOutFromSuggestModal = useCallback(() => {
+    const targetDay = suggestTargetDay ?? activeDay;
+    setSuggestModalVisible(false);
+    setSuggestTargetDay(null);
+    saveMealToDay(targetDay, EAT_OUT_MEAL);
+  }, [activeDay, saveMealToDay, suggestTargetDay]);
+
+  const handleFlexNightFromSuggestModal = useCallback(() => {
+    const targetDay = suggestTargetDay ?? activeDay;
+    setSuggestModalVisible(false);
+    setSuggestTargetDay(null);
+    saveMealToDay(targetDay, FLEX_NIGHT_MEAL);
+  }, [activeDay, saveMealToDay, suggestTargetDay]);
+
+  const handleSelectSuggestSearchMeal = useCallback(
+    (meal: Meal) => {
+      const targetDay = suggestTargetDay ?? activeDay;
+      setSuggestModalVisible(false);
+      setSuggestTargetDay(null);
+      saveMealToDay(targetDay, meal);
+    },
+    [activeDay, saveMealToDay, suggestTargetDay],
+  );
 
   const handleAddSuggestedMeal = useCallback(
     (meal: Meal) => {
@@ -1064,37 +1098,33 @@ export default function PlanWeekModal() {
   const handleSwapPlannedMeal = useCallback(
     async (day: PlannedWeekDayKey) => {
       const nextPlan: CurrentPlannedWeek = { ...plannedWeek, [day]: null };
+      const nextSides = { ...daySidesMap, [day]: [] };
       nextPlan.weekStartISO = planningWeekStartISO;
       nextPlan.weekedPlanned = false;
       nextPlan.plannedScope = isRemainingMode ? "remaining" : "full";
       setPlannedWeek(nextPlan);
+      resetSides(nextSides);
       setPlannedCardPreviewDay(null);
       setPendingPlannedDay(null);
       setActiveWizardAction(null);
       await Promise.all([
         setCurrentWeekPlan(planningWeekStartISO, nextPlan),
-        setCurrentWeekSides(planningWeekStartISO, daySidesMap),
+        setCurrentWeekSides(planningWeekStartISO, nextSides),
       ]);
     },
-    [daySidesMap, plannedWeek, planningWeekStartISO, isRemainingMode],
+    [
+      daySidesMap,
+      plannedWeek,
+      planningWeekStartISO,
+      isRemainingMode,
+      resetSides,
+    ],
   );
-
-  const handleViewPlannedMeal = useCallback((meal: Meal) => {
-    if (meal.id === EAT_OUT_MEAL_ID) {
-      return;
-    }
-    setViewingMealId(meal.id);
-  }, []);
-
-  const handleSwapDrawerDay = useCallback((day: PlannedWeekDayKey) => {
-    setSearchTargetDay(day);
-    setSearchModalVisible(true);
-    setExpandedDrawerDay(null);
-  }, []);
 
   const handleRemoveDrawerDay = useCallback(
     (day: PlannedWeekDayKey) => {
       setExpandedDrawerDay(null);
+      setPlannedEditDay(null);
       handleSwapPlannedMeal(day);
     },
     [handleSwapPlannedMeal],
@@ -1345,7 +1375,6 @@ export default function PlanWeekModal() {
                       )
                     : [];
                   const isActive = day === activeDay;
-                  const isExpanded = expandedDrawerDay === day;
                   const isCelebrated =
                     celebratedDayIndex !== null && index <= celebratedDayIndex;
                   const rowScale =
@@ -1355,7 +1384,6 @@ export default function PlanWeekModal() {
                       key={day}
                       style={[
                         styles.weekDrawer,
-                        isExpanded && styles.weekDrawerExpanded,
                         isActive && styles.weekRowActive,
                         isCelebrated && styles.weekDrawerCelebrated,
                         { transform: [{ scale: rowScale }] },
@@ -1365,17 +1393,14 @@ export default function PlanWeekModal() {
                         accessibilityRole="button"
                         accessibilityLabel={`Select ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
                         onPress={() => {
-                          LayoutAnimation.configureNext(
-                            LayoutAnimation.create(
-                              200,
-                              LayoutAnimation.Types.easeInEaseOut,
-                              LayoutAnimation.Properties.opacity,
-                            ),
-                          );
                           setActiveDayIndex(index);
-                          setExpandedDrawerDay((current) =>
-                            current === day ? null : day,
-                          );
+                          if (!plannedMeal) {
+                            setExpandedDrawerDay(null);
+                            handleSuggestDrawerDay(day);
+                            return;
+                          }
+                          setExpandedDrawerDay(null);
+                          setPlannedEditDay(day);
                         }}
                         style={({ pressed }) => [
                           styles.weekRowPressable,
@@ -1416,144 +1441,13 @@ export default function PlanWeekModal() {
                             </Text>
                           </View>
                           <MaterialCommunityIcons
-                            name={isExpanded ? "chevron-up" : "chevron-right"}
+                            name="chevron-right"
                             size={28}
-                            color={
-                              isExpanded
-                                ? theme.color.accent
-                                : theme.color.subtleInk
-                            }
+                            color={theme.color.subtleInk}
                           />
                         </View>
                       </Pressable>
                       <CalendarEventLines events={dayEvents} />
-                      {isExpanded ? (
-                        <Animated.View
-                          style={[
-                            styles.weekDrawerActions,
-                            {
-                              opacity: drawerProgress,
-                              transform: [
-                                {
-                                  translateY: drawerProgress.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [-6, 0],
-                                  }),
-                                },
-                              ],
-                            },
-                          ]}
-                        >
-                          {plannedMeal ? (
-                            <>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`View ${plannedMeal.title}`}
-                                disabled={plannedMeal.id === EAT_OUT_MEAL_ID}
-                                onPress={() => handleViewPlannedMeal(plannedMeal)}
-                                style={({ pressed }) => [
-                                  styles.weekDrawerAction,
-                                  plannedMeal.id === EAT_OUT_MEAL_ID &&
-                                    styles.weekDrawerActionDisabled,
-                                  pressed && styles.weekDrawerActionPressed,
-                                ]}
-                              >
-                                <Text style={styles.weekDrawerActionEmoji}>
-                                  👁️
-                                </Text>
-                                <Text style={styles.weekDrawerActionText}>
-                                  View
-                                </Text>
-                              </Pressable>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Swap meal for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
-                                onPress={() => handleSwapDrawerDay(day)}
-                                style={({ pressed }) => [
-                                  styles.weekDrawerAction,
-                                  pressed && styles.weekDrawerActionPressed,
-                                ]}
-                              >
-                                <Text style={styles.weekDrawerActionEmoji}>
-                                  🔁
-                                </Text>
-                                <Text style={styles.weekDrawerActionText}>
-                                  Swap
-                                </Text>
-                              </Pressable>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Remove meal from ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
-                                onPress={() => handleRemoveDrawerDay(day)}
-                                style={({ pressed }) => [
-                                  styles.weekDrawerAction,
-                                  pressed && styles.weekDrawerActionPressed,
-                                ]}
-                              >
-                                <Text style={styles.weekDrawerActionEmoji}>
-                                  <Text style={styles.weekDrawerActionAccent}>
-                                    ✕
-                                  </Text>
-                                </Text>
-                                <Text style={styles.weekDrawerActionText}>
-                                  Remove
-                                </Text>
-                              </Pressable>
-                            </>
-                          ) : (
-                            <>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Suggest a meal for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
-                                onPress={() => handleSuggestDrawerDay(day)}
-                                style={({ pressed }) => [
-                                  styles.weekDrawerAction,
-                                  pressed && styles.weekDrawerActionPressed,
-                                ]}
-                              >
-                                <Text style={styles.weekDrawerActionEmoji}>
-                                  🔮
-                                </Text>
-                                <Text style={styles.weekDrawerActionText}>
-                                  Suggest
-                                </Text>
-                              </Pressable>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Search meals for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
-                                onPress={() => handleSearchDrawerDay(day)}
-                                style={({ pressed }) => [
-                                  styles.weekDrawerAction,
-                                  pressed && styles.weekDrawerActionPressed,
-                                ]}
-                              >
-                                <Text style={styles.weekDrawerActionEmoji}>
-                                  🔍
-                                </Text>
-                                <Text style={styles.weekDrawerActionText}>
-                                  Search
-                                </Text>
-                              </Pressable>
-                              <Pressable
-                                accessibilityRole="button"
-                                accessibilityLabel={`Plan eat out night for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
-                                onPress={() => handleEatOutDrawerDay(day)}
-                                style={({ pressed }) => [
-                                  styles.weekDrawerAction,
-                                  pressed && styles.weekDrawerActionPressed,
-                                ]}
-                              >
-                                <Text style={styles.weekDrawerActionEmoji}>
-                                  🍽️
-                                </Text>
-                                <Text style={styles.weekDrawerActionText}>
-                                  Eat Out
-                                </Text>
-                              </Pressable>
-                            </>
-                          )}
-                        </Animated.View>
-                      ) : null}
                     </Animated.View>
                   );
                 })}
@@ -1691,6 +1585,28 @@ export default function PlanWeekModal() {
           />
         </View>
       )}
+      <PlannedDayEditModal
+        visible={Boolean(plannedEditDay && plannedEditMeal)}
+        dayName={
+          plannedEditDay
+            ? PLANNED_WEEK_DISPLAY_NAMES[plannedEditDay]
+            : PLANNED_WEEK_DISPLAY_NAMES[activeDay]
+        }
+        meal={plannedEditMeal}
+        sides={plannedEditDay ? daySidesMap[plannedEditDay] ?? [] : []}
+        lastServedISO={plannedEditLastServedISO}
+        onDismiss={() => setPlannedEditDay(null)}
+        onChangePlan={() => {
+          if (plannedEditDay) {
+            handleChangePlannedDay(plannedEditDay);
+          }
+        }}
+        onRemovePlan={() => {
+          if (plannedEditDay) {
+            handleRemoveDrawerDay(plannedEditDay);
+          }
+        }}
+      />
       <SuggestMealModal
         visible={isSuggestModalVisible}
         dayName={PLANNED_WEEK_DISPLAY_NAMES[suggestModalDay]}
@@ -1699,6 +1615,11 @@ export default function PlanWeekModal() {
         onDismiss={handleDismissSuggestModal}
         onAddMeal={handleAddSuggestedMeal}
         onSuggestAnother={handleSuggestAnother}
+        meals={meals}
+        onSelectSearchMeal={handleSelectSuggestSearchMeal}
+        onEatOut={handleEatOutFromSuggestModal}
+        onFlexNight={handleFlexNightFromSuggestModal}
+        getLastServedISO={getMealLastServedISO}
         sides={daySidesMap[suggestModalDay] ?? []}
         onAddSide={(side) => handleAddSide(suggestModalDay, side)}
         onRemoveSide={(index) => handleRemoveSide(suggestModalDay, index)}

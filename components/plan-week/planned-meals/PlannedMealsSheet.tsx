@@ -18,7 +18,7 @@ import {
 } from "../../../types/weekPlan";
 import { Meal } from "../../../types/meals";
 import PlannedMealRow from "./PlannedMealRow";
-import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../../types/specialMeals";
+import { getSpecialMealById } from "../../../types/specialMeals";
 
 type PlannerSelection = {
   day: PlannedWeekDayKey | null;
@@ -60,9 +60,9 @@ const PlannedMealsSheet = ({
   const rows = orderedDays.map((day) => {
     const mealId = plannedWeek[day];
     const plannedMeal = mealId
-      ? mealId === EAT_OUT_MEAL_ID
-        ? EAT_OUT_MEAL
-        : meals.find((item) => item.id === mealId) ?? null
+      ? getSpecialMealById(mealId) ??
+        meals.find((item) => item.id === mealId) ??
+        null
       : null;
     return {
       day,

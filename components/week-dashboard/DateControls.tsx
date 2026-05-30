@@ -70,14 +70,14 @@ export default function DateControls({
       <View style={styles.buttonRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Clear planned week data"
+          accessibilityLabel="Clear all planned week data"
           style={({ pressed }) => [
             styles.secondaryButton,
             pressed && styles.secondaryButtonPressed,
           ]}
           onPress={onClearWeekPlan}
         >
-          <Text style={styles.secondaryButtonText}>Clear Week Plan</Text>
+          <Text style={styles.secondaryButtonText}>Clear All Week Plans</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"

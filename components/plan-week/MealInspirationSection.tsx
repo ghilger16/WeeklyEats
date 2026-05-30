@@ -52,10 +52,6 @@ export default function MealInspirationSection({
   const [activeIndex, setActiveIndex] = useState(0);
   const transition = useRef(new Animated.Value(1)).current;
 
-  const hasAnyMeals = useMemo(
-    () => pools.some((pool) => pool.meals.length > 0),
-    [pools],
-  );
   const visiblePools = pools;
   const activePool = visiblePools[activeIndex % Math.max(visiblePools.length, 1)];
   const selectedMeal = activePool?.meals.find(
@@ -97,7 +93,7 @@ export default function MealInspirationSection({
     [advancePool],
   );
 
-  if (!activePool || !hasAnyMeals) {
+  if (!activePool) {
     return null;
   }
 

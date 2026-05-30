@@ -61,9 +61,15 @@ export const ThemeControllerProvider = ({ children }: Props) => {
 
   const applyTheme = useCallback(
     (mode: ThemePreference, systemScheme?: ColorSchemeName) => {
+      if (mode === "system") {
+        systemSchemeRef.current =
+          systemScheme ?? Appearance.getColorScheme() ?? systemSchemeRef.current;
+      }
       const resolved = resolveTheme(
         mode,
-        systemScheme ?? systemSchemeRef.current
+        mode === "system"
+          ? systemSchemeRef.current
+          : systemScheme ?? systemSchemeRef.current
       );
       setTheme(resolved);
     },
@@ -86,6 +92,7 @@ export const ThemeControllerProvider = ({ children }: Props) => {
 
   const unsubscribeFromSystem = useCallback(() => {
     appearanceListenerRef.current?.remove();
+    appearanceListenerRef.current = undefined;
   }, []);
 
   const setPreference = useCallback(
