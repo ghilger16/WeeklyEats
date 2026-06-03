@@ -66,6 +66,13 @@ const buildOpenAiPayload = (url, text) => ({
       role: "user",
       content: [
         "Return a JSON object with keys: title, ingredients, difficulty, expense, prepNotes.",
+        "For title, invent the short meal name a family would say at dinner. Do not copy the recipe page title.",
+        "Title should usually be 2-4 words and under 28 characters.",
+        "Title must remove marketing, timing, ingredient-count, and cookware/method words.",
+        "Do not include these words in title unless they are essential to the dish identity: Easy, Simple, Best, Quick, Healthy, Homemade, Creamy, Sheet Pan, One Pot, One-Pot, One Pan, One Skillet, One-Skillet, Skillet, 15-Minute, 30-Minute, 3-Ingredient.",
+        "Keep the recognizable food identity: Chicken, Pasta, Tacos, Chili, Stir Fry, Casserole, Fajitas, Soup, Curry, Alfredo.",
+        "If the recipe is 'Simple One Skillet Chicken Alfredo Pasta' or the URL contains 'simple-one-skillet-chicken-alfredo-pasta', title must be 'Chicken Alfredo Pasta'.",
+        "More title examples: 'Creamy White Chicken Chili' -> 'White Chicken Chili'; 'Good Old Fashioned Pancakes' -> 'Pancakes'; 'Easy Sheet Pan Chicken Fajitas' -> 'Chicken Fajitas'.",
         "Ingredients must be names only: no quantities, no units, no prep notes.",
         "PrepNotes should only include advance-ahead tasks (hours in advance), like defrosting or marinating. Keep it short.",
         "Difficulty and expense are integers 1-5. PrepNotes is short.",

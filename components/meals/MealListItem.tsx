@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { memo, useMemo, useRef } from "react";
 import {
   Animated,
@@ -44,6 +45,7 @@ type Props = {
 };
 
 type DifficultyColorKey = "success" | "warning" | "danger";
+type MealCardVariant = "standard" | "familyStar" | "galaxy";
 
 const clampDifficulty = (value: number) =>
   Math.min(Math.max(Math.round(value), 1), 5);
@@ -185,15 +187,6 @@ const MealListItem = memo(function MealListItem({
   const showServed = displayOptions?.showServed ?? true;
   const showEmoji = displayOptions?.showEmoji ?? true;
 
-  const combinedStyle = ({
-    pressed,
-  }: PressableStateCallbackType): StyleProp<ViewStyle> => [
-    styles.card,
-    isFreezer && styles.freezerCard,
-    isFamilyStar && showRatings && styles.familyStarCard,
-    style,
-  ];
-
   const renderRightActions = () => (
     <View style={styles.swipeActions}>
       <RectButton
@@ -234,6 +227,9 @@ const MealListItem = memo(function MealListItem({
   );
 
   const { isFamilyStar } = useMemo(() => {
+    if ((meal as Meal & { isFamilyStar?: boolean }).isFamilyStar === true) {
+      return { isFamilyStar: true };
+    }
     if (!hasFamilyMembers || !meal.familyRatings) {
       return { isFamilyStar: false };
     }
@@ -251,7 +247,7 @@ const MealListItem = memo(function MealListItem({
     return {
       isFamilyStar: mapped.every((value) => value === 5),
     };
-  }, [hasFamilyMembers, meal.familyRatings]);
+  }, [hasFamilyMembers, meal, meal.familyRatings]);
 
   const familySummary = useMemo(() => {
     if (!hasFamilyMembers || !meal.familyRatings) return null;
@@ -269,10 +265,27 @@ const MealListItem = memo(function MealListItem({
   }, [hasFamilyMembers, meal.familyRatings]);
 
   const isGalaxyMeal =
-    isFamilyStar &&
-    typeof servedRank === "number" &&
-    servedRank > 0 &&
-    servedRank <= 5;
+    (meal as Meal & { isGalaxyMeal?: boolean }).isGalaxyMeal === true ||
+    (isFamilyStar &&
+      typeof servedRank === "number" &&
+      servedRank > 0 &&
+      servedRank <= 5);
+  const shouldUseFamilyStarStyle = isFamilyStar && !isGalaxyMeal;
+  const cardVariant: MealCardVariant = isGalaxyMeal
+    ? "galaxy"
+    : shouldUseFamilyStarStyle
+    ? "familyStar"
+    : "standard";
+
+  const combinedStyle = ({
+    pressed,
+  }: PressableStateCallbackType): StyleProp<ViewStyle> => [
+    styles.card,
+    isFreezer && styles.freezerCard,
+    cardVariant === "familyStar" && styles.familyStarCard,
+    cardVariant === "galaxy" && styles.galaxyCard,
+    style,
+  ];
 
   const familyRatingsNode = hasFamilyMembers ? (
     <FamilyRatingIcons
@@ -296,109 +309,167 @@ const MealListItem = memo(function MealListItem({
       onPress={handlePress}
       style={combinedStyle}
     >
-      <FlexGrid gutterWidth={theme.space.lg}>
-        <FlexGrid.Row alignItems="center" wrap={false}>
-          {showEmoji ? (
-            <FlexGrid.Col span={2} grow={0}>
-              <Text style={styles.emoji} accessible accessibilityRole="image">
-                {meal.emoji ?? "🍽️"}
-              </Text>
-            </FlexGrid.Col>
-          ) : null}
-          {isFreezer ? (
-            <FlexGrid.Col grow={1}>
-              <View style={styles.freezerDetails}>
-                {hasFreezerAmount ? (
-                  <Text
-                    style={styles.freezerAmount}
-                    accessibilityLabel={`Freezer amount ${freezerDisplay}`}
-                  >
-                    {freezerDisplay}
-                  </Text>
-                ) : null}
-                <Text
-                  style={[styles.title, styles.freezerTitle]}
-                  numberOfLines={2}
-                >
-                  {meal.title}
+      {cardVariant === "galaxy" ? (
+        <>
+          <View style={[styles.galaxyStar, styles.galaxyStarOne]} />
+          <View style={[styles.galaxyStar, styles.galaxyStarTwo]} />
+          <View style={[styles.galaxyStar, styles.galaxyStarThree]} />
+          <View style={[styles.galaxyStar, styles.galaxyStarFour]} />
+          <View style={[styles.galaxyStar, styles.galaxyStarFive]} />
+          <View style={styles.galaxyGlow} />
+        </>
+      ) : cardVariant === "familyStar" ? (
+        <>
+          <Text style={styles.familyStarWatermark}>★</Text>
+          <Text style={[styles.familySparkle, styles.familySparkleOne]}>
+            ✦
+          </Text>
+          <Text style={[styles.familySparkle, styles.familySparkleTwo]}>
+            ✧
+          </Text>
+          <Text style={[styles.familySparkle, styles.familySparkleThree]}>
+            ✦
+          </Text>
+          <Text style={[styles.familySparkle, styles.familySparkleFour]}>
+            ✧
+          </Text>
+          <Text style={[styles.familySparkle, styles.familySparkleFive]}>
+            ✦
+          </Text>
+        </>
+      ) : null}
+      <View
+        style={[
+          cardVariant === "galaxy" && styles.galaxyContent,
+          cardVariant === "familyStar" && styles.familyStarContent,
+        ]}
+      >
+        <FlexGrid gutterWidth={theme.space.lg}>
+          <FlexGrid.Row alignItems="center" wrap={false}>
+            {showEmoji ? (
+              <FlexGrid.Col span={2} grow={0}>
+                <Text style={styles.emoji} accessible accessibilityRole="image">
+                  {meal.emoji ?? "🍽️"}
                 </Text>
-                {freezerDateLabel ? (
-                  <Text style={styles.freezerDate}>
-                    Added {freezerDateLabel}
-                  </Text>
-                ) : null}
-              </View>
-            </FlexGrid.Col>
-          ) : (
-            <>
-              <FlexGrid.Col span={showEmoji ? 7 : 9} grow={1}>
-                <View style={styles.details}>
-                  <Text style={styles.title}>{meal.title}</Text>
-                  {isFamilyStar ? (
-                    <MealBadge
-                      variant={isGalaxyMeal ? "galaxy" : "family"}
-                      style={styles.badge}
-                    />
-                  ) : showRatings ? (
-                    ratingMode === "family" ? (
-                      familyRatingsNode ?? (
-                        <RatingStars
-                          value={meal.rating ?? 0}
-                          size={16}
-                          gap={0}
-                        />
-                      )
-                  ) : (
-                    <Text style={styles.familySummary}>
-                      ⭐{" "}
-                      {familySummary
-                        ? familySummary.avg.toFixed(1)
-                        : (meal.rating ?? 0).toFixed(1)}
-                    </Text>
-                  )
-                ) : null}
-                  {showServed ? (
-                    <Text style={styles.servedCount}>
-                      Served {servedCount}{" "}
-                      {servedCount === 1 ? "time" : "times"}
-                    </Text>
-                  ) : null}
-                </View>
               </FlexGrid.Col>
-              <FlexGrid.Col span={3} grow={0}>
-                <View style={styles.meta}>
-                  {showDifficulty && difficultyColor ? (
-                    <View
-                      style={[
-                        styles.difficultyDot,
-                        { backgroundColor: difficultyColor },
-                      ]}
-                      accessibilityLabel="Meal difficulty indicator"
-                      accessible
-                    />
-                  ) : null}
-                  {showExpense ? (
+            ) : null}
+            {isFreezer ? (
+              <FlexGrid.Col grow={1}>
+                <View style={styles.freezerDetails}>
+                  {hasFreezerAmount ? (
                     <Text
-                      style={styles.cost}
-                      accessibilityLabel={`Expense ${expenseLabel}`}
+                      style={styles.freezerAmount}
+                      accessibilityLabel={`Freezer amount ${freezerDisplay}`}
                     >
-                      {costLabel}
+                      {freezerDisplay}
                     </Text>
                   ) : null}
-                  {meal.locked ? (
-                    <MaterialCommunityIcons
-                      name="lock"
-                      size={18}
-                      color={theme.color.subtleInk}
-                      accessibilityLabel="Meal locked"
-                    />
+                  <Text
+                    style={[styles.title, styles.freezerTitle]}
+                    numberOfLines={2}
+                  >
+                    {meal.title}
+                  </Text>
+                  {freezerDateLabel ? (
+                    <Text style={styles.freezerDate}>
+                      Added {freezerDateLabel}
+                    </Text>
                   ) : null}
                 </View>
               </FlexGrid.Col>
-            </>
-          )}
-        </FlexGrid.Row>
-      </FlexGrid>
+            ) : (
+              <>
+                <FlexGrid.Col span={showEmoji ? 7 : 9} grow={1}>
+                  <View style={styles.details}>
+                    <Text
+                      style={[styles.title, isGalaxyMeal && styles.galaxyTitle]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                      ellipsizeMode="tail"
+                    >
+                      {meal.title}
+                    </Text>
+                    {isFamilyStar ? (
+                      <MealBadge
+                        variant={isGalaxyMeal ? "galaxy" : "family"}
+                        style={styles.badge}
+                      />
+                    ) : showRatings ? (
+                      ratingMode === "family" ? (
+                        familyRatingsNode ?? (
+                          <RatingStars
+                            value={meal.rating ?? 0}
+                            size={16}
+                            gap={0}
+                          />
+                        )
+                      ) : (
+                        <Text
+                          style={[
+                            styles.familySummary,
+                            isGalaxyMeal && styles.galaxySecondaryText,
+                          ]}
+                        >
+                          ⭐{" "}
+                          {familySummary
+                            ? familySummary.avg.toFixed(1)
+                            : (meal.rating ?? 0).toFixed(1)}
+                        </Text>
+                      )
+                    ) : null}
+                    {showServed ? (
+                      <Text
+                        style={[
+                          styles.servedCount,
+                          isGalaxyMeal && styles.galaxySecondaryText,
+                        ]}
+                      >
+                        Served {servedCount}{" "}
+                        {servedCount === 1 ? "time" : "times"}
+                      </Text>
+                    ) : null}
+                  </View>
+                </FlexGrid.Col>
+                <FlexGrid.Col span={3} grow={0}>
+                  <View style={styles.meta}>
+                    {showDifficulty && difficultyColor ? (
+                      <View
+                        style={[
+                          styles.difficultyDot,
+                          { backgroundColor: difficultyColor },
+                        ]}
+                        accessibilityLabel="Meal difficulty indicator"
+                        accessible
+                      />
+                    ) : null}
+                    {showExpense ? (
+                      <Text
+                        style={styles.cost}
+                        accessibilityLabel={`Expense ${expenseLabel}`}
+                      >
+                        {costLabel}
+                      </Text>
+                    ) : null}
+                    {meal.locked ? (
+                      <MaterialCommunityIcons
+                        name="lock"
+                        size={18}
+                        color={
+                          isGalaxyMeal
+                            ? "rgba(255,255,255,0.72)"
+                            : theme.color.subtleInk
+                        }
+                        accessibilityLabel="Meal locked"
+                      />
+                    ) : null}
+                  </View>
+                </FlexGrid.Col>
+              </>
+            )}
+          </FlexGrid.Row>
+        </FlexGrid>
+      </View>
     </Pressable>
   );
 
@@ -413,8 +484,24 @@ const MealListItem = memo(function MealListItem({
         renderRightActions={renderRightActions}
       >
         <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
-          {isFamilyStar ? (
-            <View style={styles.starBorder}>{cardBody}</View>
+          {cardVariant === "galaxy" ? (
+            <LinearGradient
+              colors={["#7C4DFF", "#3B82F6", "#22D3EE"]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.galaxyBorder}
+            >
+              {cardBody}
+            </LinearGradient>
+          ) : cardVariant === "familyStar" ? (
+            <LinearGradient
+              colors={["#F6D365", "#F2D15B", "#FFD700"]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.familyStarBorder}
+            >
+              {cardBody}
+            </LinearGradient>
           ) : (
             cardBody
           )}
@@ -443,7 +530,125 @@ const createStyles = (theme: WeeklyTheme) =>
       minHeight: 72,
     },
     familyStarCard: {
+      position: "relative",
+      overflow: "hidden",
+      backgroundColor: theme.mode === "dark" ? "#3A2A12" : "#FFF4CF",
       borderWidth: 0,
+    },
+    familyStarBorder: {
+      borderRadius: theme.radius.lg,
+      padding: 2,
+      overflow: "hidden",
+      shadowColor: "#D6A900",
+      shadowOpacity: 0.18,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 2,
+    },
+    familyStarContent: {
+      position: "relative",
+      zIndex: 1,
+    },
+    familySparkle: {
+      position: "absolute",
+      color: "#F2D15B",
+      opacity: 0.32,
+      zIndex: 0,
+    },
+    familySparkleOne: {
+      top: 10,
+      right: 22,
+      fontSize: 20,
+    },
+    familySparkleTwo: {
+      bottom: 12,
+      left: 28,
+      fontSize: 18,
+    },
+    familySparkleThree: {
+      top: 14,
+      left: 70,
+      fontSize: 12,
+    },
+    familySparkleFour: {
+      top: 36,
+      left: 42,
+      fontSize: 11,
+      opacity: 0.26,
+    },
+    familySparkleFive: {
+      bottom: 22,
+      left: 74,
+      fontSize: 10,
+      opacity: 0.24,
+    },
+    familyStarWatermark: {
+      position: "absolute",
+      right: 20,
+      top: "50%",
+      marginTop: -30,
+      color: "#F2D15B",
+      fontSize: 78,
+      opacity: 0.2,
+      zIndex: 0,
+    },
+    galaxyBorder: {
+      borderRadius: theme.radius.lg,
+      padding: 2,
+      overflow: "hidden",
+    },
+    galaxyCard: {
+      position: "relative",
+      overflow: "hidden",
+      backgroundColor: "#0B0F17",
+      borderWidth: 0,
+    },
+    galaxyContent: {
+      position: "relative",
+      zIndex: 1,
+    },
+    galaxyStar: {
+      position: "absolute",
+      width: 2,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: "rgba(255,255,255,0.78)",
+      zIndex: 0,
+    },
+    galaxyStarOne: {
+      top: "18%",
+      left: "22%",
+    },
+    galaxyStarTwo: {
+      top: "34%",
+      left: "54%",
+      opacity: 0.48,
+    },
+    galaxyStarThree: {
+      top: "62%",
+      right: "26%",
+      opacity: 0.7,
+    },
+    galaxyStarFour: {
+      bottom: "22%",
+      left: "42%",
+      opacity: 0.52,
+    },
+    galaxyStarFive: {
+      top: "18%",
+      right: "14%",
+      opacity: 0.58,
+    },
+    galaxyGlow: {
+      position: "absolute",
+      right: "10%",
+      top: "20%",
+      width: 132,
+      height: 58,
+      borderRadius: theme.radius.full,
+      backgroundColor: "rgba(59, 130, 246, 0.18)",
+      transform: [{ rotate: "-18deg" }],
+      zIndex: 0,
     },
     emoji: {
       fontSize: 28,
@@ -455,17 +660,16 @@ const createStyles = (theme: WeeklyTheme) =>
       alignSelf: "flex-start",
       marginTop: theme.space.xs,
     },
-    starBorder: {
-      borderRadius: theme.radius.lg + 6,
-      padding: 2,
-      borderWidth: 2,
-      borderColor: "#f3c977",
-    },
     title: {
       color: theme.color.ink,
       fontSize: 18,
       fontWeight: theme.type.weight.bold,
       marginBottom: theme.space.xs,
+    },
+    galaxyTitle: {
+      color: "#FFFFFF",
+      textShadowColor: "rgba(0,0,0,0.5)",
+      textShadowRadius: 4,
     },
     familySummary: {
       color: theme.color.ink,
@@ -478,6 +682,9 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,
+    },
+    galaxySecondaryText: {
+      color: "rgba(255,255,255,0.68)",
     },
     meta: {
       alignItems: "flex-end",

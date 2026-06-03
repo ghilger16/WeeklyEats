@@ -1015,7 +1015,6 @@ export default function MealsScreen() {
           pendingSharedRecipeUrl
             ? {
                 recipeUrl: pendingSharedRecipeUrl,
-                title: activePendingImport?.title,
                 createdAt: activePendingImport?.createdAt,
               }
             : undefined
