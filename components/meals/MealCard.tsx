@@ -43,6 +43,8 @@ type MealFormValues = MealDraft;
 
 const SLIDER_STEPS = 5;
 
+type IngredientValue = string | { name?: unknown; category?: unknown };
+
 const clampSliderValue = (value: number) =>
   Math.min(Math.max(Math.round(value), 1), SLIDER_STEPS);
 
@@ -87,10 +89,24 @@ const capitalizeMealTitleWords = (value: string) =>
 
 type AutoFillPreviewDraft = {
   title: string;
-  ingredients: string[];
+  ingredients: IngredientValue[];
   difficulty?: number;
   expense?: number;
   prepNotes: string;
+};
+
+const getIngredientName = (ingredient: IngredientValue) => {
+  if (typeof ingredient === "string") {
+    return ingredient.trim();
+  }
+  if (
+    ingredient &&
+    typeof ingredient === "object" &&
+    typeof ingredient.name === "string"
+  ) {
+    return ingredient.name.trim();
+  }
+  return "";
 };
 
 const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
@@ -111,7 +127,11 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   locked: meal.locked ?? false,
   isFavorite: meal.isFavorite ?? false,
   recipeUrl: meal.recipeUrl ?? "",
-  ingredients: meal.ingredients ? [...meal.ingredients] : [],
+  ingredients: meal.ingredients
+    ? (meal.ingredients as IngredientValue[])
+        .map(getIngredientName)
+        .filter(Boolean)
+    : [],
   difficulty: snapToLevelValue(meal.difficulty ?? 3, DIFFICULTY_LEVELS),
   expense: snapToLevelValue(meal.expense ?? 3, EXPENSE_LEVELS),
   prepNotes: meal.prepNotes ?? "",
@@ -386,9 +406,15 @@ export default function MealCard({
         ? snapToLevelValue(outcome.data.expense, EXPENSE_LEVELS)
         : undefined;
 
+    const normalizedIngredients = Array.isArray(outcome.data.ingredients)
+      ? (outcome.data.ingredients as IngredientValue[])
+          .map(getIngredientName)
+          .filter(Boolean)
+      : [];
+
     setAutoFillDraft({
       title: outcome.data.title?.trim() ?? "",
-      ingredients: outcome.data.ingredients ?? [],
+      ingredients: normalizedIngredients,
       difficulty: normalizedDifficulty,
       expense: normalizedExpense,
       prepNotes: outcome.data.prepNotes?.trim() ?? "",
@@ -440,9 +466,9 @@ export default function MealCard({
       }
 
       const { id: _, updatedAt: __, createdAt: ___, ...rest } = values;
-      const sanitizedIngredients = (rest.ingredients ?? []).map((ingredient) =>
-        ingredient.trim()
-      );
+      const sanitizedIngredients = (rest.ingredients ?? [])
+        .map((ingredient) => getIngredientName(ingredient as IngredientValue))
+        .filter(Boolean);
       const sanitizedPrepNotes = prepNotesValue.trim();
       const normalizedFamilyRatings =
         rest.familyRatings && Object.keys(rest.familyRatings).length > 0
@@ -482,7 +508,7 @@ export default function MealCard({
     }
 
     const cleanedIngredients = autoFillDraft.ingredients
-      .map((ingredient) => ingredient.trim())
+      .map((ingredient) => getIngredientName(ingredient as IngredientValue))
       .filter(Boolean);
     if (cleanedIngredients.length > 0) {
       nextForm.ingredients = cleanedIngredients;
@@ -791,34 +817,39 @@ export default function MealCard({
                   Add a few highlights for this meal.
                 </Text>
               ) : (
-                (form.ingredients ?? []).map((ingredient, index) => (
-                  <Pressable
-                    key={`${ingredient}-${index}`}
-                    style={({ pressed }) => [
-                      styles.chip,
-                      isIngredientDeleteMode && styles.chipDeleteMode,
-                      pressed && isIngredientDeleteMode && styles.chipPressed,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      isIngredientDeleteMode
-                        ? `Remove ${ingredient}`
-                        : ingredient
-                    }
-                    accessibilityHint={
-                      isIngredientDeleteMode
-                        ? "Double tap to remove ingredient"
-                        : "Enable delete mode to remove ingredients"
-                    }
-                    onPress={() => {
-                      if (isIngredientDeleteMode) {
-                        handleRemoveIngredient(index);
+                (form.ingredients ?? []).map((ingredient, index) => {
+                  const ingredientName = getIngredientName(
+                    ingredient as IngredientValue
+                  );
+                  return (
+                    <Pressable
+                      key={`${ingredientName}-${index}`}
+                      style={({ pressed }) => [
+                        styles.chip,
+                        isIngredientDeleteMode && styles.chipDeleteMode,
+                        pressed && isIngredientDeleteMode && styles.chipPressed,
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        isIngredientDeleteMode
+                          ? `Remove ${ingredientName}`
+                          : ingredientName
                       }
-                    }}
-                  >
-                    <Text style={styles.chipText}>{ingredient}</Text>
-                  </Pressable>
-                ))
+                      accessibilityHint={
+                        isIngredientDeleteMode
+                          ? "Double tap to remove ingredient"
+                          : "Enable delete mode to remove ingredients"
+                      }
+                      onPress={() => {
+                        if (isIngredientDeleteMode) {
+                          handleRemoveIngredient(index);
+                        }
+                      }}
+                    >
+                      <Text style={styles.chipText}>{ingredientName}</Text>
+                    </Pressable>
+                  );
+                })
               )}
             </View>
             <View style={styles.addIngredientRow}>
@@ -1069,32 +1100,39 @@ export default function MealCard({
                   <Text style={styles.autoFillFieldLabel}>Key Ingredients</Text>
                   <View style={styles.ingredientsWrapper}>
                     {autoFillDraft?.ingredients.length ? (
-                      autoFillDraft.ingredients.map((ingredient, index) => (
-                        <Pressable
-                          key={`${ingredient}-${index}`}
-                          style={({ pressed }) => [
-                            styles.chip,
-                            isAutoFillIngredientDeleteMode &&
-                              styles.chipDeleteMode,
-                            pressed &&
+                      autoFillDraft.ingredients.map((ingredient, index) => {
+                        const ingredientName = getIngredientName(
+                          ingredient as IngredientValue
+                        );
+                        return (
+                          <Pressable
+                            key={`${ingredientName}-${index}`}
+                            style={({ pressed }) => [
+                              styles.chip,
                               isAutoFillIngredientDeleteMode &&
-                              styles.chipPressed,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            isAutoFillIngredientDeleteMode
-                              ? `Remove ${ingredient}`
-                              : ingredient
-                          }
-                          onPress={() => {
-                            if (isAutoFillIngredientDeleteMode) {
-                              handleRemoveAutoFillIngredient(index);
+                                styles.chipDeleteMode,
+                              pressed &&
+                                isAutoFillIngredientDeleteMode &&
+                                styles.chipPressed,
+                            ]}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              isAutoFillIngredientDeleteMode
+                                ? `Remove ${ingredientName}`
+                                : ingredientName
                             }
-                          }}
-                        >
-                          <Text style={styles.chipText}>{ingredient}</Text>
-                        </Pressable>
-                      ))
+                            onPress={() => {
+                              if (isAutoFillIngredientDeleteMode) {
+                                handleRemoveAutoFillIngredient(index);
+                              }
+                            }}
+                          >
+                            <Text style={styles.chipText}>
+                              {ingredientName}
+                            </Text>
+                          </Pressable>
+                        );
+                      })
                     ) : (
                       <Text style={styles.ingredientsEmpty}>
                         Add a few highlights for this meal.

@@ -1,6 +1,5 @@
 const OPENAI_MODEL = "gpt-4o-mini";
 const MAX_HTML_CHARS = 12000;
-const MAX_INGREDIENTS = 12;
 
 const SHOPPING_CATEGORIES = [
   "produce",
@@ -27,6 +26,9 @@ const SPICE_WORDS = [
   "pepper",
   "paprika",
   "cumin",
+  "coriander",
+  "turmeric",
+  "garam masala",
   "oregano",
   "thyme",
   "basil",
@@ -41,6 +43,9 @@ const SPICE_WORDS = [
   "cinnamon",
   "nutmeg",
   "cayenne",
+  "cardamom",
+  "cloves",
+  "bay leaves",
 ];
 
 const stripHtml = (html) =>
@@ -155,7 +160,7 @@ const sortIngredientsForShopping = (ingredients) => {
 const buildOpenAiPayload = (url, text) => ({
   model: OPENAI_MODEL,
   temperature: 0.2,
-  max_tokens: 800,
+  max_tokens: 1200,
   response_format: { type: "json_object" },
   messages: [
     {
@@ -177,6 +182,12 @@ const buildOpenAiPayload = (url, text) => ({
 
         "Ingredients must be returned as objects with this shape: { name: string, category: string }.",
         "Ingredient names must be names only: no quantities, no units, no prep notes.",
+        "Include every ingredient listed in the recipe ingredient section.",
+        "Do not omit small ingredients like salt, pepper, spices, dried herbs, oils, garlic, ginger, aromatics, sauces, or optional-but-listed ingredients.",
+        "Only omit water if it is clearly just used for cooking or thinning.",
+        "Do not combine ingredients. Each listed recipe ingredient should become its own ingredient object.",
+        "Do not summarize multiple spices into a generic ingredient like seasoning.",
+
         "Category must be one of these exact values only:",
         SHOPPING_CATEGORIES.join(", "),
 
@@ -202,10 +213,9 @@ const buildOpenAiPayload = (url, text) => ({
         "Ingredients should be ordered by estimated amount used, like a nutrition label ingredient list.",
         "Large-use ingredients first: proteins, pasta, rice, grains, vegetables, sauces, dairy, broth, canned goods.",
         "Small-use flavor ingredients later.",
-        "Spices, dried herbs, salt, pepper, seasoning blends, flakes, powders, and garnishes must always be last.",
+        "Spices, dried herbs, salt, pepper, seasoning blends, flakes, and powders must always be included when used and must be listed last.",
         "Do not alphabetize ingredients.",
         "Do not keep the website's ingredient order if it puts spices or seasonings first.",
-        "Limit ingredients to the most important meal-planning grocery items.",
 
         "PrepNotes should only include advance-ahead tasks, like defrosting or marinating. Keep it short.",
         "Difficulty and expense are integers 1-5. PrepNotes is short.",
@@ -366,7 +376,7 @@ exports.handler = async (event) => {
   const ingredients = Array.isArray(parsed.ingredients)
     ? sortIngredientsForShopping(
         parsed.ingredients.map(normalizeIngredient).filter(Boolean),
-      ).slice(0, MAX_INGREDIENTS)
+      )
     : [];
 
   const difficulty =
