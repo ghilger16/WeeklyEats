@@ -32,7 +32,7 @@ const WeeklyPlanTimeline = ({
   const rows = orderedDays.map((day) => {
     const mealId = plannedWeek[day];
     const plannedMeal = mealId
-      ? getSpecialMealById(mealId) ??
+      ? getSpecialMealById(mealId, plannedWeek.specialMealTitles?.[day]) ??
         meals.find((candidate) => candidate.id === mealId) ??
         null
       : null;

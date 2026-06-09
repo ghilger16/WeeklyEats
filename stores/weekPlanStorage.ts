@@ -114,6 +114,26 @@ const normalizePlan = (
       .filter(Boolean) as SavedMealIdea[];
   }
 
+  const specialMealTitlesValue = (raw as { specialMealTitles?: unknown })
+    .specialMealTitles;
+  if (specialMealTitlesValue && typeof specialMealTitlesValue === "object") {
+    const specialMealTitles: CurrentPlannedWeek["specialMealTitles"] = {};
+    Object.entries(specialMealTitlesValue as Record<string, unknown>).forEach(
+      ([key, value]) => {
+        if (!isValidDayKey(key) || typeof value !== "string") {
+          return;
+        }
+        const title = value.trim();
+        if (title) {
+          specialMealTitles[key] = title;
+        }
+      }
+    );
+    if (Object.keys(specialMealTitles).length > 0) {
+      plan.specialMealTitles = specialMealTitles;
+    }
+  }
+
   return plan;
 };
 

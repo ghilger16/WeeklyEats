@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 import {
   Animated,
   PanResponder,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -32,6 +33,8 @@ type Props = {
   pools: MealPool[];
   orderedDays: PlannedWeekDayKey[];
   selectedMealId?: Meal["id"] | null;
+  activePoolId?: MealPoolId;
+  onActivePoolChange?: (poolId: MealPoolId) => void;
   onSelectMeal: (meal: Meal, poolId: MealPoolId) => void;
   onSelectDay: (day: PlannedWeekDayKey) => void;
   onRemoveSuggestedMeal?: (mealId: Meal["id"]) => void;
@@ -43,16 +46,22 @@ export default function MealInspirationSection({
   pools,
   orderedDays,
   selectedMealId,
+  activePoolId,
+  onActivePoolChange,
   onSelectMeal,
   onSelectDay,
   onRemoveSuggestedMeal,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const [activeIndex, setActiveIndex] = useState(0);
   const transition = useRef(new Animated.Value(1)).current;
+  const isChipScrollActiveRef = useRef(false);
 
   const visiblePools = pools;
+  const activeIndex = Math.max(
+    0,
+    visiblePools.findIndex((pool) => pool.id === activePoolId),
+  );
   const activePool = visiblePools[activeIndex % Math.max(visiblePools.length, 1)];
   const selectedMeal = activePool?.meals.find(
     (meal) => meal.id === selectedMealId,
@@ -71,7 +80,11 @@ export default function MealInspirationSection({
     if (visiblePools.length <= 1) {
       return;
     }
-    setActiveIndex(index);
+    const nextPool = visiblePools[index];
+    if (!nextPool) {
+      return;
+    }
+    onActivePoolChange?.(nextPool.id);
     animateIn();
   };
 
@@ -83,7 +96,9 @@ export default function MealInspirationSection({
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) =>
-          Math.abs(gesture.dx) > 14 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+          !isChipScrollActiveRef.current &&
+          Math.abs(gesture.dx) > 14 &&
+          Math.abs(gesture.dx) > Math.abs(gesture.dy),
         onPanResponderRelease: (_, gesture) => {
           if (Math.abs(gesture.dx) >= SWIPE_THRESHOLD) {
             advancePool();
@@ -148,7 +163,21 @@ export default function MealInspirationSection({
 
         <Animated.View style={[styles.content, contentStyle]}>
           {activePool.meals.length ? (
-            <View style={styles.chipList}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.chipScroller}
+              contentContainerStyle={styles.chipList}
+              onTouchStart={() => {
+                isChipScrollActiveRef.current = true;
+              }}
+              onTouchEnd={() => {
+                isChipScrollActiveRef.current = false;
+              }}
+              onMomentumScrollEnd={() => {
+                isChipScrollActiveRef.current = false;
+              }}
+            >
               {activePool.meals.slice(0, 3).map((meal) => {
                 const isSelected = meal.id === selectedMealId;
                 return (
@@ -193,7 +222,7 @@ export default function MealInspirationSection({
                   </View>
                 );
               })}
-            </View>
+            </ScrollView>
           ) : (
             <Text style={styles.emptyText}>{activePool.emptyText}</Text>
           )}
@@ -324,10 +353,13 @@ const createStyles = (theme: WeeklyTheme) =>
       minHeight: 38,
       justifyContent: "center",
     },
+    chipScroller: {
+      maxWidth: "100%",
+    },
     chipList: {
       flexDirection: "row",
-      flexWrap: "nowrap",
       gap: theme.space.sm,
+      paddingRight: theme.space.xs,
     },
     chipShell: {
       minHeight: 38,

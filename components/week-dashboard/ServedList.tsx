@@ -12,6 +12,7 @@ export type ServedWeek = Array<{
   dayLabel: string;
   mealId: Meal["id"] | null;
   outcome: ServedOutcome;
+  labelOverride?: string;
 }>;
 
 type Props = {
@@ -67,7 +68,7 @@ export default function ServedList({
       <View>
         {servedWeek.map((entry) => {
           const meal = entry.mealId ? mealsById.get(entry.mealId) : undefined;
-          let labelOverride: string | undefined;
+          let labelOverride: string | undefined = entry.labelOverride;
           let iconOverride: string | undefined;
           let showActions = true;
 

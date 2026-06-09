@@ -2,6 +2,47 @@ const OPENAI_MODEL = "gpt-4o-mini";
 const MAX_HTML_CHARS = 12000;
 const MAX_INGREDIENTS = 12;
 
+const SHOPPING_CATEGORIES = [
+  "produce",
+  "meat",
+  "seafood",
+  "dairy",
+  "bakery",
+  "deli",
+  "frozen",
+  "pantry",
+  "canned",
+  "pastaAndRice",
+  "spices",
+  "condiments",
+  "baking",
+  "beverages",
+  "snacks",
+  "household",
+  "other",
+];
+
+const SPICE_WORDS = [
+  "salt",
+  "pepper",
+  "paprika",
+  "cumin",
+  "oregano",
+  "thyme",
+  "basil",
+  "parsley",
+  "rosemary",
+  "chili powder",
+  "garlic powder",
+  "onion powder",
+  "red pepper flakes",
+  "crushed red pepper",
+  "seasoning",
+  "cinnamon",
+  "nutmeg",
+  "cayenne",
+];
+
 const stripHtml = (html) =>
   html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -21,9 +62,10 @@ const extractTitleFromUrl = (url) => {
           .replace(/[-_]+/g, " ")
           .replace(/\s+/g, " ")
           .trim()
-          .replace(/\b\w/g, (char) => char.toUpperCase())
+          .replace(/\b\w/g, (char) => char.toUpperCase()),
       )
       .filter(Boolean);
+
     return parts[parts.length - 1];
   } catch (error) {
     return undefined;
@@ -51,21 +93,80 @@ const cleanIngredient = (ingredient) => {
   return cleaned || normalized;
 };
 
+const normalizeCategory = (category) => {
+  if (typeof category === "string" && SHOPPING_CATEGORIES.includes(category)) {
+    return category;
+  }
+
+  return "other";
+};
+
+const normalizeIngredient = (item) => {
+  if (typeof item === "string") {
+    const name = cleanIngredient(item);
+    if (!name) return null;
+
+    return {
+      name,
+      category: "other",
+    };
+  }
+
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+
+  const name = cleanIngredient(item.name);
+  if (!name) return null;
+
+  return {
+    name,
+    category: normalizeCategory(item.category),
+  };
+};
+
+const isSpiceOrSeasoning = (ingredient) => {
+  const value = ingredient.name.toLowerCase();
+
+  return (
+    ingredient.category === "spices" ||
+    SPICE_WORDS.some((word) => value.includes(word))
+  );
+};
+
+const sortIngredientsForShopping = (ingredients) => {
+  const regular = [];
+  const spices = [];
+
+  ingredients.forEach((ingredient) => {
+    if (isSpiceOrSeasoning(ingredient)) {
+      spices.push({
+        ...ingredient,
+        category: "spices",
+      });
+    } else {
+      regular.push(ingredient);
+    }
+  });
+
+  return [...regular, ...spices];
+};
+
 const buildOpenAiPayload = (url, text) => ({
   model: OPENAI_MODEL,
   temperature: 0.2,
-  max_tokens: 600,
+  max_tokens: 800,
   response_format: { type: "json_object" },
   messages: [
     {
       role: "system",
-      content:
-        "You extract recipe details for a meal card. Return only JSON.",
+      content: "You extract recipe details for a meal card. Return only JSON.",
     },
     {
       role: "user",
       content: [
         "Return a JSON object with keys: title, ingredients, difficulty, expense, prepNotes.",
+
         "For title, invent the short meal name a family would say at dinner. Do not copy the recipe page title.",
         "Title should usually be 2-4 words and under 28 characters.",
         "Title must remove marketing, timing, ingredient-count, and cookware/method words.",
@@ -73,9 +174,42 @@ const buildOpenAiPayload = (url, text) => ({
         "Keep the recognizable food identity: Chicken, Pasta, Tacos, Chili, Stir Fry, Casserole, Fajitas, Soup, Curry, Alfredo.",
         "If the recipe is 'Simple One Skillet Chicken Alfredo Pasta' or the URL contains 'simple-one-skillet-chicken-alfredo-pasta', title must be 'Chicken Alfredo Pasta'.",
         "More title examples: 'Creamy White Chicken Chili' -> 'White Chicken Chili'; 'Good Old Fashioned Pancakes' -> 'Pancakes'; 'Easy Sheet Pan Chicken Fajitas' -> 'Chicken Fajitas'.",
-        "Ingredients must be names only: no quantities, no units, no prep notes.",
-        "PrepNotes should only include advance-ahead tasks (hours in advance), like defrosting or marinating. Keep it short.",
+
+        "Ingredients must be returned as objects with this shape: { name: string, category: string }.",
+        "Ingredient names must be names only: no quantities, no units, no prep notes.",
+        "Category must be one of these exact values only:",
+        SHOPPING_CATEGORIES.join(", "),
+
+        "Choose the grocery-store location category where the shopper would most likely find the item.",
+        "Use produce for fresh fruits, vegetables, garlic, onions, fresh herbs, lemons, and limes.",
+        "Use meat for chicken, beef, pork, sausage, bacon, turkey, and other butcher-section proteins.",
+        "Use seafood for fish, shrimp, scallops, crab, and other seafood.",
+        "Use dairy for milk, cheese, cream, sour cream, yogurt, butter, and eggs.",
+        "Use bakery for bread, buns, rolls, bagels, tortillas from the bakery area, and fresh baked goods.",
+        "Use deli for deli meats, prepared salads, rotisserie chicken, specialty cheeses, and prepared deli items.",
+        "Use frozen for frozen vegetables, frozen fruit, frozen meals, frozen dough, and frozen prepared ingredients.",
+        "Use pantry for oils, vinegar, broth, shelf-stable sauces, dry goods, flour tortillas, breadcrumbs, and general pantry items.",
+        "Use canned for canned tomatoes, beans, corn, soup, coconut milk, and other canned or jarred meal staples.",
+        "Use pastaAndRice for pasta, rice, noodles, couscous, quinoa, and grains.",
+        "Use spices for salt, pepper, dried herbs, seasoning blends, flakes, powders, and small spice-jar ingredients.",
+        "Use condiments for ketchup, mustard, mayo, BBQ sauce, hot sauce, salsa, dressing, soy sauce, Worcestershire sauce, and similar bottled sauces.",
+        "Use baking for flour, sugar, baking powder, baking soda, chocolate chips, cocoa powder, and baking-specific ingredients.",
+        "Use beverages for drinks, juice, coffee, tea, and drink mixes.",
+        "Use snacks for chips, crackers, pretzels, popcorn, and snack foods.",
+        "Use household for non-food grocery items.",
+        "Use other only when no category clearly fits.",
+
+        "Ingredients should be ordered by estimated amount used, like a nutrition label ingredient list.",
+        "Large-use ingredients first: proteins, pasta, rice, grains, vegetables, sauces, dairy, broth, canned goods.",
+        "Small-use flavor ingredients later.",
+        "Spices, dried herbs, salt, pepper, seasoning blends, flakes, powders, and garnishes must always be last.",
+        "Do not alphabetize ingredients.",
+        "Do not keep the website's ingredient order if it puts spices or seasonings first.",
+        "Limit ingredients to the most important meal-planning grocery items.",
+
+        "PrepNotes should only include advance-ahead tasks, like defrosting or marinating. Keep it short.",
         "Difficulty and expense are integers 1-5. PrepNotes is short.",
+
         `Recipe URL: ${url}`,
         `Recipe text: ${text}`,
       ].join("\n"),
@@ -141,6 +275,7 @@ exports.handler = async (event) => {
         "User-Agent": "WeeklyEatsBot/1.0",
       },
     });
+
     if (!recipeResponse.ok) {
       return {
         statusCode: 400,
@@ -150,6 +285,7 @@ exports.handler = async (event) => {
         }),
       };
     }
+
     html = await recipeResponse.text();
   } catch (error) {
     return {
@@ -185,6 +321,7 @@ exports.handler = async (event) => {
 
   if (!aiResponse.ok) {
     let errorMessage = "Auto-fill failed.";
+
     try {
       const errorPayload = await aiResponse.json();
       if (errorPayload?.error?.message) {
@@ -227,18 +364,17 @@ exports.handler = async (event) => {
       : extractTitleFromUrl(url);
 
   const ingredients = Array.isArray(parsed.ingredients)
-    ? parsed.ingredients
-        .map((item) => cleanIngredient(item))
-        .filter(Boolean)
-        .slice(0, MAX_INGREDIENTS)
+    ? sortIngredientsForShopping(
+        parsed.ingredients.map(normalizeIngredient).filter(Boolean),
+      ).slice(0, MAX_INGREDIENTS)
     : [];
 
   const difficulty =
-    typeof parsed.difficulty === "number"
-      ? clamp(parsed.difficulty, 1, 5)
-      : 3;
+    typeof parsed.difficulty === "number" ? clamp(parsed.difficulty, 1, 5) : 3;
+
   const expense =
     typeof parsed.expense === "number" ? clamp(parsed.expense, 1, 5) : 3;
+
   const prepNotes =
     typeof parsed.prepNotes === "string" ? parsed.prepNotes.trim() : "";
 

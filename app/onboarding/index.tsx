@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -62,6 +62,7 @@ export default function OnboardingScreen() {
   const [familyMemberInput, setFamilyMemberInput] = useState("");
   const [isFamilyDeleteMode, setFamilyDeleteMode] = useState(false);
   const [isFinishing, setFinishing] = useState(false);
+  const familyMemberInputRef = useRef<TextInput | null>(null);
 
   const step = STEPS[stepIndex];
   const progress = `${stepIndex + 1} / ${STEPS.length}`;
@@ -127,20 +128,33 @@ export default function OnboardingScreen() {
   const handleAddFamilyMember = useCallback(() => {
     const trimmed = familyMemberInput.trim();
     if (!trimmed) {
+      familyMemberInputRef.current?.focus();
+      return;
+    }
+    const normalized = trimmed.toLowerCase();
+    const alreadyExists = familyMembers.some(
+      (member) => member.name.trim().toLowerCase() === normalized
+    );
+    if (alreadyExists) {
+      setFamilyMemberInput("");
+      familyMemberInputRef.current?.focus();
       return;
     }
     setFamilyMembers((prev) => [
+      ...prev,
       {
         id: `onboarding-member-${Date.now().toString(36)}-${Math.random()
           .toString(36)
           .slice(2, 8)}`,
         name: trimmed,
       },
-      ...prev,
     ]);
     setFamilyMemberInput("");
     setFamilyDeleteMode(false);
-  }, [familyMemberInput]);
+    requestAnimationFrame(() => {
+      familyMemberInputRef.current?.focus();
+    });
+  }, [familyMemberInput, familyMembers]);
 
   const handleRemoveFamilyMember = useCallback((id: string) => {
     setFamilyMembers((prev) => prev.filter((member) => member.id !== id));
@@ -321,6 +335,7 @@ export default function OnboardingScreen() {
               ) : null}
               <View style={styles.familyInputRow}>
                 <TextInput
+                  ref={familyMemberInputRef}
                   value={familyMemberInput}
                   onChangeText={setFamilyMemberInput}
                   placeholder="Add a family member"
@@ -328,6 +343,7 @@ export default function OnboardingScreen() {
                   style={styles.familyTextInput}
                   autoCapitalize="words"
                   returnKeyType="done"
+                  blurOnSubmit={false}
                   onSubmitEditing={handleAddFamilyMember}
                 />
                 <Pressable
@@ -356,8 +372,25 @@ export default function OnboardingScreen() {
                 </Pressable>
               </View>
             </View>
-            <Pressable style={styles.primaryButton} onPress={goNext}>
-              <Text style={styles.primaryButtonText}>Continue</Text>
+            <Pressable
+              style={[
+                styles.primaryButton,
+                familyMembers.length === 0 && styles.primaryButtonDisabled,
+              ]}
+              onPress={goNext}
+              disabled={familyMembers.length === 0}
+            >
+              <Text
+                style={[
+                  styles.primaryButtonText,
+                  familyMembers.length === 0 &&
+                    styles.primaryButtonTextDisabled,
+                ]}
+              >
+                {familyMembers.length === 0
+                  ? "Add at least one member"
+                  : "Family Table Complete"}
+              </Text>
             </Pressable>
           </View>
         );
@@ -559,10 +592,16 @@ const createStyles = (theme: WeeklyTheme) =>
       justifyContent: "center",
       paddingHorizontal: theme.space.lg,
     },
+    primaryButtonDisabled: {
+      opacity: 0.48,
+    },
     primaryButtonText: {
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.bold,
+    },
+    primaryButtonTextDisabled: {
+      color: theme.color.subtleInk,
     },
     socialRow: {
       flexDirection: "row",

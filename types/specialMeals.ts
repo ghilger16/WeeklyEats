@@ -36,9 +36,13 @@ export const isFlexNightMealId = (id?: string | null): boolean =>
 export const isSpecialMealId = (id?: string | null): boolean =>
   isEatOutMealId(id) || isFlexNightMealId(id);
 
-export const getSpecialMealById = (id?: string | null): Meal | undefined => {
+export const getSpecialMealById = (
+  id?: string | null,
+  title?: string | null
+): Meal | undefined => {
+  const customTitle = title?.trim();
   if (isEatOutMealId(id)) {
-    return EAT_OUT_MEAL;
+    return customTitle ? { ...EAT_OUT_MEAL, title: customTitle } : EAT_OUT_MEAL;
   }
   if (isFlexNightMealId(id)) {
     return FLEX_NIGHT_MEAL;

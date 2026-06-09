@@ -24,11 +24,18 @@ import {
 
 const isSameDay = (a: Date, b: Date) => startOfDay(a).getTime() === startOfDay(b).getTime();
 
-const matchMeal = (meals: Meal[], mealId: string | null | undefined) => {
+const matchMeal = (
+  meals: Meal[],
+  mealId: string | null | undefined,
+  specialMealTitle?: string
+) => {
   if (!mealId) {
     return undefined;
   }
-  return getSpecialMealById(mealId) ?? meals.find((meal) => meal.id === mealId);
+  return (
+    getSpecialMealById(mealId, specialMealTitle) ??
+    meals.find((meal) => meal.id === mealId)
+  );
 };
 
 export type WeekPlanDay = {
@@ -139,7 +146,7 @@ export const useCurrentWeekPlan = (
         plannedDateISO: plannedDate.toISOString(),
         status,
         mealId,
-        meal: matchMeal(meals, mealId),
+        meal: matchMeal(meals, mealId, plan.specialMealTitles?.[dayKey]),
         sides: sidesForDay,
       };
     });

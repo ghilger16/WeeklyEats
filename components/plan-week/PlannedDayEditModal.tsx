@@ -23,6 +23,9 @@ type Props = {
   onDismiss: () => void;
   onChangePlan: () => void;
   onRemovePlan: () => void;
+  showRemoveAction?: boolean;
+  changeActionLabel?: string;
+  removeActionLabel?: string;
 };
 
 const formatLastServed = (iso?: string) => {
@@ -69,6 +72,9 @@ export default function PlannedDayEditModal({
   onDismiss,
   onChangePlan,
   onRemovePlan,
+  showRemoveAction = true,
+  changeActionLabel,
+  removeActionLabel,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -77,12 +83,14 @@ export default function PlannedDayEditModal({
   const isSpecialPlan = isEatOut || isFlexNight;
   const title = `${dayName} Plan`;
   const displayTitle = isEatOut
-    ? "Eat Out"
+    ? meal?.title ?? "Eat Out"
     : isFlexNight
       ? "Flex Night"
       : meal?.title;
-  const actionLabel = isSpecialPlan ? "Change Plan" : "Swap Meal";
-  const removeLabel = isSpecialPlan ? "Remove Plan" : "Remove Meal";
+  const actionLabel =
+    changeActionLabel ?? (isSpecialPlan ? "Change Plan" : "Swap Meal");
+  const removeLabel =
+    removeActionLabel ?? (isSpecialPlan ? "Remove Plan" : "Remove Meal");
   const difficultyLabel = getDifficultyLabel(meal?.difficulty);
   const difficultyColor = getDifficultyColor(meal?.difficulty, theme);
   const expenseLabel = getExpenseLabel(meal);
@@ -228,17 +236,19 @@ export default function PlannedDayEditModal({
             >
               <Text style={styles.primaryButtonText}>{actionLabel}</Text>
             </Pressable>
-            <Pressable
-              onPress={onRemovePlan}
-              accessibilityRole="button"
-              accessibilityLabel={`${removeLabel} for ${dayName}`}
-              style={({ pressed }) => [
-                styles.secondaryButton,
-                pressed && styles.secondaryButtonPressed,
-              ]}
-            >
-              <Text style={styles.secondaryButtonText}>{removeLabel}</Text>
-            </Pressable>
+            {showRemoveAction ? (
+              <Pressable
+                onPress={onRemovePlan}
+                accessibilityRole="button"
+                accessibilityLabel={`${removeLabel} for ${dayName}`}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  pressed && styles.secondaryButtonPressed,
+                ]}
+              >
+                <Text style={styles.secondaryButtonText}>{removeLabel}</Text>
+              </Pressable>
+            ) : null}
           </View>
         </SafeAreaView>
       </View>

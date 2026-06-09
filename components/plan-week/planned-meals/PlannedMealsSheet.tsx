@@ -60,7 +60,7 @@ const PlannedMealsSheet = ({
   const rows = orderedDays.map((day) => {
     const mealId = plannedWeek[day];
     const plannedMeal = mealId
-      ? getSpecialMealById(mealId) ??
+      ? getSpecialMealById(mealId, plannedWeek.specialMealTitles?.[day]) ??
         meals.find((item) => item.id === mealId) ??
         null
       : null;

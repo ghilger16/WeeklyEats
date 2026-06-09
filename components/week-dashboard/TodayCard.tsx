@@ -16,8 +16,13 @@ import { Meal } from "../../types/meals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
-import { SERVED_ACTIONS, type ServedAction } from "./servedActions";
-import { getRandomCelebrationMessage } from "./celebrations";
+import { type ServedAction } from "./servedActions";
+import {
+  EatOutCompletionMessage,
+  getEatOutCompletionMessage,
+  getRandomCelebrationMessage,
+  getRandomEatOutCelebrationMessage,
+} from "./celebrations";
 import RatingStars from "../meals/RatingStars";
 import FreezerAmountModal from "../meals/FreezerAmountModal";
 import { useMeals } from "../../hooks/useMeals";
@@ -31,6 +36,7 @@ type TodayCardProps = {
   sides?: string[];
   onMarkServed?: (message: string) => Promise<void> | void;
   onSelectOutcome?: (outcome: ServedAction["value"]) => Promise<void> | void;
+  onChangePlans?: () => void;
 };
 
 export default function TodayCard({
@@ -41,6 +47,7 @@ export default function TodayCard({
   sides = [],
   onMarkServed,
   onSelectOutcome,
+  onChangePlans,
 }: TodayCardProps) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -55,6 +62,7 @@ export default function TodayCard({
   );
   const isEatOut = meal.id === EAT_OUT_MEAL_ID;
   const eatOutMessageRef = useRef<string | null>(null);
+  const eatOutCompletionRef = useRef<EatOutCompletionMessage | null>(null);
   const [isServedDrawerOpen, setServedDrawerOpen] = useState(false);
   const [servedExpanded, setServedExpanded] = useState<
     "rating" | "freezer" | "notes" | null
@@ -67,17 +75,12 @@ export default function TodayCard({
   const isServed = isLocallyServed || servedFromEntry;
   const prepNotesToShow = notes ?? meal.prepNotes ?? "";
   const sidesLabel = sides.length ? sides.join(" • ") : "";
-  const servedActionsForMeal = useMemo(
-    () =>
-      isEatOut
-        ? SERVED_ACTIONS.filter(
-            (action) => action.value === "cookedAlt" || action.value === "skipped"
-          )
-        : SERVED_ACTIONS,
-    [isEatOut]
-  );
   const eatOutMessage = eatOutMessageRef.current;
-  const servedButtonLabel = isEatOut ? "Change of Plans" : "Mark as Served";
+  if (isEatOut && isServed && !eatOutCompletionRef.current) {
+    eatOutCompletionRef.current = getEatOutCompletionMessage();
+  }
+  const eatOutCompletionMessage = eatOutCompletionRef.current;
+  const servedButtonLabel = "Mark as Served";
   const confettiPieces = useRef(
     Array.from({ length: 24 }, () => ({
       translateY: new Animated.Value(0),
@@ -138,6 +141,12 @@ export default function TodayCard({
       eatOutMessageRef.current = null;
     }
   }, [isEatOut]);
+
+  useEffect(() => {
+    if (!isEatOut || !isServed) {
+      eatOutCompletionRef.current = null;
+    }
+  }, [isEatOut, isServed]);
 
   const triggerConfetti = useCallback(() => {
     setConfettiVisible(true);
@@ -227,7 +236,16 @@ export default function TodayCard({
       return;
     }
 
-    const message = celebrationMessage ?? getRandomCelebrationMessage();
+    const eatOutCompletion = isEatOut ? getEatOutCompletionMessage() : null;
+    if (eatOutCompletion) {
+      eatOutCompletionRef.current = eatOutCompletion;
+    }
+    const message =
+      celebrationMessage ??
+      eatOutCompletion?.subtitle ??
+      (isEatOut
+        ? getRandomEatOutCelebrationMessage()
+        : getRandomCelebrationMessage());
     setCelebrationMessage(message);
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded(false);
@@ -239,6 +257,12 @@ export default function TodayCard({
       setLocallyServed(false);
       console.warn("[TodayCard] Failed to mark served", error);
     }
+  };
+
+  const handleChangePlans = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded(false);
+    onChangePlans?.();
   };
   const toggleServedPanel = (panel: Exclude<typeof servedExpanded, null>) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -396,41 +420,65 @@ export default function TodayCard({
       {isServed ? (
         <>
           <View style={styles.completionGraphic}>
-            <MaterialCommunityIcons
-              name="check-circle-outline"
-              size={96}
-              color={theme.color.accent}
-            />
+            {isEatOut && eatOutCompletionMessage ? (
+              <Text style={styles.completionEatOutIcon}>
+                {eatOutCompletionMessage.icon}
+              </Text>
+            ) : (
+              <MaterialCommunityIcons
+                name="check-circle-outline"
+                size={96}
+                color={theme.color.accent}
+              />
+            )}
           </View>
-      <View style={styles.completionLabelRow}>
-        <Text
-          style={styles.completionEmoji}
-          accessibilityLabel={`${meal.title} meal`}
-        >
-          {meal.emoji}
-        </Text>
-        <Text style={styles.completionLabel}>DINNER SERVED</Text>
-      </View>
-      {celebrationMessage ? (
-        <Text style={styles.completionMessage}>{celebrationMessage}</Text>
-      ) : null}
-          {isEatOut && eatOutMessage ? (
-            <Text style={styles.eatOutMessage}>{eatOutMessage}</Text>
-          ) : null}
+          {isEatOut && eatOutCompletionMessage ? (
+            <>
+              <Text style={styles.completionLabel}>
+                {eatOutCompletionMessage.title}
+              </Text>
+              <Text style={styles.completionMessage}>
+                {eatOutCompletionMessage.subtitle}
+              </Text>
+            </>
+          ) : (
+            <>
+              <View style={styles.completionLabelRow}>
+                <Text
+                  style={styles.completionEmoji}
+                  accessibilityLabel={`${meal.title} meal`}
+                >
+                  {meal.emoji}
+                </Text>
+                <Text style={styles.completionLabel}>DINNER SERVED</Text>
+              </View>
+              {celebrationMessage ? (
+                <Text style={styles.completionMessage}>
+                  {celebrationMessage}
+                </Text>
+              ) : null}
+            </>
+          )}
           {showServedActions ? (
             <View style={styles.servedActionRow}>
-              {renderServedActionButton("star", "Rate meal", "rating")}
-              {renderServedActionButton(
-                inFreezer ? "check-circle" : "snowflake",
-                inFreezer ? "Added to freezer" : "Add to freezer",
-                "freezer"
+              {isEatOut ? (
+                renderServedActionButton("pencil", "Add Note", "notes")
+              ) : (
+                <>
+                  {renderServedActionButton("star", "Rate meal", "rating")}
+                  {renderServedActionButton(
+                    inFreezer ? "check-circle" : "snowflake",
+                    inFreezer ? "Added to freezer" : "Add to freezer",
+                    "freezer"
+                  )}
+                  {renderServedActionButton("pencil", "Edit notes", "notes")}
+                </>
               )}
-              {renderServedActionButton("pencil", "Edit notes", "notes")}
             </View>
           ) : null}
           {isServedDrawerOpen && showServedActions ? (
             <View style={styles.servedDrawer}>
-              {servedExpanded === "rating" ? (
+              {!isEatOut && servedExpanded === "rating" ? (
                 <View style={styles.servedSection}>
                   <Text style={styles.servedSectionLabel}>Rate this meal</Text>
                   <RatingStars
@@ -441,7 +489,7 @@ export default function TodayCard({
                   />
                 </View>
               ) : null}
-              {servedExpanded === "freezer" ? (
+              {!isEatOut && servedExpanded === "freezer" ? (
                 <View style={styles.servedSection}>
                   <Text style={styles.servedSectionLabel}>Freezer</Text>
                   <Pressable
@@ -467,7 +515,9 @@ export default function TodayCard({
               ) : null}
               {servedExpanded === "notes" ? (
                 <View style={styles.servedSection}>
-                  <Text style={styles.servedSectionLabel}>Prep notes</Text>
+                  <Text style={styles.servedSectionLabel}>
+                    {isEatOut ? "Add note" : "Prep notes"}
+                  </Text>
                   <TextInput
                     style={styles.servedNotesInput}
                     placeholder="Add notes for next time"
@@ -497,31 +547,44 @@ export default function TodayCard({
             <MaterialCommunityIcons
               name={toggleIconName as any}
               size={18}
-              color={theme.color.ink}
+              color="#FFFFFF"
             />
           </Pressable>
 
           {isExpanded ? (
             <View style={styles.drawer}>
-              {servedActionsForMeal.map((action) => (
-                <Pressable
-                  key={action.label}
-                  style={({ pressed }) => [
-                    styles.drawerButton,
-                    pressed && styles.drawerButtonPressed,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={action.label}
-                  onPress={() => handleSelectAction(action.value)}
-                >
-                  <MaterialCommunityIcons
-                    name={action.icon}
-                    size={18}
-                    color={theme.color.ink}
-                  />
-                  <Text style={styles.drawerButtonText}>{action.label}</Text>
-                </Pressable>
-              ))}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.drawerButton,
+                  pressed && styles.drawerButtonPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Served"
+                onPress={() => handleSelectAction("served")}
+              >
+                <MaterialCommunityIcons
+                  name="check-circle"
+                  size={18}
+                  color={theme.color.ink}
+                />
+                <Text style={styles.drawerButtonText}>Served</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.drawerButton,
+                  pressed && styles.drawerButtonPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Change plans"
+                onPress={handleChangePlans}
+              >
+                <MaterialCommunityIcons
+                  name="swap-horizontal"
+                  size={18}
+                  color={theme.color.ink}
+                />
+                <Text style={styles.drawerButtonText}>Change Plans</Text>
+              </Pressable>
             </View>
           ) : null}
         </>
@@ -653,6 +716,10 @@ const createStyles = (theme: WeeklyTheme) =>
     completionEmoji: {
       fontSize: 20,
     },
+    completionEatOutIcon: {
+      fontSize: 72,
+      textAlign: "center",
+    },
     completionLabel: {
       textAlign: "center",
       color: theme.color.accent,
@@ -741,7 +808,7 @@ const createStyles = (theme: WeeklyTheme) =>
       alignItems: "center",
       justifyContent: "center",
       gap: theme.space.sm,
-      backgroundColor: theme.color.success,
+      backgroundColor: theme.color.accent,
       borderRadius: theme.radius.xl,
       paddingVertical: theme.space.md,
     },
@@ -749,7 +816,7 @@ const createStyles = (theme: WeeklyTheme) =>
       opacity: 0.85,
     },
     servedButtonText: {
-      color: theme.color.ink,
+      color: "#FFFFFF",
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.bold,
     },

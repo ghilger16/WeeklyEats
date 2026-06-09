@@ -1,6 +1,7 @@
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
+import { useThemeController } from "../../providers/theme/ThemeController";
 
 type MealBadgeVariant = "family" | "galaxy";
 
@@ -11,7 +12,9 @@ type MealBadgeProps = {
 };
 
 export const MealBadge = ({ variant, style, onPress }: MealBadgeProps) => {
+  const { theme } = useThemeController();
   const isGalaxy = variant === "galaxy";
+  const isDark = theme.mode === "dark";
 
   const basePill = (
     <View
@@ -20,6 +23,8 @@ export const MealBadge = ({ variant, style, onPress }: MealBadgeProps) => {
         {
           backgroundColor: isGalaxy
             ? "#1B1D2B"
+            : isDark
+            ? "#4A3414"
             : "#FFF3C4",
           borderColor: isGalaxy ? "#7055FF66" : "#F2D15B",
         },

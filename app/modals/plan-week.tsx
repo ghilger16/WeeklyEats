@@ -46,6 +46,7 @@ import { buildMealSuggestions } from "../../components/plan-week/suggestions/sug
 import SuggestMealModal from "../../components/plan-week/suggestions/SuggestMealModal";
 import {
   EAT_OUT_MEAL,
+  EAT_OUT_MEAL_ID,
   FLEX_NIGHT_MEAL,
   getSpecialMealById,
 } from "../../types/specialMeals";
@@ -139,14 +140,21 @@ const isFamilyStarMeal = (meal: Meal) => {
   return (meal.rating ?? 0) >= 4.5;
 };
 
+const isPlannedWeekDayKey = (value: unknown): value is PlannedWeekDayKey =>
+  typeof value === "string" &&
+  PLANNED_WEEK_ORDER.includes(value as PlannedWeekDayKey);
+
 export default function PlanWeekModal() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ mode?: string }>();
+  const params = useLocalSearchParams<{ mode?: string; editDay?: string }>();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals, updateMeal } = useMeals();
   const { orderedDays, startDay } = useWeekStartController();
   const isRemainingMode = params.mode === "remaining";
+  const requestedEditDay = isPlannedWeekDayKey(params.editDay)
+    ? params.editDay
+    : null;
   const sessionDays = useMemo(() => {
     if (!isRemainingMode) {
       return orderedDays;
@@ -174,6 +182,7 @@ export default function PlanWeekModal() {
   });
   const { entries: servedEntries } = useServedMeals();
   const initializedRef = useRef(false);
+  const didOpenRequestedEditDayRef = useRef(false);
 
   const [plannedWeek, setPlannedWeek] = useState<CurrentPlannedWeek>(() =>
     createEmptyCurrentPlannedWeek({ weekStartISO: planningWeekStartISO }),
@@ -239,6 +248,8 @@ export default function PlanWeekModal() {
   >(null);
   const [selectedMealPoolId, setSelectedMealPoolId] =
     useState<MealPoolId | null>(null);
+  const [activeInspirationPoolId, setActiveInspirationPoolId] =
+    useState<MealPoolId>("suggestedByYou");
   const [isCalendarContextVisible, setCalendarContextVisible] =
     useState(false);
   const [planningCalendarEvents, setPlanningCalendarEvents] = useState<
@@ -405,7 +416,7 @@ export default function PlanWeekModal() {
   }, [sessionDays]);
 
   useEffect(() => {
-    if (isLoading) {
+    if (isLoading || requestedEditDay) {
       return;
     }
     if (!initializedRef.current) {
@@ -413,6 +424,24 @@ export default function PlanWeekModal() {
       setPlannedWeek(plan);
     }
   }, [isLoading, plan]);
+
+  useEffect(() => {
+    if (
+      isLoading ||
+      !initializedRef.current ||
+      didOpenRequestedEditDayRef.current ||
+      !requestedEditDay ||
+      typeof plannedWeek[requestedEditDay] !== "string"
+    ) {
+      return;
+    }
+    const targetIndex = sessionDays.indexOf(requestedEditDay);
+    if (targetIndex !== -1) {
+      setActiveDayIndex(targetIndex);
+    }
+    setPlannedEditDay(requestedEditDay);
+    didOpenRequestedEditDayRef.current = true;
+  }, [isLoading, plannedWeek, requestedEditDay, sessionDays]);
 
   useEffect(() => {
     if (isLoading) {
@@ -432,7 +461,7 @@ export default function PlanWeekModal() {
       plan.weekStartISO === planningWeekStartISO || !plan.weekStartISO;
     const shouldPromptResume = isTargetWeek && !plan.weekedPlanned && hasMeals;
     setResumePromptVisible(shouldPromptResume);
-  }, [isLoading, plan, planningWeekStartISO]);
+  }, [isLoading, plan, planningWeekStartISO, requestedEditDay]);
 
   useEffect(() => {
     setActiveWizardAction(null);
@@ -542,10 +571,23 @@ export default function PlanWeekModal() {
     [meals],
   );
 
+  const plannedMealIds = useMemo(
+    () =>
+      new Set(
+        Object.values(plannedWeek).filter(
+          (mealId): mealId is Meal["id"] => typeof mealId === "string",
+        ),
+      ),
+    [plannedWeek],
+  );
+
   const mealPools = useMemo<MealPool[]>(() => {
     const savedIdeaMeals = (plannedWeek.savedIdeas ?? [])
       .map((idea) => meals.find((meal) => meal.id === idea.mealId))
-      .filter(Boolean) as Meal[];
+      .filter(
+        (meal): meal is Meal =>
+          Boolean(meal) && !plannedMealIds.has(meal.id),
+      );
     return [
       {
         id: "suggestedByYou",
@@ -562,7 +604,9 @@ export default function PlanWeekModal() {
         nextIcon: "⭐",
         chipIcon: "❄️",
         emptyText: "Freezer-ready meals will appear here.",
-        meals: meals.filter(hasFreezerInventory),
+        meals: meals.filter(
+          (meal) => hasFreezerInventory(meal) && !plannedMealIds.has(meal.id),
+        ),
       },
       {
         id: "familyStars",
@@ -571,20 +615,12 @@ export default function PlanWeekModal() {
         nextIcon: "💡",
         chipIcon: "⭐",
         emptyText: "Top-rated family meals will appear here.",
-        meals: meals.filter(isFamilyStarMeal),
+        meals: meals.filter(
+          (meal) => isFamilyStarMeal(meal) && !plannedMealIds.has(meal.id),
+        ),
       },
     ];
-  }, [meals, plannedWeek.savedIdeas]);
-
-  const plannedMealIds = useMemo(
-    () =>
-      new Set(
-        Object.values(plannedWeek).filter(
-          (mealId): mealId is Meal["id"] => typeof mealId === "string",
-        ),
-      ),
-    [plannedWeek],
-  );
+  }, [meals, plannedMealIds, plannedWeek.savedIdeas]);
 
   const suggestionPool = useMemo(
     () => buildMealSuggestions(filteredMeals, activeDayPins, plannedMealIds),
@@ -635,7 +671,7 @@ export default function PlanWeekModal() {
       return undefined;
     }
     return (
-      getSpecialMealById(mealId) ??
+      getSpecialMealById(mealId, plannedWeek.specialMealTitles?.[activeDay]) ??
       meals.find((candidate) => candidate.id === mealId)
     );
   }, [activeDay, meals, plannedWeek]);
@@ -647,7 +683,7 @@ export default function PlanWeekModal() {
         return undefined;
       }
       return (
-        getSpecialMealById(mealId) ??
+        getSpecialMealById(mealId, plannedWeek.specialMealTitles?.[day]) ??
         meals.find((candidate) => candidate.id === mealId)
       );
     },
@@ -694,33 +730,58 @@ export default function PlanWeekModal() {
     async (
       day: PlannedWeekDayKey,
       meal: Meal,
-      options: { removeSavedIdea?: boolean } = {},
+      options: {
+        removeSavedIdea?: boolean;
+        sideToAdd?: string;
+        specialMealTitle?: string;
+      } = {},
     ) => {
       if (isPlannerSaving) {
         return;
       }
       setPlannerSaving(true);
       savedIndicatorDay && setSavedIndicatorDay(null);
+      const nextSpecialMealTitles = {
+        ...(plannedWeek.specialMealTitles ?? {}),
+      };
+      if (meal.id === EAT_OUT_MEAL_ID && options.specialMealTitle?.trim()) {
+        nextSpecialMealTitles[day] = options.specialMealTitle.trim();
+      } else {
+        delete nextSpecialMealTitles[day];
+      }
       const nextPlan: CurrentPlannedWeek = {
         ...plannedWeek,
         [day]: meal.id,
         weekedPlanned: false,
         weekStartISO: planningWeekStartISO,
         plannedScope: isRemainingMode ? "remaining" : "full",
+        specialMealTitles: Object.keys(nextSpecialMealTitles).length
+          ? nextSpecialMealTitles
+          : undefined,
         savedIdeas: options.removeSavedIdea
           ? (plannedWeek.savedIdeas ?? []).filter(
               (idea) => idea.mealId !== meal.id,
             )
           : plannedWeek.savedIdeas ?? [],
       };
+      const sideToAdd = options.sideToAdd?.trim();
+      const nextSidesMap = sideToAdd
+        ? {
+            ...daySidesMap,
+            [day]: [...(daySidesMap[day] ?? []), sideToAdd],
+          }
+        : daySidesMap;
       setPlannedWeek(nextPlan);
+      if (nextSidesMap !== daySidesMap) {
+        resetSides(nextSidesMap);
+      }
       setSelectedSavedIdeaMealId(null);
       setSelectedMealPoolId(null);
       setPendingPlannedDay(day);
       try {
         await Promise.all([
           setCurrentWeekPlan(planningWeekStartISO, nextPlan),
-          setCurrentWeekSides(planningWeekStartISO, daySidesMap),
+          setCurrentWeekSides(planningWeekStartISO, nextSidesMap),
         ]);
         await Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
@@ -743,6 +804,7 @@ export default function PlanWeekModal() {
       isPlannerSaving,
       plannedWeek,
       planningWeekStartISO,
+      resetSides,
       savedIndicatorDay,
       isRemainingMode,
     ],
@@ -901,11 +963,11 @@ export default function PlanWeekModal() {
     setSuggestTargetDay(null);
   }, []);
 
-  const handleEatOutFromSuggestModal = useCallback(() => {
+  const handleEatOutFromSuggestModal = useCallback((title?: string) => {
     const targetDay = suggestTargetDay ?? activeDay;
     setSuggestModalVisible(false);
     setSuggestTargetDay(null);
-    saveMealToDay(targetDay, EAT_OUT_MEAL);
+    saveMealToDay(targetDay, EAT_OUT_MEAL, { specialMealTitle: title });
   }, [activeDay, saveMealToDay, suggestTargetDay]);
 
   const handleFlexNightFromSuggestModal = useCallback(() => {
@@ -916,21 +978,21 @@ export default function PlanWeekModal() {
   }, [activeDay, saveMealToDay, suggestTargetDay]);
 
   const handleSelectSuggestSearchMeal = useCallback(
-    (meal: Meal) => {
+    (meal: Meal, side?: string) => {
       const targetDay = suggestTargetDay ?? activeDay;
       setSuggestModalVisible(false);
       setSuggestTargetDay(null);
-      saveMealToDay(targetDay, meal);
+      saveMealToDay(targetDay, meal, { sideToAdd: side });
     },
     [activeDay, saveMealToDay, suggestTargetDay],
   );
 
   const handleAddSuggestedMeal = useCallback(
-    (meal: Meal) => {
+    (meal: Meal, side?: string) => {
       const targetDay = suggestTargetDay ?? activeDay;
       setSuggestModalVisible(false);
       setSuggestTargetDay(null);
-      saveMealToDay(targetDay, meal);
+      saveMealToDay(targetDay, meal, { sideToAdd: side });
     },
     [activeDay, saveMealToDay, suggestTargetDay],
   );
@@ -1097,7 +1159,17 @@ export default function PlanWeekModal() {
 
   const handleSwapPlannedMeal = useCallback(
     async (day: PlannedWeekDayKey) => {
-      const nextPlan: CurrentPlannedWeek = { ...plannedWeek, [day]: null };
+      const nextSpecialMealTitles = {
+        ...(plannedWeek.specialMealTitles ?? {}),
+      };
+      delete nextSpecialMealTitles[day];
+      const nextPlan: CurrentPlannedWeek = {
+        ...plannedWeek,
+        [day]: null,
+        specialMealTitles: Object.keys(nextSpecialMealTitles).length
+          ? nextSpecialMealTitles
+          : undefined,
+      };
       const nextSides = { ...daySidesMap, [day]: [] };
       nextPlan.weekStartISO = planningWeekStartISO;
       nextPlan.weekedPlanned = false;
@@ -1145,12 +1217,19 @@ export default function PlanWeekModal() {
     }
     setPlannerSaving(true);
     const targetDay = plannerSelection.day ?? pendingPlannedDay ?? activeDay;
+    const nextSpecialMealTitles = {
+      ...(plannedWeek.specialMealTitles ?? {}),
+    };
+    delete nextSpecialMealTitles[targetDay];
     const nextPlan: CurrentPlannedWeek = {
       ...plannedWeek,
       [targetDay]: plannerSelection.meal.id,
       weekedPlanned: false,
       weekStartISO: planningWeekStartISO,
       plannedScope: isRemainingMode ? "remaining" : "full",
+      specialMealTitles: Object.keys(nextSpecialMealTitles).length
+        ? nextSpecialMealTitles
+        : undefined,
     };
     setPlannedWeek(nextPlan);
     try {
@@ -1353,6 +1432,8 @@ export default function PlanWeekModal() {
                 pools={mealPools}
                 orderedDays={sessionDays}
                 selectedMealId={selectedSavedIdeaMealId}
+                activePoolId={activeInspirationPoolId}
+                onActivePoolChange={setActiveInspirationPoolId}
                 onSelectMeal={handleSelectMealPoolMeal}
                 onSelectDay={handlePlanMealPoolMealForDay}
                 onRemoveSuggestedMeal={handleRemoveSavedIdea}

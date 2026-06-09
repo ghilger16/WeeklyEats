@@ -9,6 +9,7 @@ export type ServedMealEntry = {
   servedAtISO: string;
   outcome: ServedOutcome;
   celebrationMessage?: string;
+  servedTitle?: string;
 };
 
 const STORAGE_KEY = "@weeklyeats/servedMeals";

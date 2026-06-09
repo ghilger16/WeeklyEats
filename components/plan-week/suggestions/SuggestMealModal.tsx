@@ -27,11 +27,11 @@ type Props = {
   suggestion?: MealSuggestion;
   canSuggestAnother?: boolean;
   onDismiss: () => void;
-  onAddMeal: (meal: Meal) => void;
+  onAddMeal: (meal: Meal, side?: string) => void;
   onSuggestAnother: () => void;
   meals?: Meal[];
-  onSelectSearchMeal?: (meal: Meal) => void;
-  onEatOut?: () => void;
+  onSelectSearchMeal?: (meal: Meal, side?: string) => void;
+  onEatOut?: (title?: string) => void;
   onFlexNight?: () => void;
   getLastServedISO?: (mealId: Meal["id"]) => string | null | undefined;
   sides?: string[];
@@ -125,6 +125,8 @@ export default function SuggestMealModal({
   const [mode, setMode] = useState<PlanMealMode>("suggest");
   const [query, setQuery] = useState("");
   const [selectedSideMeal, setSelectedSideMeal] = useState<Meal | null>(null);
+  const [isEatOutDetailMode, setEatOutDetailMode] = useState(false);
+  const [eatOutTitle, setEatOutTitle] = useState("Eat Out Night");
   const meal = suggestion?.meal;
   const normalizedPins = useMemo(
     () => normalizeDayPinsState(pins),
@@ -165,7 +167,8 @@ export default function SuggestMealModal({
       candidate.title.toLowerCase().includes(normalized)
     );
   }, [hasActivePins, meals, normalizedPins, pins, query]);
-  const canShowFilterToggle = mode === "suggest" || mode === "search";
+  const canShowFilterToggle =
+    (mode === "suggest" || mode === "search") && !selectedSideMeal;
 
   useEffect(() => {
     if (visible) {
@@ -175,6 +178,8 @@ export default function SuggestMealModal({
       setMode("suggest");
       setQuery("");
       setSelectedSideMeal(null);
+      setEatOutDetailMode(false);
+      setEatOutTitle("Eat Out Night");
     }
   }, [visible]);
 
@@ -215,39 +220,59 @@ export default function SuggestMealModal({
     setMode(nextMode);
     setFilterMode(false);
     setSelectedSideMeal(null);
+    setEatOutDetailMode(false);
+  };
+
+  const handleBackToSuggestion = () => {
+    setMode("suggest");
+    setFilterMode(false);
+    setSelectedSideMeal(null);
+    setEatOutDetailMode(false);
   };
 
   const handleSelectSearchResult = (selectedMeal: Meal) => {
-    if (onAddSide) {
-      setSelectedSideMeal(selectedMeal);
-      setSideInput("");
-      setSideDeleteMode(false);
-      return;
-    }
-    onSelectSearchMeal?.(selectedMeal);
+    setSelectedSideMeal(selectedMeal);
+    setSideInput("");
+    setSideDeleteMode(false);
   };
 
-  const handleAddSuggestedMeal = () => {
+  const handleSaveSuggestedMealToDay = () => {
     if (!meal) {
       return;
     }
-    if (onAddSide) {
-      setSelectedSideMeal(meal);
-      setSideInput("");
-      setSideDeleteMode(false);
-      return;
-    }
-    onAddMeal(meal);
+    setSelectedSideMeal(meal);
+    setSideInput("");
+    setSideDeleteMode(false);
   };
 
-  const visibleModeActions: PlanMealMode[] =
-    mode === "suggest"
-      ? ["search", "eatOut", "flexNight"]
-      : mode === "search"
-      ? ["suggest", "eatOut", "flexNight"]
-      : mode === "eatOut"
-      ? ["suggest", "search", "flexNight"]
-      : ["suggest", "search", "eatOut"];
+  const handleBackFromSideScreen = () => {
+    setSelectedSideMeal(null);
+    setSideInput("");
+    setSideDeleteMode(false);
+  };
+
+  const handleSavePlan = () => {
+    if (!selectedSideMeal) {
+      return;
+    }
+    const pendingSide = formatSideLabel(sideInput);
+    if (mode === "search") {
+      onSelectSearchMeal?.(selectedSideMeal, pendingSide || undefined);
+      return;
+    }
+    onAddMeal(selectedSideMeal, pendingSide || undefined);
+  };
+
+  const handleSaveEatOut = () => {
+    const title = eatOutTitle.trim() || "Eat Out Night";
+    onEatOut?.(title);
+  };
+
+  const visibleModeActions: PlanMealMode[] = [
+    "search",
+    "eatOut",
+    "flexNight",
+  ];
 
   const renderModeActionButton = (targetMode: PlanMealMode) => {
     const label =
@@ -310,7 +335,25 @@ export default function SuggestMealModal({
         <SafeAreaView style={styles.sheet} edges={["bottom"]}>
           <View style={styles.body}>
             <View style={styles.header}>
-              <View style={styles.headerTitleSlot} />
+              {mode === "suggest" ? (
+                <View style={styles.headerTitleSlot} />
+              ) : (
+                <Pressable
+                  onPress={handleBackToSuggestion}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to suggestions"
+                  style={({ pressed }) => [
+                    styles.headerIconButton,
+                    pressed && styles.headerIconButtonPressed,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="chevron-left"
+                    size={24}
+                    color={theme.color.ink}
+                  />
+                </Pressable>
+              )}
               <Text style={styles.title}>Let&apos;s Plan {dayName}</Text>
               {canShowFilterToggle ? (
                 <Pressable
@@ -341,15 +384,13 @@ export default function SuggestMealModal({
                 onChange={onPinsChange}
                 mode="editable"
               />
-            ) : (
+            ) : mode === "suggest" && !selectedSideMeal ? (
               <View style={styles.quickActionRow}>
                 {visibleModeActions.map(renderModeActionButton)}
               </View>
-            )}
+            ) : null}
 
-            {(mode === "search" || mode === "suggest") &&
-            selectedSideMeal &&
-            onAddSide ? (
+            {(mode === "search" || mode === "suggest") && selectedSideMeal ? (
               <View style={styles.searchSideStep}>
                 <View style={styles.selectedMealCard}>
                   <Text style={styles.rowEmoji}>
@@ -440,40 +481,26 @@ export default function SuggestMealModal({
 
                 <View style={styles.actions}>
                   <Pressable
-                    onPress={() => {
-                      if (mode === "search") {
-                        onSelectSearchMeal?.(selectedSideMeal);
-                        return;
-                      }
-                      onAddMeal(selectedSideMeal);
-                    }}
+                    onPress={handleSavePlan}
                     accessibilityRole="button"
-                    accessibilityLabel={`Done adding sides for ${selectedSideMeal.title}`}
+                    accessibilityLabel={`Save plan for ${dayName}`}
                     style={({ pressed }) => [
                       styles.primaryButton,
                       pressed && styles.primaryButtonPressed,
                     ]}
                   >
-                    <Text style={styles.primaryButtonText}>Done</Text>
+                    <Text style={styles.primaryButtonText}>Save Plan</Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => setSelectedSideMeal(null)}
+                    onPress={handleBackFromSideScreen}
                     accessibilityRole="button"
-                    accessibilityLabel={
-                      mode === "search"
-                        ? "Choose a different meal"
-                        : "Return to suggested meal"
-                    }
+                    accessibilityLabel="Back"
                     style={({ pressed }) => [
                       styles.secondaryButton,
                       pressed && styles.secondaryButtonPressed,
                     ]}
                   >
-                    <Text style={styles.secondaryButtonText}>
-                      {mode === "search"
-                        ? "Choose Different Meal"
-                        : "Back to Suggestion"}
-                    </Text>
+                    <Text style={styles.secondaryButtonText}>Back</Text>
                   </Pressable>
                 </View>
               </View>
@@ -520,7 +547,7 @@ export default function SuggestMealModal({
                       <Pressable
                         onPress={() => handleSelectSearchResult(item)}
                         accessibilityRole="button"
-                        accessibilityLabel={`Add ${item.title}`}
+                        accessibilityLabel={`Select ${item.title} for ${dayName}`}
                         style={({ pressed }) => [
                           styles.row,
                           pressed && styles.rowPressed,
@@ -545,37 +572,101 @@ export default function SuggestMealModal({
                 )}
               </>
             ) : mode === "eatOut" ? (
-              <>
-                <View style={styles.confirmationView}>
-                  <Text style={styles.confirmationEmoji}>🍽️</Text>
-                  <Text style={styles.confirmationTitle}>Eat Out</Text>
-                  <Text style={styles.confirmationSubtitle}>
-                    Mark {dayName} as eating out instead of cooking.
-                  </Text>
-                </View>
-                <View style={styles.actions}>
-                  <Pressable
-                    onPress={onEatOut}
-                    disabled={!onEatOut}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Save eat out for ${dayName}`}
-                    style={({ pressed }) => [
-                      styles.primaryButton,
-                      !onEatOut && styles.buttonDisabled,
-                      pressed && onEatOut && styles.primaryButtonPressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.primaryButtonText,
-                        !onEatOut && styles.buttonTextDisabled,
+              isEatOutDetailMode ? (
+                <View style={styles.searchSideStep}>
+                  <View style={styles.selectedMealCard}>
+                    <Text style={styles.rowEmoji}>🍽️</Text>
+                    <View style={styles.selectedMealText}>
+                      <Text style={styles.selectedMealEyebrow}>
+                        Eat out plan
+                      </Text>
+                      <Text style={styles.selectedMealTitle} numberOfLines={1}>
+                        {eatOutTitle.trim() || "Eat Out Night"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <TextInput
+                    value={eatOutTitle}
+                    onChangeText={setEatOutTitle}
+                    placeholder="Eat Out Night"
+                    placeholderTextColor={theme.color.subtleInk}
+                    autoCapitalize="words"
+                    returnKeyType="done"
+                    onFocus={() => setEatOutTitle("")}
+                    style={styles.eatOutInput}
+                    accessibilityLabel="Eat out plan title"
+                  />
+
+                  <View style={styles.actions}>
+                    <Pressable
+                      onPress={handleSaveEatOut}
+                      disabled={!onEatOut}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Save eat out plan for ${dayName}`}
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        !onEatOut && styles.buttonDisabled,
+                        pressed && onEatOut && styles.primaryButtonPressed,
                       ]}
                     >
-                      Save Eat Out
-                    </Text>
-                  </Pressable>
+                      <Text
+                        style={[
+                          styles.primaryButtonText,
+                          !onEatOut && styles.buttonTextDisabled,
+                        ]}
+                      >
+                        Save Plan
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setEatOutDetailMode(false)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Return to eat out"
+                      style={({ pressed }) => [
+                        styles.secondaryButton,
+                        pressed && styles.secondaryButtonPressed,
+                      ]}
+                    >
+                      <Text style={styles.secondaryButtonText}>
+                        Back to Eat Out
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
-              </>
+              ) : (
+                <>
+                  <View style={styles.confirmationView}>
+                    <Text style={styles.confirmationEmoji}>🍽️</Text>
+                    <Text style={styles.confirmationTitle}>Eat Out</Text>
+                    <Text style={styles.confirmationSubtitle}>
+                      Mark {dayName} as eating out instead of cooking.
+                    </Text>
+                  </View>
+                  <View style={styles.actions}>
+                    <Pressable
+                      onPress={() => setEatOutDetailMode(true)}
+                      disabled={!onEatOut}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Save eat out for ${dayName}`}
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        !onEatOut && styles.buttonDisabled,
+                        pressed && onEatOut && styles.primaryButtonPressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.primaryButtonText,
+                          !onEatOut && styles.buttonTextDisabled,
+                        ]}
+                      >
+                        Save Eat Out
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              )
             ) : mode === "flexNight" ? (
               <>
                 <View style={styles.confirmationView}>
@@ -660,10 +751,10 @@ export default function SuggestMealModal({
             {mode === "suggest" && !selectedSideMeal ? (
               <View style={styles.actions}>
                 <Pressable
-                  onPress={handleAddSuggestedMeal}
+                  onPress={handleSaveSuggestedMealToDay}
                   disabled={!meal}
                   accessibilityRole="button"
-                  accessibilityLabel={`Add suggested meal to ${dayName}`}
+                  accessibilityLabel={`Save suggested meal to ${dayName}`}
                   style={({ pressed }) => [
                     styles.primaryButton,
                     !meal && styles.buttonDisabled,
@@ -676,7 +767,7 @@ export default function SuggestMealModal({
                       !meal && styles.buttonTextDisabled,
                     ]}
                   >
-                    Add Meal
+                    Save to {dayName}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -906,6 +997,18 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.base,
       textAlign: "center",
       lineHeight: theme.type.size.base * 1.35,
+    },
+    eatOutInput: {
+      width: "100%",
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      backgroundColor: theme.color.surfaceAlt,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.sm,
+      marginTop: theme.space.sm,
     },
     card: {
       borderRadius: theme.radius.lg,
