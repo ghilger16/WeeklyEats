@@ -21,6 +21,26 @@ const SHOPPING_CATEGORIES = [
   "other",
 ];
 
+const CATEGORY_ORDER = {
+  meat: 1,
+  seafood: 2,
+  pastaAndRice: 3,
+  produce: 4,
+  dairy: 5,
+  canned: 6,
+  pantry: 7,
+  condiments: 8,
+  bakery: 9,
+  deli: 10,
+  frozen: 11,
+  baking: 12,
+  beverages: 13,
+  snacks: 14,
+  household: 15,
+  other: 16,
+  spices: 99,
+};
+
 const SPICE_WORDS = [
   "salt",
   "pepper",
@@ -139,28 +159,28 @@ const isSpiceOrSeasoning = (ingredient) => {
   );
 };
 
-const sortIngredientsForShopping = (ingredients) => {
-  const regular = [];
-  const spices = [];
+const sortIngredientsForShopping = (ingredients) =>
+  ingredients
+    .map((ingredient) =>
+      isSpiceOrSeasoning(ingredient)
+        ? { ...ingredient, category: "spices" }
+        : ingredient,
+    )
+    .sort((a, b) => {
+      const aOrder = CATEGORY_ORDER[a.category] ?? CATEGORY_ORDER.other;
+      const bOrder = CATEGORY_ORDER[b.category] ?? CATEGORY_ORDER.other;
 
-  ingredients.forEach((ingredient) => {
-    if (isSpiceOrSeasoning(ingredient)) {
-      spices.push({
-        ...ingredient,
-        category: "spices",
-      });
-    } else {
-      regular.push(ingredient);
-    }
-  });
+      if (aOrder !== bOrder) {
+        return aOrder - bOrder;
+      }
 
-  return [...regular, ...spices];
-};
+      return a.name.localeCompare(b.name);
+    });
 
 const buildOpenAiPayload = (url, text) => ({
   model: OPENAI_MODEL,
   temperature: 0.2,
-  max_tokens: 1200,
+  max_tokens: 1400,
   response_format: { type: "json_object" },
   messages: [
     {
@@ -182,11 +202,13 @@ const buildOpenAiPayload = (url, text) => ({
 
         "Ingredients must be returned as objects with this shape: { name: string, category: string }.",
         "Ingredient names must be names only: no quantities, no units, no prep notes.",
+        "Return all ingredients found in the recipe ingredient sections.",
         "Include every ingredient listed in the recipe ingredient section.",
         "Do not omit small ingredients like salt, pepper, spices, dried herbs, oils, garlic, ginger, aromatics, sauces, or optional-but-listed ingredients.",
         "Only omit water if it is clearly just used for cooking or thinning.",
         "Do not combine ingredients. Each listed recipe ingredient should become its own ingredient object.",
         "Do not summarize multiple spices into a generic ingredient like seasoning.",
+        "Do not attempt to sort or prioritize ingredients. The app will sort them later.",
 
         "Category must be one of these exact values only:",
         SHOPPING_CATEGORIES.join(", "),
@@ -195,27 +217,20 @@ const buildOpenAiPayload = (url, text) => ({
         "Use produce for fresh fruits, vegetables, garlic, onions, fresh herbs, lemons, and limes.",
         "Use meat for chicken, beef, pork, sausage, bacon, turkey, and other butcher-section proteins.",
         "Use seafood for fish, shrimp, scallops, crab, and other seafood.",
-        "Use dairy for milk, cheese, cream, sour cream, yogurt, butter, and eggs.",
+        "Use dairy for milk, cheese, cream, sour cream, yogurt, butter, eggs, and ghee.",
         "Use bakery for bread, buns, rolls, bagels, tortillas from the bakery area, and fresh baked goods.",
         "Use deli for deli meats, prepared salads, rotisserie chicken, specialty cheeses, and prepared deli items.",
         "Use frozen for frozen vegetables, frozen fruit, frozen meals, frozen dough, and frozen prepared ingredients.",
         "Use pantry for oils, vinegar, broth, shelf-stable sauces, dry goods, flour tortillas, breadcrumbs, and general pantry items.",
-        "Use canned for canned tomatoes, beans, corn, soup, coconut milk, and other canned or jarred meal staples.",
+        "Use canned for canned tomatoes, tomato passata, beans, corn, soup, coconut milk, and other canned or jarred meal staples.",
         "Use pastaAndRice for pasta, rice, noodles, couscous, quinoa, and grains.",
-        "Use spices for salt, pepper, dried herbs, seasoning blends, flakes, powders, and small spice-jar ingredients.",
+        "Use spices for salt, pepper, dried herbs, seasoning blends, flakes, powders, garam masala, cumin, turmeric, paprika, and small spice-jar ingredients.",
         "Use condiments for ketchup, mustard, mayo, BBQ sauce, hot sauce, salsa, dressing, soy sauce, Worcestershire sauce, and similar bottled sauces.",
         "Use baking for flour, sugar, baking powder, baking soda, chocolate chips, cocoa powder, and baking-specific ingredients.",
         "Use beverages for drinks, juice, coffee, tea, and drink mixes.",
         "Use snacks for chips, crackers, pretzels, popcorn, and snack foods.",
         "Use household for non-food grocery items.",
         "Use other only when no category clearly fits.",
-
-        "Ingredients should be ordered by estimated amount used, like a nutrition label ingredient list.",
-        "Large-use ingredients first: proteins, pasta, rice, grains, vegetables, sauces, dairy, broth, canned goods.",
-        "Small-use flavor ingredients later.",
-        "Spices, dried herbs, salt, pepper, seasoning blends, flakes, and powders must always be included when used and must be listed last.",
-        "Do not alphabetize ingredients.",
-        "Do not keep the website's ingredient order if it puts spices or seasonings first.",
 
         "PrepNotes should only include advance-ahead tasks, like defrosting or marinating. Keep it short.",
         "Difficulty and expense are integers 1-5. PrepNotes is short.",
