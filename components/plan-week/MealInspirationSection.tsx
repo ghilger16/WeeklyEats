@@ -12,7 +12,9 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import {
+  CurrentPlannedWeek,
   PLANNED_WEEK_LABELS,
+  PLANNED_WEEK_DISPLAY_NAMES,
   PlannedWeekDayKey,
 } from "../../types/weekPlan";
 import { Meal } from "../../types/meals";
@@ -32,6 +34,7 @@ export type MealPool = {
 type Props = {
   pools: MealPool[];
   orderedDays: PlannedWeekDayKey[];
+  plannedWeek: CurrentPlannedWeek;
   selectedMealId?: Meal["id"] | null;
   activePoolId?: MealPoolId;
   onActivePoolChange?: (poolId: MealPoolId) => void;
@@ -45,6 +48,7 @@ const SWIPE_THRESHOLD = 36;
 export default function MealInspirationSection({
   pools,
   orderedDays,
+  plannedWeek,
   selectedMealId,
   activePoolId,
   onActivePoolChange,
@@ -230,37 +234,65 @@ export default function MealInspirationSection({
 
         {selectedMeal ? (
           <View style={styles.dayPicker}>
-            <View style={styles.dayPickerIcon}>
-              <MaterialCommunityIcons
-                name="calendar-plus"
-                size={24}
-                color={theme.color.accent}
-              />
-            </View>
-            <View style={styles.dayPickerCopy}>
+            <View style={styles.dayPickerHeaderRow}>
+              <View style={styles.dayPickerIcon}>
+                <MaterialCommunityIcons
+                  name="calendar-plus"
+                  size={24}
+                  color={theme.color.accent}
+                />
+              </View>
               <Text style={styles.dayPickerTitle}>Add to your plan</Text>
-              <Text style={styles.dayPickerSubtitle}>
-                Choose a day to plan {selectedMeal.title}.
-              </Text>
-              <View style={styles.dayList}>
-                {orderedDays.map((day) => (
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.dayScroller}
+              contentContainerStyle={styles.dayList}
+              onTouchStart={() => {
+                isChipScrollActiveRef.current = true;
+              }}
+              onTouchEnd={() => {
+                isChipScrollActiveRef.current = false;
+              }}
+              onMomentumScrollEnd={() => {
+                isChipScrollActiveRef.current = false;
+              }}
+            >
+              {orderedDays.map((day) => {
+                const isPlanned = Boolean(plannedWeek[day]);
+                const statusLabel = isPlanned ? "planned" : "not planned";
+                return (
                   <Pressable
                     key={day}
                     accessibilityRole="button"
-                    accessibilityLabel={`Plan ${selectedMeal.title} for ${PLANNED_WEEK_LABELS[day]}`}
+                    accessibilityLabel={`${PLANNED_WEEK_DISPLAY_NAMES[day]}, ${statusLabel}`}
                     onPress={() => onSelectDay(day)}
                     style={({ pressed }) => [
                       styles.dayChip,
+                      isPlanned && styles.dayChipPlanned,
                       pressed && styles.pressed,
                     ]}
                   >
-                    <Text style={styles.dayChipText}>
+                    <Text
+                      style={[
+                        styles.dayChipText,
+                        isPlanned && styles.dayChipTextPlanned,
+                      ]}
+                    >
                       {PLANNED_WEEK_LABELS[day]}
                     </Text>
+                    {isPlanned ? (
+                      <MaterialCommunityIcons
+                        name="check"
+                        size={16}
+                        color={theme.color.subtleInk}
+                      />
+                    ) : null}
                   </Pressable>
-                ))}
-              </View>
-            </View>
+                );
+              })}
+            </ScrollView>
           </View>
         ) : null}
       </View>
@@ -414,9 +446,13 @@ const createStyles = (theme: WeeklyTheme) =>
       borderColor: theme.color.cardOutline,
       backgroundColor: theme.color.surfaceAlt,
       padding: theme.space.md,
-      flexDirection: "row",
+      flexDirection: "column",
       gap: theme.space.md,
-      alignItems: "flex-start",
+    },
+    dayPickerHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
     },
     dayPickerIcon: {
       width: 40,
@@ -429,39 +465,42 @@ const createStyles = (theme: WeeklyTheme) =>
           ? "rgba(255, 75, 145, 0.10)"
           : "rgba(255, 75, 145, 0.08)",
     },
-    dayPickerCopy: {
-      flex: 1,
-      gap: theme.space.xs,
-    },
     dayPickerTitle: {
       color: theme.color.ink,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.bold,
     },
-    dayPickerSubtitle: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      lineHeight: theme.type.size.sm * 1.35,
+    dayScroller: {
+      maxWidth: "100%",
     },
     dayList: {
       flexDirection: "row",
-      flexWrap: "wrap",
-      gap: theme.space.xs,
+      gap: theme.space.md,
+      paddingLeft: theme.space.xs,
+      paddingRight: theme.space.xs,
     },
     dayChip: {
-      minHeight: 30,
-      paddingHorizontal: theme.space.sm,
-      borderRadius: theme.radius.full,
+      width: 64,
+      minHeight: 54,
+      borderRadius: theme.radius.md,
       backgroundColor: theme.color.bg,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
+      borderWidth: 1,
+      borderColor: theme.color.accent,
       alignItems: "center",
       justifyContent: "center",
+      gap: 2,
+    },
+    dayChipPlanned: {
+      backgroundColor: theme.mode === "dark" ? "#222229" : theme.color.surface,
+      borderColor: theme.color.border,
     },
     dayChipText: {
       color: theme.color.accent,
-      fontSize: theme.type.size.xs,
+      fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.bold,
+    },
+    dayChipTextPlanned: {
+      color: theme.color.subtleInk,
     },
     pressed: {
       opacity: 0.82,

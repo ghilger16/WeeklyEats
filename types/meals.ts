@@ -1,5 +1,34 @@
 export type CostTier = 1 | 2 | 3;
 
+export type ShoppingCategory =
+  | "produce"
+  | "meat"
+  | "seafood"
+  | "dairy"
+  | "bakery"
+  | "deli"
+  | "frozen"
+  | "pantry"
+  | "canned"
+  | "pastaAndRice"
+  | "spices"
+  | "condiments"
+  | "baking"
+  | "beverages"
+  | "snacks"
+  | "household"
+  | "other";
+
+export type IngredientType = "keyIngredient" | "pantryStaple";
+
+export type Ingredient = {
+  name: string;
+  category: ShoppingCategory;
+  ingredientType: IngredientType;
+};
+
+export type MealIngredient = Ingredient | string;
+
 export type Meal = {
   id: string;
   title: string;
@@ -16,7 +45,7 @@ export type Meal = {
   freezerUnit?: string;
   freezerAddedAt?: string;
   recipeUrl?: string;
-  ingredients?: string[];
+  ingredients?: MealIngredient[];
   difficulty?: number;
   expense?: number;
   prepNotes?: string;

@@ -1431,6 +1431,7 @@ export default function PlanWeekModal() {
               <MealInspirationSection
                 pools={mealPools}
                 orderedDays={sessionDays}
+                plannedWeek={plannedWeek}
                 selectedMealId={selectedSavedIdeaMealId}
                 activePoolId={activeInspirationPoolId}
                 onActivePoolChange={setActiveInspirationPoolId}
@@ -1443,6 +1444,11 @@ export default function PlanWeekModal() {
                 {sessionDays.map((day, index) => {
                   const plannedMeal = getPlannedMealForDay(day);
                   const sides = daySidesMap[day] ?? [];
+                  const isEatOutPlan = plannedMeal?.id === EAT_OUT_MEAL_ID;
+                  const eatOutSubtitle =
+                    isEatOutPlan && plannedMeal.title !== EAT_OUT_MEAL.title
+                      ? plannedMeal.title
+                      : null;
                   const plannedMealLabel = plannedMeal
                     ? [plannedMeal.title, ...sides].join(" • ")
                     : "Unplanned";
@@ -1504,22 +1510,45 @@ export default function PlanWeekModal() {
                               </Text>
                             )}
                           </View>
-                          <View style={styles.weekRowMeal}>
-                            {plannedMeal ? (
+                          <View
+                            style={[
+                              styles.weekRowMeal,
+                              isEatOutPlan && styles.weekRowMealEatOut,
+                            ]}
+                          >
+                            {isEatOutPlan ? (
+                              <View style={styles.weekRowEatOutStack}>
+                                <View style={styles.weekRowEatOutBadge}>
+                                  <Text style={styles.weekRowEatOutBadgeText}>
+                                    Eat Out
+                                  </Text>
+                                </View>
+                                {eatOutSubtitle ? (
+                                  <Text
+                                    style={styles.weekRowEatOutSubtitle}
+                                    numberOfLines={1}
+                                  >
+                                    {eatOutSubtitle}
+                                  </Text>
+                                ) : null}
+                              </View>
+                            ) : plannedMeal ? (
                               <Text style={styles.weekRowEmoji}>
                                 {plannedMeal.emoji}
                               </Text>
                             ) : null}
-                            <Text
-                              style={[
-                                styles.weekRowTitle,
-                                !plannedMeal && styles.weekRowTitleMuted,
-                              ]}
-                              numberOfLines={1}
-                              ellipsizeMode="tail"
-                            >
-                              {plannedMealLabel}
-                            </Text>
+                            {!isEatOutPlan ? (
+                              <Text
+                                style={[
+                                  styles.weekRowTitle,
+                                  !plannedMeal && styles.weekRowTitleMuted,
+                                ]}
+                                numberOfLines={1}
+                                ellipsizeMode="tail"
+                              >
+                                {plannedMealLabel}
+                              </Text>
+                            ) : null}
                           </View>
                           <MaterialCommunityIcons
                             name="chevron-right"
@@ -1990,6 +2019,36 @@ const createStyles = (theme: WeeklyTheme) =>
       flexDirection: "row",
       alignItems: "center",
       gap: theme.space.sm,
+    },
+    weekRowMealEatOut: {
+      justifyContent: "center",
+    },
+    weekRowEatOutStack: {
+      flex: 1,
+      alignItems: "center",
+      gap: theme.space.xs,
+    },
+    weekRowEatOutBadge: {
+      borderRadius: theme.radius.full,
+      backgroundColor:
+        theme.mode === "dark"
+          ? "rgba(255, 75, 145, 0.16)"
+          : "rgba(255, 75, 145, 0.1)",
+      paddingHorizontal: theme.space.lg,
+      paddingVertical: theme.space.xs,
+    },
+    weekRowEatOutBadgeText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+      letterSpacing: 0,
+    },
+    weekRowEatOutSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+      textAlign: "center",
+      maxWidth: "100%",
     },
     weekRowEmoji: {
       width: 34,

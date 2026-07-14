@@ -47,6 +47,22 @@ import {
 const getMealRatingValue = (meal: Meal) =>
   typeof meal.rating === "number" ? meal.rating : 0;
 
+const hasFiveStarRating = (meal: Meal) => {
+  if (getMealRatingValue(meal) === 5) {
+    return true;
+  }
+  const familyRatings = Object.values(meal.familyRatings ?? {})
+    .map((value) => {
+      if (value === 3) return 5;
+      if (value === 2) return 3;
+      if (value === 1) return 1;
+      return 0;
+    })
+    .filter((value) => value > 0);
+
+  return familyRatings.length > 0 && familyRatings.every((value) => value === 5);
+};
+
 const getMealCostTier = (meal: Meal) => {
   if (typeof meal.expense === "number") {
     if (meal.expense <= 2) {
@@ -61,6 +77,22 @@ const getMealCostTier = (meal: Meal) => {
   return Math.min(Math.max(planned, 1), 3);
 };
 
+const getMealRecencyTimestamp = (meal: Meal) => {
+  if (meal.updatedAt) {
+    const time = Date.parse(meal.updatedAt);
+    if (!Number.isNaN(time)) {
+      return time;
+    }
+  }
+  if (meal.createdAt) {
+    const time = Date.parse(meal.createdAt);
+    if (!Number.isNaN(time)) {
+      return time;
+    }
+  }
+  return 0;
+};
+
 const getMealCreatedTimestamp = (meal: Meal) => {
   if (meal.createdAt) {
     const time = Date.parse(meal.createdAt);
@@ -68,13 +100,7 @@ const getMealCreatedTimestamp = (meal: Meal) => {
       return time;
     }
   }
-  if (meal.updatedAt) {
-    const time = Date.parse(meal.updatedAt);
-    if (!Number.isNaN(time)) {
-      return time;
-    }
-  }
-  return 0;
+  return getMealRecencyTimestamp(meal);
 };
 
 const getMealDifficultyValue = (meal: Meal) => {
@@ -456,15 +482,36 @@ export default function MealsScreen() {
     [meals]
   );
 
-  const servedRankMap = useMemo(() => {
-    const sorted = meals
-      .filter((meal) => (meal.servedCount ?? 0) > 0)
-      .sort((a, b) => (b.servedCount ?? 0) - (a.servedCount ?? 0));
-    const map = new Map<string, number>();
-    sorted.forEach((meal, index) => {
-      map.set(meal.id, index + 1);
-    });
-    return map;
+  const galaxyMealId = useMemo(() => {
+    const highestServedCount = meals.reduce(
+      (highest, meal) => Math.max(highest, getMealServedCount(meal)),
+      0
+    );
+    if (highestServedCount <= 0) {
+      return null;
+    }
+
+    const eligibleMeals = meals.filter(
+      (meal) =>
+        hasFiveStarRating(meal) &&
+        getMealServedCount(meal) === highestServedCount
+    );
+    if (!eligibleMeals.length) {
+      return null;
+    }
+
+    return [...eligibleMeals].sort((a, b) => {
+      const servedDelta = getMealServedCount(b) - getMealServedCount(a);
+      if (servedDelta !== 0) {
+        return servedDelta;
+      }
+      const recencyDelta =
+        getMealRecencyTimestamp(b) - getMealRecencyTimestamp(a);
+      if (recencyDelta !== 0) {
+        return recencyDelta;
+      }
+      return a.title.localeCompare(b.title);
+    })[0]?.id ?? null;
   }, [meals]);
 
   const openFreezerModal = useCallback((meal: Meal) => {
@@ -579,7 +626,7 @@ export default function MealsScreen() {
           onSuggestNextWeek={
             isFreezerTab ? undefined : () => handleSuggestNextWeek(item)
           }
-          servedRank={servedRankMap.get(item.id)}
+          isGalaxyMeal={item.id === galaxyMealId}
           displayOptions={displayOptions}
         />
       );
@@ -591,7 +638,7 @@ export default function MealsScreen() {
       handleRemoveFromFreezer,
       onOpenMeal,
       openFreezerModal,
-      servedRankMap,
+      galaxyMealId,
     ]
   );
 

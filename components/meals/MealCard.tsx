@@ -16,7 +16,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
-import { FamilyRatingValue, Meal, MealDraft } from "../../types/meals";
+import {
+  FamilyRatingValue,
+  Ingredient,
+  IngredientType,
+  Meal,
+  MealDraft,
+  ShoppingCategory,
+} from "../../types/meals";
 import { useFeatureFlag } from "../../hooks/useFeatureFlags";
 import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
 import { supportsRecipeAutoFill } from "../../utils/recipeAutoFillCapability";
@@ -43,7 +50,38 @@ type MealFormValues = MealDraft;
 
 const SLIDER_STEPS = 5;
 
-type IngredientValue = string | { name?: unknown; category?: unknown };
+type IngredientValue =
+  | string
+  | { name?: unknown; category?: unknown; ingredientType?: unknown };
+
+const SHOPPING_CATEGORIES: ShoppingCategory[] = [
+  "produce",
+  "meat",
+  "seafood",
+  "dairy",
+  "bakery",
+  "deli",
+  "frozen",
+  "pantry",
+  "canned",
+  "pastaAndRice",
+  "spices",
+  "condiments",
+  "baking",
+  "beverages",
+  "snacks",
+  "household",
+  "other",
+];
+
+const normalizeCategory = (value: unknown): ShoppingCategory =>
+  typeof value === "string" &&
+  SHOPPING_CATEGORIES.includes(value as ShoppingCategory)
+    ? (value as ShoppingCategory)
+    : "other";
+
+const normalizeIngredientType = (value: unknown): IngredientType =>
+  value === "pantryStaple" ? "pantryStaple" : "keyIngredient";
 
 const clampSliderValue = (value: number) =>
   Math.min(Math.max(Math.round(value), 1), SLIDER_STEPS);
@@ -109,6 +147,44 @@ const getIngredientName = (ingredient: IngredientValue) => {
   return "";
 };
 
+const normalizeIngredientValue = (
+  ingredient: IngredientValue
+): Ingredient | null => {
+  const name = getIngredientName(ingredient);
+  if (!name) {
+    return null;
+  }
+  if (typeof ingredient === "string") {
+    return {
+      name,
+      category: "other",
+      ingredientType: "keyIngredient",
+    };
+  }
+  return {
+    name,
+    category: normalizeCategory(ingredient.category),
+    ingredientType: normalizeIngredientType(ingredient.ingredientType),
+  };
+};
+
+const isIngredient = (ingredient: Ingredient | null): ingredient is Ingredient =>
+  Boolean(ingredient);
+
+const createManualIngredient = (name: string): Ingredient => ({
+  name,
+  category: "other",
+  ingredientType: "keyIngredient",
+});
+
+const toggleIngredientType = (ingredient: Ingredient): Ingredient => ({
+  ...ingredient,
+  ingredientType:
+    ingredient.ingredientType === "pantryStaple"
+      ? "keyIngredient"
+      : "pantryStaple",
+});
+
 const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   id: meal.id,
   title: meal.title ?? "",
@@ -129,8 +205,8 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   recipeUrl: meal.recipeUrl ?? "",
   ingredients: meal.ingredients
     ? (meal.ingredients as IngredientValue[])
-        .map(getIngredientName)
-        .filter(Boolean)
+        .map(normalizeIngredientValue)
+        .filter(isIngredient)
     : [],
   difficulty: snapToLevelValue(meal.difficulty ?? 3, DIFFICULTY_LEVELS),
   expense: snapToLevelValue(meal.expense ?? 3, EXPENSE_LEVELS),
@@ -344,7 +420,10 @@ export default function MealCard({
       return;
     }
 
-    updateField("ingredients", [...(form.ingredients ?? []), trimmed]);
+    updateField("ingredients", [
+      ...(form.ingredients ?? []),
+      createManualIngredient(trimmed),
+    ]);
     setNewIngredient("");
     setIsIngredientDeleteMode(false);
   }, [form.ingredients, newIngredient, updateField]);
@@ -382,13 +461,62 @@ export default function MealCard({
     [form.ingredients, updateField]
   );
 
-  const hasIngredients = (form.ingredients ?? []).length > 0;
+  const normalizedIngredientEntries = useMemo(
+    () =>
+      (form.ingredients ?? [])
+        .map((ingredient, index) => ({
+          ingredient: normalizeIngredientValue(ingredient as IngredientValue),
+          index,
+        }))
+        .filter(
+          (
+            entry
+          ): entry is {
+            ingredient: Ingredient;
+            index: number;
+          } => Boolean(entry.ingredient)
+        ),
+    [form.ingredients]
+  );
+  const keyIngredientEntries = useMemo(
+    () =>
+      normalizedIngredientEntries.filter(
+        (entry) => entry.ingredient.ingredientType === "keyIngredient"
+      ),
+    [normalizedIngredientEntries]
+  );
+  const pantryStapleEntries = useMemo(
+    () =>
+      normalizedIngredientEntries.filter(
+        (entry) => entry.ingredient.ingredientType === "pantryStaple"
+      ),
+    [normalizedIngredientEntries]
+  );
+  const hasIngredients = normalizedIngredientEntries.length > 0;
   const handleToggleIngredientDeleteMode = useCallback(() => {
     if (!hasIngredients) {
       return;
     }
     setIsIngredientDeleteMode((prev) => !prev);
   }, [hasIngredients]);
+
+  const handleToggleIngredientType = useCallback(
+    (index: number) => {
+      updateField(
+        "ingredients",
+        (form.ingredients ?? []).map((ingredient, i) => {
+          if (i !== index) {
+            return ingredient;
+          }
+          const normalized = normalizeIngredientValue(
+            ingredient as IngredientValue
+          );
+          return normalized ? toggleIngredientType(normalized) : ingredient;
+        })
+      );
+    },
+    [form.ingredients, updateField]
+  );
 
   const handleAutoFillPress = useCallback(async () => {
     clearError();
@@ -408,8 +536,8 @@ export default function MealCard({
 
     const normalizedIngredients = Array.isArray(outcome.data.ingredients)
       ? (outcome.data.ingredients as IngredientValue[])
-          .map(getIngredientName)
-          .filter(Boolean)
+          .map(normalizeIngredientValue)
+          .filter(isIngredient)
       : [];
 
     setAutoFillDraft({
@@ -467,8 +595,10 @@ export default function MealCard({
 
       const { id: _, updatedAt: __, createdAt: ___, ...rest } = values;
       const sanitizedIngredients = (rest.ingredients ?? [])
-        .map((ingredient) => getIngredientName(ingredient as IngredientValue))
-        .filter(Boolean);
+        .map((ingredient) =>
+          normalizeIngredientValue(ingredient as IngredientValue)
+        )
+        .filter(isIngredient);
       const sanitizedPrepNotes = prepNotesValue.trim();
       const normalizedFamilyRatings =
         rest.familyRatings && Object.keys(rest.familyRatings).length > 0
@@ -508,8 +638,8 @@ export default function MealCard({
     }
 
     const cleanedIngredients = autoFillDraft.ingredients
-      .map((ingredient) => getIngredientName(ingredient as IngredientValue))
-      .filter(Boolean);
+      .map((ingredient) => normalizeIngredientValue(ingredient as IngredientValue))
+      .filter(isIngredient);
     if (cleanedIngredients.length > 0) {
       nextForm.ingredients = cleanedIngredients;
     }
@@ -585,6 +715,37 @@ export default function MealCard({
         : form.emoji,
     [autoFillDraft?.title, form.emoji]
   );
+  const autoFillIngredientEntries = useMemo(
+    () =>
+      (autoFillDraft?.ingredients ?? [])
+        .map((ingredient, index) => ({
+          ingredient: normalizeIngredientValue(ingredient as IngredientValue),
+          index,
+        }))
+        .filter(
+          (
+            entry
+          ): entry is {
+            ingredient: Ingredient;
+            index: number;
+          } => Boolean(entry.ingredient)
+        ),
+    [autoFillDraft?.ingredients]
+  );
+  const autoFillKeyIngredientEntries = useMemo(
+    () =>
+      autoFillIngredientEntries.filter(
+        (entry) => entry.ingredient.ingredientType === "keyIngredient"
+      ),
+    [autoFillIngredientEntries]
+  );
+  const autoFillPantryStapleEntries = useMemo(
+    () =>
+      autoFillIngredientEntries.filter(
+        (entry) => entry.ingredient.ingredientType === "pantryStaple"
+      ),
+    [autoFillIngredientEntries]
+  );
 
   const updateAutoFillDraft = useCallback(
     <K extends keyof AutoFillPreviewDraft>(
@@ -605,7 +766,7 @@ export default function MealCard({
       prev
         ? {
             ...prev,
-            ingredients: [...prev.ingredients, trimmed],
+            ingredients: [...prev.ingredients, createManualIngredient(trimmed)],
           }
         : prev
     );
@@ -619,6 +780,25 @@ export default function MealCard({
         ? {
             ...prev,
             ingredients: prev.ingredients.filter((_, i) => i !== index),
+          }
+        : prev
+    );
+  }, []);
+
+  const handleToggleAutoFillIngredientType = useCallback((index: number) => {
+    setAutoFillDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            ingredients: prev.ingredients.map((ingredient, i) => {
+              if (i !== index) {
+                return ingredient;
+              }
+              const normalized = normalizeIngredientValue(
+                ingredient as IngredientValue
+              );
+              return normalized ? toggleIngredientType(normalized) : ingredient;
+            }),
           }
         : prev
     );
@@ -810,48 +990,101 @@ export default function MealCard({
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Key Ingredients</Text>
-            <View style={styles.ingredientsWrapper}>
-              {(form.ingredients ?? []).length === 0 ? (
-                <Text style={styles.ingredientsEmpty}>
-                  Add a few highlights for this meal.
+            {keyIngredientEntries.length || !hasIngredients ? (
+              <>
+                <Text style={styles.sectionLabel}>KEY INGREDIENTS</Text>
+                <View style={styles.ingredientsWrapper}>
+                  {!hasIngredients ? (
+                    <Text style={styles.ingredientsEmpty}>
+                      Add a few highlights for this meal.
+                    </Text>
+                  ) : (
+                    keyIngredientEntries.map(({ ingredient, index }) => {
+                      const ingredientName = ingredient.name;
+                      return (
+                        <Pressable
+                          key={`${ingredientName}-${index}`}
+                          style={({ pressed }) => [
+                            styles.chip,
+                            isIngredientDeleteMode && styles.chipDeleteMode,
+                            pressed &&
+                              isIngredientDeleteMode &&
+                              styles.chipPressed,
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            isIngredientDeleteMode
+                              ? `Remove ${ingredientName}`
+                              : `Move ${ingredientName} to Pantry Staples`
+                          }
+                          accessibilityHint={
+                            isIngredientDeleteMode
+                              ? "Double tap to remove ingredient"
+                              : "Double tap to move this ingredient to Pantry Staples"
+                          }
+                          onPress={() => {
+                            if (isIngredientDeleteMode) {
+                              handleRemoveIngredient(index);
+                              return;
+                            }
+                            handleToggleIngredientType(index);
+                          }}
+                        >
+                          <Text style={styles.chipText}>{ingredientName}</Text>
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </View>
+              </>
+            ) : null}
+            {pantryStapleEntries.length ? (
+              <>
+                <Text style={[styles.sectionLabel, styles.pantrySectionLabel]}>
+                  PANTRY STAPLES
                 </Text>
-              ) : (
-                (form.ingredients ?? []).map((ingredient, index) => {
-                  const ingredientName = getIngredientName(
-                    ingredient as IngredientValue
-                  );
-                  return (
-                    <Pressable
-                      key={`${ingredientName}-${index}`}
-                      style={({ pressed }) => [
-                        styles.chip,
-                        isIngredientDeleteMode && styles.chipDeleteMode,
-                        pressed && isIngredientDeleteMode && styles.chipPressed,
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        isIngredientDeleteMode
-                          ? `Remove ${ingredientName}`
-                          : ingredientName
-                      }
-                      accessibilityHint={
-                        isIngredientDeleteMode
-                          ? "Double tap to remove ingredient"
-                          : "Enable delete mode to remove ingredients"
-                      }
-                      onPress={() => {
-                        if (isIngredientDeleteMode) {
-                          handleRemoveIngredient(index);
+                <View style={styles.ingredientsWrapper}>
+                  {pantryStapleEntries.map(({ ingredient, index }) => {
+                    const ingredientName = ingredient.name;
+                    return (
+                      <Pressable
+                        key={`${ingredientName}-${index}`}
+                        style={({ pressed }) => [
+                          styles.chip,
+                          styles.pantryChip,
+                          isIngredientDeleteMode && styles.chipDeleteMode,
+                          pressed &&
+                            isIngredientDeleteMode &&
+                            styles.chipPressed,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          isIngredientDeleteMode
+                            ? `Remove ${ingredientName}`
+                            : `Move ${ingredientName} to Key Ingredients`
                         }
-                      }}
-                    >
-                      <Text style={styles.chipText}>{ingredientName}</Text>
-                    </Pressable>
-                  );
-                })
-              )}
-            </View>
+                        accessibilityHint={
+                          isIngredientDeleteMode
+                            ? "Double tap to remove ingredient"
+                            : "Double tap to move this ingredient to Key Ingredients"
+                        }
+                        onPress={() => {
+                          if (isIngredientDeleteMode) {
+                            handleRemoveIngredient(index);
+                            return;
+                          }
+                          handleToggleIngredientType(index);
+                        }}
+                      >
+                        <Text style={[styles.chipText, styles.pantryChipText]}>
+                          {ingredientName}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            ) : null}
             <View style={styles.addIngredientRow}>
               <TextInput
                 placeholder="Add ingredient"
@@ -1097,48 +1330,112 @@ export default function MealCard({
                 </View>
 
                 <View style={styles.autoFillEditorSection}>
-                  <Text style={styles.autoFillFieldLabel}>Key Ingredients</Text>
-                  <View style={styles.ingredientsWrapper}>
-                    {autoFillDraft?.ingredients.length ? (
-                      autoFillDraft.ingredients.map((ingredient, index) => {
-                        const ingredientName = getIngredientName(
-                          ingredient as IngredientValue
-                        );
-                        return (
-                          <Pressable
-                            key={`${ingredientName}-${index}`}
-                            style={({ pressed }) => [
-                              styles.chip,
-                              isAutoFillIngredientDeleteMode &&
-                                styles.chipDeleteMode,
-                              pressed &&
-                                isAutoFillIngredientDeleteMode &&
-                                styles.chipPressed,
-                            ]}
-                            accessibilityRole="button"
-                            accessibilityLabel={
-                              isAutoFillIngredientDeleteMode
-                                ? `Remove ${ingredientName}`
-                                : ingredientName
-                            }
-                            onPress={() => {
-                              if (isAutoFillIngredientDeleteMode) {
-                                handleRemoveAutoFillIngredient(index);
-                              }
-                            }}
-                          >
-                            <Text style={styles.chipText}>
-                              {ingredientName}
-                            </Text>
-                          </Pressable>
-                        );
-                      })
-                    ) : (
-                      <Text style={styles.ingredientsEmpty}>
-                        Add a few highlights for this meal.
+                  {autoFillKeyIngredientEntries.length ||
+                  !autoFillIngredientEntries.length ? (
+                    <>
+                      <Text style={styles.autoFillFieldLabel}>
+                        KEY INGREDIENTS
                       </Text>
-                    )}
-                  </View>
+                      <View style={styles.ingredientsWrapper}>
+                        {autoFillIngredientEntries.length ? (
+                          autoFillKeyIngredientEntries.map(
+                            ({ ingredient, index }) => {
+                              const ingredientName = ingredient.name;
+                              return (
+                                <Pressable
+                                  key={`${ingredientName}-${index}`}
+                                  style={({ pressed }) => [
+                                    styles.chip,
+                                    isAutoFillIngredientDeleteMode &&
+                                      styles.chipDeleteMode,
+                                    pressed &&
+                                      isAutoFillIngredientDeleteMode &&
+                                      styles.chipPressed,
+                                  ]}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={
+                                    isAutoFillIngredientDeleteMode
+                                      ? `Remove ${ingredientName}`
+                                      : `Move ${ingredientName} to Pantry Staples`
+                                  }
+                                  onPress={() => {
+                                    if (isAutoFillIngredientDeleteMode) {
+                                      handleRemoveAutoFillIngredient(index);
+                                      return;
+                                    }
+                                    handleToggleAutoFillIngredientType(index);
+                                  }}
+                                >
+                                  <Text style={styles.chipText}>
+                                    {ingredientName}
+                                  </Text>
+                                </Pressable>
+                              );
+                            }
+                          )
+                        ) : (
+                          <Text style={styles.ingredientsEmpty}>
+                            Add a few highlights for this meal.
+                          </Text>
+                        )}
+                      </View>
+                    </>
+                  ) : null}
+                  {autoFillPantryStapleEntries.length ? (
+                    <>
+                      <Text
+                        style={[
+                          styles.autoFillFieldLabel,
+                          styles.pantrySectionLabel,
+                        ]}
+                      >
+                        PANTRY STAPLES
+                      </Text>
+                      <View style={styles.ingredientsWrapper}>
+                        {autoFillPantryStapleEntries.map(
+                          ({ ingredient, index }) => {
+                            const ingredientName = ingredient.name;
+                            return (
+                              <Pressable
+                                key={`${ingredientName}-${index}`}
+                                style={({ pressed }) => [
+                                  styles.chip,
+                                  styles.pantryChip,
+                                  isAutoFillIngredientDeleteMode &&
+                                    styles.chipDeleteMode,
+                                  pressed &&
+                                    isAutoFillIngredientDeleteMode &&
+                                    styles.chipPressed,
+                                ]}
+                                accessibilityRole="button"
+                                accessibilityLabel={
+                                  isAutoFillIngredientDeleteMode
+                                    ? `Remove ${ingredientName}`
+                                    : `Move ${ingredientName} to Key Ingredients`
+                                }
+                                onPress={() => {
+                                  if (isAutoFillIngredientDeleteMode) {
+                                    handleRemoveAutoFillIngredient(index);
+                                    return;
+                                  }
+                                  handleToggleAutoFillIngredientType(index);
+                                }}
+                              >
+                                <Text
+                                  style={[
+                                    styles.chipText,
+                                    styles.pantryChipText,
+                                  ]}
+                                >
+                                  {ingredientName}
+                                </Text>
+                              </Pressable>
+                            );
+                          }
+                        )}
+                      </View>
+                    </>
+                  ) : null}
                   <View style={styles.addIngredientRow}>
                     <TextInput
                       placeholder="Add ingredient"
@@ -1514,6 +1811,10 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.base,
     },
+    pantrySectionLabel: {
+      color: theme.color.subtleInk,
+      marginTop: theme.space.sm,
+    },
     chip: {
       backgroundColor: theme.color.surface,
       borderRadius: theme.radius.md,
@@ -1521,6 +1822,10 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingVertical: 6,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
+    },
+    pantryChip: {
+      backgroundColor: theme.color.surfaceAlt,
+      borderColor: theme.color.cardOutline,
     },
     chipDeleteMode: {
       borderColor: theme.color.danger,
@@ -1532,6 +1837,9 @@ const createStyles = (theme: WeeklyTheme) =>
     chipText: {
       color: theme.color.ink,
       fontSize: theme.type.size.base,
+    },
+    pantryChipText: {
+      color: theme.color.subtleInk,
     },
     addIngredientRow: {
       flexDirection: "row",

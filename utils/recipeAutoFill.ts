@@ -1,6 +1,8 @@
+import { Ingredient } from "../types/meals";
+
 export type RecipeAutoFillResult = {
   title?: string;
-  ingredients?: string[];
+  ingredients?: Ingredient[];
   difficulty?: number;
   expense?: number;
   prepNotes?: string;

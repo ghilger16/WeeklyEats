@@ -41,6 +41,11 @@ const CATEGORY_ORDER = {
   spices: 99,
 };
 
+const INGREDIENT_TYPE_ORDER = {
+  keyIngredient: 1,
+  pantryStaple: 2,
+};
+
 const SPICE_WORDS = [
   "salt",
   "pepper",
@@ -66,6 +71,51 @@ const SPICE_WORDS = [
   "cayenne",
   "cardamom",
   "cloves",
+  "bay leaves",
+];
+
+const PANTRY_STAPLE_WORDS = [
+  "olive oil",
+  "extra virgin olive oil",
+  "vegetable oil",
+  "canola oil",
+  "avocado oil",
+  "cooking oil",
+  "cooking spray",
+  "white vinegar",
+  "apple cider vinegar",
+  "red wine vinegar",
+  "white wine vinegar",
+  "sherry vinegar",
+  "rice vinegar",
+  "balsamic vinegar",
+  "salt",
+  "sea salt",
+  "kosher salt",
+  "black pepper",
+  "ground pepper",
+  "paprika",
+  "cumin",
+  "ground coriander",
+  "turmeric",
+  "garam masala",
+  "oregano",
+  "dried thyme",
+  "dried basil",
+  "dried parsley",
+  "dried rosemary",
+  "chili powder",
+  "chilli powder",
+  "garlic powder",
+  "onion powder",
+  "red pepper flakes",
+  "crushed red pepper",
+  "cinnamon",
+  "nutmeg",
+  "cayenne",
+  "cardamom",
+  "cloves",
+  "bay leaf",
   "bay leaves",
 ];
 
@@ -127,6 +177,9 @@ const normalizeCategory = (category) => {
   return "other";
 };
 
+const normalizeIngredientType = (value) =>
+  value === "pantryStaple" ? "pantryStaple" : "keyIngredient";
+
 const normalizeIngredient = (item) => {
   if (typeof item === "string") {
     const name = cleanIngredient(item);
@@ -135,6 +188,7 @@ const normalizeIngredient = (item) => {
     return {
       name,
       category: "other",
+      ingredientType: "keyIngredient",
     };
   }
 
@@ -148,17 +202,48 @@ const normalizeIngredient = (item) => {
   return {
     name,
     category: normalizeCategory(item.category),
+    ingredientType: normalizeIngredientType(item.ingredientType),
   };
 };
 
 const isSpiceOrSeasoning = (ingredient) => {
   const value = ingredient.name.toLowerCase();
 
-  return (
-    ingredient.category === "spices" ||
-    SPICE_WORDS.some((word) => value.includes(word))
+  if (ingredient.category === "spices") {
+    return true;
+  }
+
+  if (ingredient.category === "produce") {
+    return false;
+  }
+
+  return SPICE_WORDS.some((word) => value.includes(word));
+};
+
+const isLikelyPantryStaple = (ingredient) => {
+  const value = ingredient.name.toLowerCase();
+
+  if (ingredient.category === "spices") {
+    return true;
+  }
+
+  if (ingredient.category === "produce") {
+    return false;
+  }
+
+  return PANTRY_STAPLE_WORDS.some(
+    (word) => value === word || value.includes(word),
   );
 };
+
+const normalizeIngredientGrouping = (ingredient) => ({
+  ...ingredient,
+  ingredientType:
+    ingredient.ingredientType === "pantryStaple" ||
+    isLikelyPantryStaple(ingredient)
+      ? "pantryStaple"
+      : "keyIngredient",
+});
 
 const sortIngredientsForShopping = (ingredients) =>
   ingredients
@@ -167,7 +252,19 @@ const sortIngredientsForShopping = (ingredients) =>
         ? { ...ingredient, category: "spices" }
         : ingredient,
     )
+    .map(normalizeIngredientGrouping)
     .sort((a, b) => {
+      const aTypeOrder =
+        INGREDIENT_TYPE_ORDER[a.ingredientType] ??
+        INGREDIENT_TYPE_ORDER.keyIngredient;
+      const bTypeOrder =
+        INGREDIENT_TYPE_ORDER[b.ingredientType] ??
+        INGREDIENT_TYPE_ORDER.keyIngredient;
+
+      if (aTypeOrder !== bTypeOrder) {
+        return aTypeOrder - bTypeOrder;
+      }
+
       const aOrder = CATEGORY_ORDER[a.category] ?? CATEGORY_ORDER.other;
       const bOrder = CATEGORY_ORDER[b.category] ?? CATEGORY_ORDER.other;
 
@@ -201,7 +298,7 @@ const buildOpenAiPayload = (url, text) => ({
         "If the recipe is 'Simple One Skillet Chicken Alfredo Pasta' or the URL contains 'simple-one-skillet-chicken-alfredo-pasta', title must be 'Chicken Alfredo Pasta'.",
         "More title examples: 'Creamy White Chicken Chili' -> 'White Chicken Chili'; 'Good Old Fashioned Pancakes' -> 'Pancakes'; 'Easy Sheet Pan Chicken Fajitas' -> 'Chicken Fajitas'.",
 
-        "Ingredients must be returned as objects with this shape: { name: string, category: string }.",
+        "Ingredients must be returned as objects with this shape: { name: string, category: string, ingredientType: string }.",
         "Ingredient names must be names only: no quantities, no units, no prep notes.",
         "Return all ingredients required to make the recipe itself.",
         "Include ingredients from cooking sections like Marinade, Sauce, Curry, Filling, Topping, Dressing, and Main.",
@@ -220,6 +317,14 @@ const buildOpenAiPayload = (url, text) => ({
 
         "Category must be one of these exact values only:",
         SHOPPING_CATEGORIES.join(", "),
+
+        "ingredientType must be exactly one of these values only: keyIngredient, pantryStaple.",
+        "Use keyIngredient for the primary foods, proteins, produce, dairy, grains, canned goods, sauces, and other ingredients that define the meal or are reasonably likely to require shopping.",
+        "Use pantryStaple only for ingredients that many households commonly keep available, especially cooking oils, basic vinegars, salt, pepper, dried herbs, dried spices, seasoning powders, and cooking spray.",
+        "Classify fresh herbs such as fresh cilantro, parsley, basil, rosemary, and thyme as keyIngredient, not pantryStaple.",
+        "Classify fresh garlic, fresh ginger, onions, lemons, and limes as keyIngredient.",
+        "Do not classify an ingredient as pantryStaple merely because its grocery category is pantry, condiments, or baking.",
+        "When uncertain, use keyIngredient.",
 
         "Choose the grocery-store location category where the shopper would most likely find the item.",
         "Use produce for fresh fruits, vegetables, garlic, onions, fresh herbs, lemons, and limes.",

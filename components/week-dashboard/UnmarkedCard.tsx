@@ -10,21 +10,19 @@ import {
 import { Meal } from "../../types/meals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
-import {
-  SERVED_ACTIONS,
-  type ServedAction,
-} from "./servedActions";
 
 type UnmarkedCardProps = {
   meal: Meal;
   dateLabel: string;
-  onSelectOutcome?: (outcome: ServedAction["value"]) => Promise<void> | void;
+  onMarkServed?: () => Promise<void> | void;
+  onHadSomethingDifferent?: () => void;
 };
 
 export default function UnmarkedCard({
   meal,
   dateLabel,
-  onSelectOutcome,
+  onMarkServed,
+  onHadSomethingDifferent,
 }: UnmarkedCardProps) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -40,9 +38,9 @@ export default function UnmarkedCard({
     });
   };
 
-  const handleSelectOutcome = async (value: ServedAction["value"]) => {
+  const handleMarkServed = async () => {
     try {
-      await onSelectOutcome?.(value);
+      await onMarkServed?.();
     } catch (error) {
       console.warn("[UnmarkedCard] Failed to record outcome", error);
     }
@@ -61,7 +59,7 @@ export default function UnmarkedCard({
         <View style={styles.topRow}>
           <Text style={styles.date}>{dateLabel}</Text>
           <View style={styles.statusTag}>
-            <Text style={styles.statusTagText}>Not served</Text>
+            <Text style={styles.statusTagText}>Pending</Text>
           </View>
         </View>
 
@@ -74,25 +72,38 @@ export default function UnmarkedCard({
       </Pressable>
 
       <View style={styles.actionList}>
-        {SERVED_ACTIONS.map((action) => (
-          <Pressable
-            key={action.value}
-            style={({ pressed }) => [
-              styles.actionButton,
-              pressed && styles.actionButtonPressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={action.label}
-            onPress={() => handleSelectOutcome(action.value)}
-          >
-            <MaterialCommunityIcons
-              name={action.icon}
-              size={18}
-              color={theme.color.ink}
-            />
-            <Text style={styles.actionButtonText}>{action.label}</Text>
-          </Pressable>
-        ))}
+        <Pressable
+          style={({ pressed }) => [
+            styles.actionButton,
+            pressed && styles.actionButtonPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Served"
+          onPress={handleMarkServed}
+        >
+          <MaterialCommunityIcons
+            name="check-circle"
+            size={18}
+            color={theme.color.ink}
+          />
+          <Text style={styles.actionButtonText}>Served</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.actionButton,
+            pressed && styles.actionButtonPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Had Something Different"
+          onPress={onHadSomethingDifferent}
+        >
+          <MaterialCommunityIcons
+            name="silverware-fork-knife"
+            size={18}
+            color={theme.color.ink}
+          />
+          <Text style={styles.actionButtonText}>Had Something Different</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -132,7 +143,7 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
     },
     statusTagText: {
-      color: theme.color.warning,
+      color: theme.color.subtleInk,
       fontSize: theme.type.size.xs,
       fontWeight: theme.type.weight.medium,
       textTransform: "uppercase",
@@ -175,4 +186,3 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.medium,
     },
   });
-

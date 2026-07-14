@@ -34,7 +34,7 @@ type Props = {
   onFreezerPress?: () => void;
   onRemoveFromFreezer?: () => void;
   onSuggestNextWeek?: () => void;
-  servedRank?: number;
+  isGalaxyMeal?: boolean;
   displayOptions?: {
     showDifficulty?: boolean;
     showExpense?: boolean;
@@ -76,7 +76,7 @@ const MealListItem = memo(function MealListItem({
   onFreezerPress,
   onRemoveFromFreezer,
   onSuggestNextWeek,
-  servedRank,
+  isGalaxyMeal = false,
   displayOptions,
 }: Props) {
   const { theme } = useThemeController();
@@ -264,12 +264,6 @@ const MealListItem = memo(function MealListItem({
     return { avg, count: scores.length };
   }, [hasFamilyMembers, meal.familyRatings]);
 
-  const isGalaxyMeal =
-    (meal as Meal & { isGalaxyMeal?: boolean }).isGalaxyMeal === true ||
-    (isFamilyStar &&
-      typeof servedRank === "number" &&
-      servedRank > 0 &&
-      servedRank <= 5);
   const shouldUseFamilyStarStyle = isFamilyStar && !isGalaxyMeal;
   const cardVariant: MealCardVariant = isGalaxyMeal
     ? "galaxy"

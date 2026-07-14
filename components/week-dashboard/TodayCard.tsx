@@ -12,11 +12,11 @@ import {
   View,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import { Meal } from "../../types/meals";
+import { FamilyRatingValue, Meal } from "../../types/meals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
-import { type ServedAction } from "./servedActions";
+import { type ServedOutcome } from "./servedActions";
 import {
   EatOutCompletionMessage,
   getEatOutCompletionMessage,
@@ -25,8 +25,11 @@ import {
 } from "./celebrations";
 import RatingStars from "../meals/RatingStars";
 import FreezerAmountModal from "../meals/FreezerAmountModal";
+import FamilyRatingIcons from "../meals/FamilyRatingIcons";
 import { useMeals } from "../../hooks/useMeals";
+import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 import { EAT_OUT_MEAL_ID } from "../../types/specialMeals";
+import { setFamilyRatingValue } from "../../utils/familyRatings";
 
 type TodayCardProps = {
   meal: Meal;
@@ -35,7 +38,7 @@ type TodayCardProps = {
   servedEntry?: ServedMealEntry;
   sides?: string[];
   onMarkServed?: (message: string) => Promise<void> | void;
-  onSelectOutcome?: (outcome: ServedAction["value"]) => Promise<void> | void;
+  onSelectOutcome?: (outcome: ServedOutcome) => Promise<void> | void;
   onChangePlans?: () => void;
 };
 
@@ -52,6 +55,7 @@ export default function TodayCard({
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { updateMeal } = useMeals();
+  const { members } = useFamilyMembers();
   const [isExpanded, setExpanded] = useState(false);
   const servedFromEntry = servedEntry?.outcome === "served";
   const [isLocallyServed, setLocallyServed] = useState(servedFromEntry);
@@ -63,6 +67,7 @@ export default function TodayCard({
   const isEatOut = meal.id === EAT_OUT_MEAL_ID;
   const eatOutMessageRef = useRef<string | null>(null);
   const eatOutCompletionRef = useRef<EatOutCompletionMessage | null>(null);
+  const autoOpenedRatingMealRef = useRef<string | null>(null);
   const [isServedDrawerOpen, setServedDrawerOpen] = useState(false);
   const [servedExpanded, setServedExpanded] = useState<
     "rating" | "freezer" | "notes" | null
@@ -73,6 +78,7 @@ export default function TodayCard({
   const [isFreezerModalVisible, setFreezerModalVisible] = useState(false);
 
   const isServed = isLocallyServed || servedFromEntry;
+  const hasFamilyMembers = members.length > 0;
   const prepNotesToShow = notes ?? meal.prepNotes ?? "";
   const sidesLabel = sides.length ? sides.join(" • ") : "";
   const eatOutMessage = eatOutMessageRef.current;
@@ -116,6 +122,7 @@ export default function TodayCard({
   useEffect(() => {
     if (!isServed) {
       setShowServedActions(false);
+      autoOpenedRatingMealRef.current = null;
     }
   }, [isServed]);
 
@@ -124,6 +131,22 @@ export default function TodayCard({
       setShowServedActions(true);
     }
   }, [isConfettiVisible, isServed]);
+
+  useEffect(() => {
+    if (!isServed || isEatOut) {
+      autoOpenedRatingMealRef.current = null;
+      return;
+    }
+    if (
+      showServedActions &&
+      autoOpenedRatingMealRef.current !== meal.id
+    ) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setServedDrawerOpen(true);
+      setServedExpanded("rating");
+      autoOpenedRatingMealRef.current = meal.id;
+    }
+  }, [isEatOut, isServed, meal.id, showServedActions]);
 
   useEffect(() => {
     if (isEatOut) {
@@ -223,7 +246,7 @@ export default function TodayCard({
     setExpanded((prev) => !prev);
   };
 
-  const handleSelectAction = async (action: ServedAction["value"]) => {
+  const handleSelectAction = async (action: ServedOutcome) => {
     if (action !== "served") {
       setLocallyServed(false);
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -283,6 +306,28 @@ export default function TodayCard({
     updateMeal({
       id: meal.id,
       isFavorite: false,
+    });
+  };
+
+  const handleRatingChange = (value: number) => {
+    setRating(value);
+    updateMeal({
+      id: meal.id,
+      rating: value,
+    });
+  };
+
+  const handleFamilyRatingChange = (
+    memberId: string,
+    value: FamilyRatingValue
+  ) => {
+    updateMeal({
+      id: meal.id,
+      familyRatings: setFamilyRatingValue(
+        meal.familyRatings,
+        memberId,
+        value
+      ),
     });
   };
 
@@ -481,12 +526,22 @@ export default function TodayCard({
               {!isEatOut && servedExpanded === "rating" ? (
                 <View style={styles.servedSection}>
                   <Text style={styles.servedSectionLabel}>Rate this meal</Text>
-                  <RatingStars
-                    value={rating}
-                    size={28}
-                    gap={theme.space.sm}
-                    onChange={setRating}
-                  />
+                  {hasFamilyMembers ? (
+                    <FamilyRatingIcons
+                      ratings={meal.familyRatings}
+                      onChange={handleFamilyRatingChange}
+                      size={44}
+                      gap={theme.space.md}
+                      singleRow
+                    />
+                  ) : (
+                    <RatingStars
+                      value={rating}
+                      size={28}
+                      gap={theme.space.sm}
+                      onChange={handleRatingChange}
+                    />
+                  )}
                 </View>
               ) : null}
               {!isEatOut && servedExpanded === "freezer" ? (
@@ -575,7 +630,7 @@ export default function TodayCard({
                   pressed && styles.drawerButtonPressed,
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel="Change plans"
+                accessibilityLabel="Change dinner"
                 onPress={handleChangePlans}
               >
                 <MaterialCommunityIcons
@@ -583,7 +638,7 @@ export default function TodayCard({
                   size={18}
                   color={theme.color.ink}
                 />
-                <Text style={styles.drawerButtonText}>Change Plans</Text>
+                <Text style={styles.drawerButtonText}>Change Dinner</Text>
               </Pressable>
             </View>
           ) : null}

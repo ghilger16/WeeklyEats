@@ -20,7 +20,6 @@ import TodayCard from "../../../components/week-dashboard/TodayCard";
 import UnmarkedCard from "../../../components/week-dashboard/UnmarkedCard";
 import DateControls from "../../../components/week-dashboard/DateControls";
 import GroceryListSheet from "../../../components/week-dashboard/GroceryListSheet";
-import PlannedDayEditModal from "../../../components/plan-week/PlannedDayEditModal";
 import SuggestMealModal from "../../../components/plan-week/suggestions/SuggestMealModal";
 import { buildMealSuggestions } from "../../../components/plan-week/suggestions/suggestionMatcher";
 import ServedList, {
@@ -115,9 +114,17 @@ export default function WeekDashboardScreen() {
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
   const [isPreviewVisible, setPreviewVisible] = useState(false);
   const [isGroceryListVisible, setGroceryListVisible] = useState(false);
-  const [isTodayPlanEditVisible, setTodayPlanEditVisible] = useState(false);
   const [isTodayPlanMealVisible, setTodayPlanMealVisible] = useState(false);
   const [todaySwapSides, setTodaySwapSides] = useState<string[]>([]);
+  const [pendingResolution, setPendingResolution] = useState<{
+    dayKey: PlannedWeekDayKey;
+    mealId: string;
+    plannedDate: Date;
+    meal: Meal;
+  } | null>(null);
+  const [pendingResolutionSides, setPendingResolutionSides] = useState<
+    string[]
+  >([]);
   const [todaySuggestionIndexMap, setTodaySuggestionIndexMap] = useState(
     createInitialSuggestionIndex
   );
@@ -338,6 +345,11 @@ export default function WeekDashboardScreen() {
       todaySuggestionPool.length;
     return todaySuggestionPool[normalizedIndex];
   }, [todayPlanDay, todaySuggestionIndexMap, todaySuggestionPool]);
+  const pendingResolutionDay = pendingResolution?.dayKey ?? todayPlanDay;
+  const pendingResolutionPins = useMemo(
+    () => normalizeDayPinsState(dayPinsMap[pendingResolutionDay]),
+    [dayPinsMap, pendingResolutionDay]
+  );
   const getMealLastServedISO = useCallback(
     (mealId: Meal["id"]) =>
       servedEntries.find(
@@ -380,10 +392,25 @@ export default function WeekDashboardScreen() {
     () =>
       days
         .filter(
-          (day) =>
-            day.status === "past" &&
-            Boolean(day.meal && day.mealId) &&
-            !servedEntries.some((entry) => entry.dayKey === day.key)
+          (day) => {
+            if (
+              day.status !== "past" ||
+              !day.meal ||
+              !day.mealId
+            ) {
+              return false;
+            }
+            const plannedDate = startOfDay(day.plannedDate).getTime();
+            return !servedEntries.some((entry) => {
+              if (entry.dayKey !== day.key) {
+                return false;
+              }
+              return (
+                startOfDay(new Date(entry.servedAtISO)).getTime() ===
+                plannedDate
+              );
+            });
+          }
         )
         .sort((a, b) => b.plannedDate.getTime() - a.plannedDate.getTime()),
     [days, servedEntries]
@@ -415,6 +442,7 @@ export default function WeekDashboardScreen() {
               (typeof currentMeal.servedCount === "number"
                 ? currentMeal.servedCount
                 : 0) + 1,
+            updatedAt: new Date().toISOString(),
           });
         }
       }
@@ -440,17 +468,9 @@ export default function WeekDashboardScreen() {
     if (!today?.meal) {
       return;
     }
-    setTodayPlanEditVisible(true);
-  }, [today?.meal]);
-
-  const handleChangeTodayPlan = useCallback(() => {
-    if (!today?.key) {
-      return;
-    }
-    setTodayPlanEditVisible(false);
     setTodaySwapSides([]);
     setTodayPlanMealVisible(true);
-  }, [today?.key]);
+  }, [today?.meal]);
 
   const handleDismissTodayPlanMeal = useCallback(() => {
     setTodayPlanMealVisible(false);
@@ -466,10 +486,21 @@ export default function WeekDashboardScreen() {
       const nextTodaySides = sideToAdd
         ? [...todaySwapSides, sideToAdd]
         : todaySwapSides;
+      const nextSpecialMealTitles = {
+        ...(plan.specialMealTitles ?? {}),
+      };
+      if (meal.id === EAT_OUT_MEAL_ID && meal.title !== EAT_OUT_MEAL.title) {
+        nextSpecialMealTitles[today.key] = meal.title;
+      } else {
+        delete nextSpecialMealTitles[today.key];
+      }
       const nextPlan: CurrentPlannedWeek = {
         ...plan,
         [today.key]: meal.id,
         weekStartISO,
+        specialMealTitles: Object.keys(nextSpecialMealTitles).length
+          ? nextSpecialMealTitles
+          : undefined,
       };
       const nextSides: CurrentWeekSides = {
         ...sides,
@@ -537,26 +568,146 @@ export default function WeekDashboardScreen() {
     });
   }, []);
 
-  const handleRemoveTodayPlan = useCallback(async () => {
-    if (!today?.key || !plan) {
-      return;
-    }
-    const nextPlan = {
-      ...plan,
-      [today.key]: null,
-    };
-    const nextSides = {
-      ...sides,
-      [today.key]: [],
-    };
-    setPlanState(nextPlan);
-    setSidesState(nextSides);
-    setTodayPlanEditVisible(false);
-    await Promise.all([
-      setCurrentWeekPlan(weekStartISO, nextPlan),
-      setCurrentWeekSides(weekStartISO, nextSides),
-    ]);
-  }, [plan, setPlanState, setSidesState, sides, today?.key, weekStartISO]);
+  const handleOpenPendingResolution = useCallback(
+    (
+      dayKey: PlannedWeekDayKey,
+      mealId: string,
+      plannedDate: Date,
+      meal: Meal
+    ) => {
+      setPendingResolution({
+        dayKey,
+        mealId,
+        plannedDate,
+        meal,
+      });
+      setPendingResolutionSides([]);
+    },
+    []
+  );
+
+  const handleDismissPendingResolution = useCallback(() => {
+    setPendingResolution(null);
+    setPendingResolutionSides([]);
+  }, []);
+
+  const handlePendingPinsChange = useCallback(
+    (next: DayPinsState) => {
+      handleDayPinsChange(pendingResolutionDay, next);
+      setTodaySuggestionIndexMap((prev) => ({
+        ...prev,
+        [pendingResolutionDay]: 0,
+      }));
+    },
+    [handleDayPinsChange, pendingResolutionDay]
+  );
+
+  const handleAddPendingSide = useCallback((side: string) => {
+    setPendingResolutionSides((prev) => [...prev, side]);
+  }, []);
+
+  const handleRemovePendingSide = useCallback((index: number) => {
+    setPendingResolutionSides((prev) => {
+      if (index < 0 || index >= prev.length) {
+        return prev;
+      }
+      return prev.filter((_, currentIndex) => currentIndex !== index);
+    });
+  }, []);
+
+  const handleSavePendingDinner = useCallback(
+    async (meal: Meal, side?: string) => {
+      if (!pendingResolution || !plan) {
+        return;
+      }
+      const { dayKey, plannedDate } = pendingResolution;
+      const sideToAdd = side?.trim();
+      const nextDaySides = sideToAdd
+        ? [...pendingResolutionSides, sideToAdd]
+        : pendingResolutionSides;
+      const nextSpecialMealTitles = {
+        ...(plan.specialMealTitles ?? {}),
+      };
+      if (meal.id === EAT_OUT_MEAL_ID && meal.title !== EAT_OUT_MEAL.title) {
+        nextSpecialMealTitles[dayKey] = meal.title;
+      } else {
+        delete nextSpecialMealTitles[dayKey];
+      }
+      const nextPlan: CurrentPlannedWeek = {
+        ...plan,
+        [dayKey]: meal.id,
+        weekStartISO,
+        specialMealTitles: Object.keys(nextSpecialMealTitles).length
+          ? nextSpecialMealTitles
+          : undefined,
+      };
+      const nextSides: CurrentWeekSides = {
+        ...sides,
+        [dayKey]: nextDaySides,
+      };
+      const outcome: ServedOutcome =
+        meal.id === EAT_OUT_MEAL_ID ? "ateOut" : "cookedAlt";
+
+      setPlanState(nextPlan);
+      setSidesState(nextSides);
+      setPendingResolution(null);
+      setPendingResolutionSides([]);
+      await Promise.all([
+        setCurrentWeekPlan(weekStartISO, nextPlan),
+        setCurrentWeekSides(weekStartISO, nextSides),
+        logServedMeal({
+          dayKey,
+          mealId: meal.id,
+          servedAtISO: new Date(plannedDate).toISOString(),
+          outcome,
+          servedTitle:
+            meal.id === EAT_OUT_MEAL_ID
+              ? getEatOutServedTitle(meal.title)
+              : undefined,
+        }),
+      ]);
+
+      if (meal.id !== EAT_OUT_MEAL_ID) {
+        const currentMeal = meals.find((item) => item.id === meal.id);
+        if (currentMeal) {
+          updateMeal({
+            id: currentMeal.id,
+            servedCount:
+              (typeof currentMeal.servedCount === "number"
+                ? currentMeal.servedCount
+                : 0) + 1,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    },
+    [
+      logServedMeal,
+      meals,
+      pendingResolution,
+      pendingResolutionSides,
+      plan,
+      setPlanState,
+      setSidesState,
+      sides,
+      updateMeal,
+      weekStartISO,
+    ]
+  );
+
+  const handleSavePendingEatOut = useCallback(
+    (title?: string) => {
+      const eatOutMeal = title?.trim()
+        ? { ...EAT_OUT_MEAL, title: title.trim() }
+        : EAT_OUT_MEAL;
+      handleSavePendingDinner(eatOutMeal);
+    },
+    [handleSavePendingDinner]
+  );
+
+  const handleSavePendingFlexNight = useCallback(() => {
+    handleSavePendingDinner(FLEX_NIGHT_MEAL);
+  }, [handleSavePendingDinner]);
 
   const handleUnmarkedOutcome = useCallback(
     async (
@@ -589,6 +740,7 @@ export default function WeekDashboardScreen() {
               (typeof currentMeal.servedCount === "number"
                 ? currentMeal.servedCount
                 : 0) + 1,
+            updatedAt: new Date().toISOString(),
           });
         }
       }
@@ -976,8 +1128,16 @@ export default function WeekDashboardScreen() {
       key={day.key}
       meal={day.meal!}
       dateLabel={formatWeekdayDate(day.plannedDate)}
-      onSelectOutcome={(outcome) =>
-        handleUnmarkedOutcome(day.key, day.mealId!, day.plannedDate, outcome)
+      onMarkServed={() =>
+        handleUnmarkedOutcome(day.key, day.mealId!, day.plannedDate, "served")
+      }
+      onHadSomethingDifferent={() =>
+        handleOpenPendingResolution(
+          day.key,
+          day.mealId!,
+          day.plannedDate,
+          day.meal!
+        )
       }
     />
   ));
@@ -1136,22 +1296,6 @@ export default function WeekDashboardScreen() {
           </ScrollView>
         </TabParent>
       </Animated.View>
-      <PlannedDayEditModal
-        visible={Boolean(isTodayPlanEditVisible && today?.meal)}
-        dayName={today ? PLANNED_WEEK_DISPLAY_NAMES[today.key] : ""}
-        meal={today?.meal ?? null}
-        sides={today?.sides ?? []}
-        lastServedISO={
-          todayServedEntry?.outcome === "served"
-            ? todayServedEntry.servedAtISO
-            : null
-        }
-        onDismiss={() => setTodayPlanEditVisible(false)}
-        onChangePlan={handleChangeTodayPlan}
-        onRemovePlan={handleRemoveTodayPlan}
-        showRemoveAction={false}
-        changeActionLabel="Swap Meal"
-      />
       <GroceryListSheet
         visible={isGroceryListVisible}
         weekId={weekStartISO}
@@ -1161,6 +1305,8 @@ export default function WeekDashboardScreen() {
       <SuggestMealModal
         visible={isTodayPlanMealVisible}
         dayName={PLANNED_WEEK_DISPLAY_NAMES[todayPlanDay]}
+        mode="changeDinner"
+        currentMeal={today?.meal ?? null}
         suggestion={todaySuggestionEntry}
         canSuggestAnother={todaySuggestionPool.length > 1}
         onDismiss={handleDismissTodayPlanMeal}
@@ -1176,6 +1322,26 @@ export default function WeekDashboardScreen() {
         onRemoveSide={handleRemoveTodaySwapSide}
         pins={todayPlanPins}
         onPinsChange={handleTodayPlanPinsChange}
+      />
+      <SuggestMealModal
+        visible={Boolean(pendingResolution)}
+        dayName={PLANNED_WEEK_DISPLAY_NAMES[pendingResolutionDay]}
+        mode="recordPastDinner"
+        currentMeal={pendingResolution?.meal ?? null}
+        canSuggestAnother={false}
+        onDismiss={handleDismissPendingResolution}
+        onAddMeal={handleSavePendingDinner}
+        onSuggestAnother={() => {}}
+        meals={sortedMeals}
+        onSelectSearchMeal={handleSavePendingDinner}
+        onEatOut={handleSavePendingEatOut}
+        onFlexNight={handleSavePendingFlexNight}
+        getLastServedISO={getMealLastServedISO}
+        sides={pendingResolutionSides}
+        onAddSide={handleAddPendingSide}
+        onRemoveSide={handleRemovePendingSide}
+        pins={pendingResolutionPins}
+        onPinsChange={handlePendingPinsChange}
       />
     </View>
   );
