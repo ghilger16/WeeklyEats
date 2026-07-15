@@ -630,7 +630,7 @@ export default function TodayCard({
                   pressed && styles.drawerButtonPressed,
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel="Change dinner"
+                accessibilityLabel="Swap dinner"
                 onPress={handleChangePlans}
               >
                 <MaterialCommunityIcons
@@ -638,7 +638,7 @@ export default function TodayCard({
                   size={18}
                   color={theme.color.ink}
                 />
-                <Text style={styles.drawerButtonText}>Change Dinner</Text>
+                <Text style={styles.drawerButtonText}>Swap Dinner</Text>
               </Pressable>
             </View>
           ) : null}

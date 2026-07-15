@@ -114,6 +114,33 @@ const normalizePlan = (
       .filter(Boolean) as SavedMealIdea[];
   }
 
+  const carryOverIdeasValue = (raw as { carryOverIdeas?: unknown })
+    .carryOverIdeas;
+  if (Array.isArray(carryOverIdeasValue)) {
+    plan.carryOverIdeas = carryOverIdeasValue
+      .map((entry): SavedMealIdea | null => {
+        if (!entry || typeof entry !== "object") {
+          return null;
+        }
+        const maybe = entry as Partial<SavedMealIdea>;
+        if (
+          typeof maybe.mealId !== "string" ||
+          typeof maybe.title !== "string" ||
+          typeof maybe.emoji !== "string" ||
+          typeof maybe.suggestedAt !== "string"
+        ) {
+          return null;
+        }
+        return {
+          mealId: maybe.mealId,
+          title: maybe.title,
+          emoji: maybe.emoji,
+          suggestedAt: maybe.suggestedAt,
+        };
+      })
+      .filter(Boolean) as SavedMealIdea[];
+  }
+
   const specialMealTitlesValue = (raw as { specialMealTitles?: unknown })
     .specialMealTitles;
   if (specialMealTitlesValue && typeof specialMealTitlesValue === "object") {
@@ -407,6 +434,35 @@ export const setCurrentWeekSides = async (
     await saveSidesMap(sidesMap);
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to persist plan sides", error);
+  }
+};
+
+export const setWeekPlanDataBatch = async (
+  updates: Array<{
+    weekStartISO: string;
+    plan: CurrentPlannedWeek;
+    sides: CurrentWeekSides;
+  }>
+): Promise<void> => {
+  try {
+    const [planMap, sidesMap] = await Promise.all([getPlanMap(), getSidesMap()]);
+    updates.forEach(({ weekStartISO, plan, sides }) => {
+      const normalizedStart = isValidISODateString(weekStartISO)
+        ? weekStartISO.slice(0, 10)
+        : weekStartISO;
+      planMap[normalizedStart] = {
+        ...plan,
+        weekStartISO: normalizedStart,
+      };
+      sidesMap[normalizedStart] = sides;
+    });
+    await AsyncStorage.multiSet([
+      [WEEK_PLAN_MAP_KEY, JSON.stringify(planMap)],
+      [WEEK_PLAN_SIDES_MAP_KEY, JSON.stringify(sidesMap)],
+    ]);
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to persist batched plan data", error);
+    throw error;
   }
 };
 

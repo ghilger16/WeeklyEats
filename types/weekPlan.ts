@@ -21,6 +21,7 @@ export type CurrentPlannedWeek = {
   weekStartISO?: string;
   plannedScope?: "full" | "remaining";
   savedIdeas?: SavedMealIdea[];
+  carryOverIdeas?: SavedMealIdea[];
   specialMealTitles?: Partial<Record<PlannedWeekDayKey, string>>;
 } & Record<PlannedWeekDayKey, Meal["id"] | null>;
 export type CurrentWeekSides = Record<PlannedWeekDayKey, string[]>;
@@ -75,6 +76,7 @@ export const createEmptyCurrentPlannedWeek = (
     weekStartISO: options.weekStartISO,
     plannedScope: options.plannedScope,
     savedIdeas: [],
+    carryOverIdeas: [],
   };
 };
 

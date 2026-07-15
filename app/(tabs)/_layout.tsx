@@ -54,6 +54,20 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="grocery-list/index"
+        options={{
+          tabBarLabel: "Grocery",
+          title: "Grocery List",
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons
+              name="format-list-checks"
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="more/index"
         options={{
           tabBarLabel: "More",

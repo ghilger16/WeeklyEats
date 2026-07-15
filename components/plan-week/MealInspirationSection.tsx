@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { ReactNode, useMemo, useRef } from "react";
 import {
   Animated,
   PanResponder,
@@ -41,6 +41,7 @@ type Props = {
   onSelectMeal: (meal: Meal, poolId: MealPoolId) => void;
   onSelectDay: (day: PlannedWeekDayKey) => void;
   onRemoveSuggestedMeal?: (mealId: Meal["id"]) => void;
+  beforeActivePoolContent?: ReactNode;
 };
 
 const SWIPE_THRESHOLD = 36;
@@ -55,6 +56,7 @@ export default function MealInspirationSection({
   onSelectMeal,
   onSelectDay,
   onRemoveSuggestedMeal,
+  beforeActivePoolContent,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -158,6 +160,8 @@ export default function MealInspirationSection({
           );
         })}
       </View>
+
+      {beforeActivePoolContent}
 
       <View style={styles.card}>
         <Animated.View style={[styles.headerCopy, contentStyle]}>

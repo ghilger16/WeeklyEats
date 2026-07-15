@@ -22,12 +22,14 @@ type AddButtonProps = {
   variant?: "icon" | "badge";
   label?: string;
   iconName?: IconName;
+  active?: boolean;
 };
 
 type MenuButtonProps = {
   onPress: () => void;
   testID?: string;
   accessibilityLabel?: string;
+  iconName?: IconName;
 };
 
 type Props = {
@@ -129,6 +131,7 @@ export default function TabParent({
                   style={({ pressed }) => [
                     styles.iconButton,
                     styles.addButton,
+                    addBtn.active && styles.addButtonActive,
                     pressed && styles.iconButtonPressed,
                   ]}
                   hitSlop={theme.space.xs}
@@ -139,8 +142,12 @@ export default function TabParent({
                 >
                   <MaterialCommunityIcons
                     name={addBtn.iconName ?? ("plus-circle" as IconName)}
-                    size={22}
-                    color={theme.color.accent}
+                    size={24}
+                    color={
+                      addBtn.active
+                        ? theme.color.accent
+                        : theme.color.subtleInk
+                    }
                   />
                 </Pressable>
               )
@@ -158,7 +165,7 @@ export default function TabParent({
                 testID={menuBtn.testID}
               >
                 <MaterialCommunityIcons
-                  name="dots-horizontal"
+                  name={menuBtn.iconName ?? "dots-horizontal"}
                   size={22}
                   color={theme.color.ink}
                 />
@@ -235,7 +242,13 @@ const createStyles = (theme: WeeklyTheme) =>
       justifyContent: "center",
     },
     addButton: {
+      width: 44,
+      height: 44,
       backgroundColor: theme.color.surface,
+    },
+    addButtonActive: {
+      borderColor: theme.color.accent,
+      backgroundColor: theme.color.focus,
     },
     badgeButton: {
       flexDirection: "row",

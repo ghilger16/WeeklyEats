@@ -111,6 +111,64 @@ export const createGroceryList = (
   };
 };
 
+export const reconcileGroceryList = (
+  weekId: string,
+  plannedItems: GroceryListItem[],
+  storedList: GroceryList | null
+): GroceryList => {
+  if (!storedList) {
+    return createGroceryList(weekId, plannedItems);
+  }
+
+  const buildStableItemKeys = (
+    items: GroceryListItem[]
+  ): Map<string, string> => {
+    const occurrences = new Map<string, number>();
+    return new Map<string, string>(
+      items.map((item) => {
+        const baseKey = [
+          item.mealId ?? item.id,
+          item.name.trim().toLocaleLowerCase(),
+          item.category,
+          item.ingredientType ?? "keyIngredient",
+        ].join("|");
+        const occurrence = occurrences.get(baseKey) ?? 0;
+        occurrences.set(baseKey, occurrence + 1);
+        return [item.id, `${baseKey}|${occurrence}`] as const;
+      })
+    );
+  };
+
+  const storedStableKeys = buildStableItemKeys(storedList.items);
+  const plannedStableKeys = buildStableItemKeys(plannedItems);
+  const checkedStableKeys = new Set(
+    storedList.checkedItems
+      .map((id) => storedStableKeys.get(id))
+      .filter((key): key is string => Boolean(key))
+  );
+
+  const validItemIds = new Set([
+    ...plannedItems.map((item) => item.id),
+    ...storedList.manualItems.map((item) => item.id),
+  ]);
+  const checkedItems = new Set(
+    storedList.checkedItems.filter((id) => validItemIds.has(id))
+  );
+  plannedStableKeys.forEach((stableKey, itemId) => {
+    if (checkedStableKeys.has(stableKey)) {
+      checkedItems.add(itemId);
+    }
+  });
+
+  return {
+    ...storedList,
+    weekId,
+    generatedFromPlan: true,
+    items: plannedItems,
+    checkedItems: Array.from(checkedItems),
+  };
+};
+
 export const getGroceryListViewMode =
   async (): Promise<GroceryListViewMode> => {
     try {
@@ -130,4 +188,3 @@ export const setGroceryListViewMode = async (
     console.warn("[groceryListStorage] Failed to write view mode", error);
   }
 };
-

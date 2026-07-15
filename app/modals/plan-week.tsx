@@ -71,6 +71,7 @@ import MealInspirationSection, {
   MealPool,
   MealPoolId,
 } from "../../components/plan-week/MealInspirationSection";
+import CarryOverSection from "../../components/plan-week/CarryOverSection";
 import PinInventory, {
   InventoryPinId,
   isInventoryPinActive,
@@ -152,6 +153,7 @@ export default function PlanWeekModal() {
   const { meals, updateMeal } = useMeals();
   const { orderedDays, startDay } = useWeekStartController();
   const isRemainingMode = params.mode === "remaining";
+  const isCurrentWeekMode = params.mode === "current";
   const requestedEditDay = isPlannedWeekDayKey(params.editDay)
     ? params.editDay
     : null;
@@ -164,10 +166,10 @@ export default function PlanWeekModal() {
   }, [isRemainingMode, orderedDays, startDay]);
   const planningWeekStart = useMemo(
     () =>
-      isRemainingMode
+      isRemainingMode || isCurrentWeekMode
         ? getWeekStartForDate(startDay)
         : getNextWeekStartForDate(startDay),
-    [isRemainingMode, startDay],
+    [isCurrentWeekMode, isRemainingMode, startDay],
   );
   const planningWeekStartISO = useMemo(
     () => planningWeekStart.toISOString().slice(0, 10),
@@ -248,6 +250,9 @@ export default function PlanWeekModal() {
   >(null);
   const [selectedMealPoolId, setSelectedMealPoolId] =
     useState<MealPoolId | null>(null);
+  const [selectedCarryOverMealId, setSelectedCarryOverMealId] = useState<
+    Meal["id"] | null
+  >(null);
   const [activeInspirationPoolId, setActiveInspirationPoolId] =
     useState<MealPoolId>("suggestedByYou");
   const [isCalendarContextVisible, setCalendarContextVisible] =
@@ -583,11 +588,13 @@ export default function PlanWeekModal() {
 
   const mealPools = useMemo<MealPool[]>(() => {
     const savedIdeaMeals = (plannedWeek.savedIdeas ?? [])
-      .map((idea) => meals.find((meal) => meal.id === idea.mealId))
-      .filter(
-        (meal): meal is Meal =>
-          Boolean(meal) && !plannedMealIds.has(meal.id),
-      );
+      .map(
+        (idea) =>
+          meals.find((meal) => meal.id === idea.mealId) ??
+          getSpecialMealById(idea.mealId, idea.title),
+      )
+      .filter((meal): meal is Meal => Boolean(meal))
+      .filter((meal) => !plannedMealIds.has(meal.id));
     return [
       {
         id: "suggestedByYou",
@@ -621,6 +628,19 @@ export default function PlanWeekModal() {
       },
     ];
   }, [meals, plannedMealIds, plannedWeek.savedIdeas]);
+
+  const carryOverMeals = useMemo(
+    () =>
+      (plannedWeek.carryOverIdeas ?? [])
+        .map(
+          (idea) =>
+            meals.find((meal) => meal.id === idea.mealId) ??
+            getSpecialMealById(idea.mealId, idea.title),
+        )
+        .filter((meal): meal is Meal => Boolean(meal))
+        .filter((meal) => !plannedMealIds.has(meal.id)),
+    [meals, plannedMealIds, plannedWeek.carryOverIdeas],
+  );
 
   const suggestionPool = useMemo(
     () => buildMealSuggestions(filteredMeals, activeDayPins, plannedMealIds),
@@ -732,6 +752,7 @@ export default function PlanWeekModal() {
       meal: Meal,
       options: {
         removeSavedIdea?: boolean;
+        removeCarryOverIdea?: boolean;
         sideToAdd?: string;
         specialMealTitle?: string;
       } = {},
@@ -763,6 +784,11 @@ export default function PlanWeekModal() {
               (idea) => idea.mealId !== meal.id,
             )
           : plannedWeek.savedIdeas ?? [],
+        carryOverIdeas: options.removeCarryOverIdea
+          ? (plannedWeek.carryOverIdeas ?? []).filter(
+              (idea) => idea.mealId !== meal.id,
+            )
+          : plannedWeek.carryOverIdeas ?? [],
       };
       const sideToAdd = options.sideToAdd?.trim();
       const nextSidesMap = sideToAdd
@@ -864,6 +890,37 @@ export default function PlanWeekModal() {
       await setCurrentWeekPlan(planningWeekStartISO, nextPlan);
     },
     [plannedWeek, planningWeekStartISO, selectedSavedIdeaMealId],
+  );
+
+  const handleSelectCarryOverMeal = useCallback(
+    (meal: Meal) => {
+      if (expandedDrawerDay) {
+        saveMealToDay(expandedDrawerDay, meal, {
+          removeCarryOverIdea: true,
+        });
+        return;
+      }
+      Haptics.selectionAsync().catch(() => {});
+      setSelectedCarryOverMealId((current) =>
+        current === meal.id ? null : meal.id,
+      );
+      setSelectedSavedIdeaMealId(null);
+      setSelectedMealPoolId(null);
+    },
+    [expandedDrawerDay, saveMealToDay],
+  );
+
+  const handlePlanCarryOverMealForDay = useCallback(
+    (day: PlannedWeekDayKey) => {
+      const meal = carryOverMeals.find(
+        (candidate) => candidate.id === selectedCarryOverMealId,
+      );
+      if (!meal) {
+        return;
+      }
+      saveMealToDay(day, meal, { removeCarryOverIdea: true });
+      setSelectedCarryOverMealId(null);
+    }, [carryOverMeals, saveMealToDay, selectedCarryOverMealId],
   );
 
   const handleAddMeal = useCallback(() => {
@@ -1438,6 +1495,18 @@ export default function PlanWeekModal() {
                 onSelectMeal={handleSelectMealPoolMeal}
                 onSelectDay={handlePlanMealPoolMealForDay}
                 onRemoveSuggestedMeal={handleRemoveSavedIdea}
+                beforeActivePoolContent={
+                  activeInspirationPoolId === "suggestedByYou" ? (
+                    <CarryOverSection
+                      meals={carryOverMeals}
+                      orderedDays={sessionDays}
+                      plannedWeek={plannedWeek}
+                      selectedMealId={selectedCarryOverMealId}
+                      onSelectMeal={handleSelectCarryOverMeal}
+                      onSelectDay={handlePlanCarryOverMealForDay}
+                    />
+                  ) : null
+                }
               />
 
               <View style={styles.weekRowsList}>

@@ -3,6 +3,7 @@ import {
   Animated,
   DeviceEventEmitter,
   Easing,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,7 +20,6 @@ import CurrentWeekList from "../../../components/week-dashboard/CurrentWeekList"
 import TodayCard from "../../../components/week-dashboard/TodayCard";
 import UnmarkedCard from "../../../components/week-dashboard/UnmarkedCard";
 import DateControls from "../../../components/week-dashboard/DateControls";
-import GroceryListSheet from "../../../components/week-dashboard/GroceryListSheet";
 import SuggestMealModal from "../../../components/plan-week/suggestions/SuggestMealModal";
 import { buildMealSuggestions } from "../../../components/plan-week/suggestions/suggestionMatcher";
 import ServedList, {
@@ -54,9 +54,12 @@ import {
 } from "../../../types/specialMeals";
 import {
   clearWeekPlanData,
+  getCurrentWeekPlan,
+  getCurrentWeekSides,
   getWeekPlanStreak,
   setCurrentWeekPlan,
   setCurrentWeekSides,
+  setWeekPlanDataBatch,
 } from "../../../stores/weekPlanStorage";
 import { clearStoredDayPins } from "../../../stores/dayPinsStorage";
 import {
@@ -113,8 +116,20 @@ export default function WeekDashboardScreen() {
   );
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
   const [isPreviewVisible, setPreviewVisible] = useState(false);
-  const [isGroceryListVisible, setGroceryListVisible] = useState(false);
   const [isTodayPlanMealVisible, setTodayPlanMealVisible] = useState(false);
+  const [isBrowseMealsVisible, setBrowseMealsVisible] = useState(false);
+  const [pendingReplacement, setPendingReplacement] = useState<{
+    meal: Meal;
+    sides: string[];
+  } | null>(null);
+  const [displacedMealStep, setDisplacedMealStep] = useState<
+    "decision" | "day" | null
+  >(null);
+  const [selectedSwapDay, setSelectedSwapDay] =
+    useState<PlannedWeekDayKey | null>(null);
+  const [isSwapSaving, setSwapSaving] = useState(false);
+  const [swapMessage, setSwapMessage] = useState<string | null>(null);
+  const [dashboardMessage, setDashboardMessage] = useState<string | null>(null);
   const [todaySwapSides, setTodaySwapSides] = useState<string[]>([]);
   const [pendingResolution, setPendingResolution] = useState<{
     dayKey: PlannedWeekDayKey;
@@ -262,6 +277,14 @@ export default function WeekDashboardScreen() {
     ])
   );
 
+  useEffect(() => {
+    if (!dashboardMessage) {
+      return;
+    }
+    const timeout = setTimeout(() => setDashboardMessage(null), 2600);
+    return () => clearTimeout(timeout);
+  }, [dashboardMessage]);
+
   const handleFamilyRatingChange = useCallback(
     (mealId: string, memberId: string, rating: FamilyRatingValue) => {
       const meal = meals.find((m) => m.id === mealId);
@@ -296,6 +319,23 @@ export default function WeekDashboardScreen() {
   const upcomingDays = useMemo(
     () => days.filter((day) => day.status === "upcoming"),
     [days]
+  );
+
+  const swapDinnerOptions = useMemo(
+    () =>
+      upcomingDays.filter((day) => {
+        if (!day.meal) {
+          return false;
+        }
+        const plannedDate = startOfDay(day.plannedDate).getTime();
+        return !servedEntries.some(
+          (entry) =>
+            entry.outcome === "served" &&
+            entry.dayKey === day.key &&
+            startOfDay(new Date(entry.servedAtISO)).getTime() === plannedDate
+        );
+      }),
+    [servedEntries, upcomingDays]
   );
 
   const todayServedEntry = useMemo(() => {
@@ -469,13 +509,363 @@ export default function WeekDashboardScreen() {
       return;
     }
     setTodaySwapSides([]);
+    setSelectedSwapDay(null);
+    setSwapMessage(null);
     setTodayPlanMealVisible(true);
   }, [today?.meal]);
 
   const handleDismissTodayPlanMeal = useCallback(() => {
+    if (isSwapSaving) {
+      return;
+    }
     setTodayPlanMealVisible(false);
+    setSelectedSwapDay(null);
+    setSwapMessage(null);
     setTodaySwapSides([]);
+  }, [isSwapSaving]);
+
+  const handleBrowseOtherMeals = useCallback(() => {
+    setTodayPlanMealVisible(false);
+    setSelectedSwapDay(null);
+    setSwapMessage(null);
+    setTodaySwapSides([]);
+    setBrowseMealsVisible(true);
   }, []);
+
+  const handleDismissBrowseMeals = useCallback(() => {
+    setBrowseMealsVisible(false);
+    setTodaySwapSides([]);
+    setTodayPlanMealVisible(true);
+  }, []);
+
+  const handleSelectReplacementMeal = useCallback(
+    (meal: Meal, side?: string) => {
+      const normalizedSide = side?.trim();
+      setPendingReplacement({
+        meal,
+        sides: normalizedSide
+          ? [...todaySwapSides, normalizedSide]
+          : [...todaySwapSides],
+      });
+      setBrowseMealsVisible(false);
+    },
+    [todaySwapSides]
+  );
+
+  const handleSelectReplacementEatOut = useCallback(
+    (title?: string) => {
+      handleSelectReplacementMeal(
+        title?.trim() ? { ...EAT_OUT_MEAL, title: title.trim() } : EAT_OUT_MEAL
+      );
+    },
+    [handleSelectReplacementMeal]
+  );
+
+  const handleCancelReplacement = useCallback(() => {
+    if (isSwapSaving) {
+      return;
+    }
+    setPendingReplacement(null);
+    setDisplacedMealStep(null);
+    setTodaySwapSides([]);
+    setTodayPlanMealVisible(true);
+  }, [isSwapSaving]);
+
+  const commitReplacement = useCallback(async (
+    destination: PlannedWeekDayKey | "next" | "remove"
+  ) => {
+    if (
+      isSwapSaving ||
+      !pendingReplacement ||
+      !today?.key ||
+      !today.mealId ||
+      !today.meal
+    ) {
+      return;
+    }
+    setSwapSaving(true);
+    const todayKey = today.key;
+    const originalMealId = today.mealId;
+    try {
+      const [latestPlan, latestSides] = await Promise.all([
+        getCurrentWeekPlan(weekStartISO),
+        getCurrentWeekSides(weekStartISO),
+      ]);
+      const todayWasServed = servedEntries.some(
+        (entry) =>
+          entry.outcome === "served" &&
+          entry.dayKey === todayKey &&
+          startOfDay(new Date(entry.servedAtISO)).getTime() ===
+            startOfDay(today.plannedDate).getTime()
+      );
+      const replacementStillExists =
+        pendingReplacement.meal.id === EAT_OUT_MEAL_ID ||
+        pendingReplacement.meal.id === FLEX_NIGHT_MEAL.id ||
+        meals.some((meal) => meal.id === pendingReplacement.meal.id);
+      const displacedMealStillExists =
+        originalMealId === EAT_OUT_MEAL_ID ||
+        originalMealId === FLEX_NIGHT_MEAL.id ||
+        meals.some((meal) => meal.id === originalMealId);
+      if (
+        todayWasServed ||
+        latestPlan[todayKey] !== originalMealId ||
+        !replacementStillExists ||
+        !displacedMealStillExists
+      ) {
+        setPendingReplacement(null);
+        setSwapMessage("This plan changed. Please try again.");
+        setTodayPlanMealVisible(true);
+        await refreshWeekPlan();
+        return;
+      }
+
+      const nextSpecialMealTitles = { ...(latestPlan.specialMealTitles ?? {}) };
+      const displacedSpecialTitle = nextSpecialMealTitles[todayKey];
+      const displacedSides = [...(latestSides[todayKey] ?? [])];
+      if (
+        pendingReplacement.meal.id === EAT_OUT_MEAL_ID &&
+        pendingReplacement.meal.title !== EAT_OUT_MEAL.title
+      ) {
+        nextSpecialMealTitles[todayKey] = pendingReplacement.meal.title;
+      } else {
+        delete nextSpecialMealTitles[todayKey];
+      }
+      const nextPlan: CurrentPlannedWeek = {
+        ...latestPlan,
+        [todayKey]: pendingReplacement.meal.id,
+      };
+      const nextSides: CurrentWeekSides = {
+        ...latestSides,
+        [todayKey]: pendingReplacement.sides,
+      };
+
+      let updatedNextWeekPlan: CurrentPlannedWeek | null = null;
+      let updatedNextWeekSides: CurrentWeekSides | null = null;
+      if (destination !== "remove" && destination !== "next") {
+        if (latestPlan[destination] !== null) {
+          throw new Error("destination-changed");
+        }
+        nextPlan[destination] = originalMealId;
+        nextSides[destination] = displacedSides;
+        if (displacedSpecialTitle) {
+          nextSpecialMealTitles[destination] = displacedSpecialTitle;
+        } else {
+          delete nextSpecialMealTitles[destination];
+        }
+      } else if (destination === "next") {
+        const [latestNextPlan, latestNextSides] = await Promise.all([
+          getCurrentWeekPlan(nextWeekStart.toISOString().slice(0, 10)),
+          getCurrentWeekSides(nextWeekStart.toISOString().slice(0, 10)),
+        ]);
+        const isAlreadyPlannedNextWeek = orderedDays.some(
+          (dayKey) => latestNextPlan[dayKey] === originalMealId
+        );
+        const isAlreadySuggested = [
+          ...(latestNextPlan.savedIdeas ?? []),
+          ...(latestNextPlan.carryOverIdeas ?? []),
+        ].some((idea) => idea.mealId === originalMealId);
+        updatedNextWeekPlan = {
+          ...latestNextPlan,
+          carryOverIdeas:
+            isAlreadyPlannedNextWeek || isAlreadySuggested
+              ? latestNextPlan.carryOverIdeas ?? []
+              : [
+                  ...(latestNextPlan.carryOverIdeas ?? []),
+                  {
+                    mealId: originalMealId,
+                    title: today.meal.title,
+                    emoji: today.meal.emoji,
+                    suggestedAt: new Date().toISOString(),
+                  },
+                ],
+        };
+        updatedNextWeekSides = latestNextSides;
+      }
+
+      nextPlan.specialMealTitles = Object.keys(nextSpecialMealTitles).length
+        ? nextSpecialMealTitles
+        : undefined;
+
+      setPlanState(nextPlan);
+      setSidesState(nextSides);
+      const planUpdates = [
+        { weekStartISO, plan: nextPlan, sides: nextSides },
+      ];
+      if (updatedNextWeekPlan && updatedNextWeekSides) {
+        const nextWeekStartISO = nextWeekStart.toISOString().slice(0, 10);
+        planUpdates.push({
+          weekStartISO: nextWeekStartISO,
+          plan: updatedNextWeekPlan,
+          sides: updatedNextWeekSides,
+        });
+      }
+      await setWeekPlanDataBatch(planUpdates);
+
+      setPendingReplacement(null);
+      setDisplacedMealStep(null);
+      setTodaySwapSides([]);
+      await Promise.all([refreshWeekPlan(), refreshNextWeekPlan()]);
+      if (destination === "next") {
+        setDashboardMessage("Moved to next week’s suggestions");
+      }
+    } catch {
+      setPendingReplacement(null);
+      setDisplacedMealStep(null);
+      setSwapMessage("This plan changed. Please try again.");
+      setTodayPlanMealVisible(true);
+      await Promise.all([refreshWeekPlan(), refreshNextWeekPlan()]);
+    } finally {
+      setSwapSaving(false);
+    }
+  }, [
+    isSwapSaving,
+    meals,
+    nextWeekStart,
+    orderedDays,
+    pendingReplacement,
+    refreshNextWeekPlan,
+    refreshWeekPlan,
+    servedEntries,
+    setPlanState,
+    setSidesState,
+    today,
+    weekStartISO,
+  ]);
+
+  const handleConfirmReplacement = useCallback(async () => {
+    if (isSwapSaving || !pendingReplacement || !plan) {
+      return;
+    }
+    const replacementIsPlannedThisWeek = orderedDays.some(
+      (dayKey) => plan[dayKey] === pendingReplacement.meal.id
+    );
+    if (replacementIsPlannedThisWeek) {
+      await commitReplacement("remove");
+      return;
+    }
+    setDisplacedMealStep("decision");
+  }, [commitReplacement, isSwapSaving, orderedDays, pendingReplacement, plan]);
+
+  const unplannedRemainingDays = useMemo(
+    () => upcomingDays.filter((day) => !day.mealId),
+    [upcomingDays]
+  );
+  const handleMoveDisplacedThisWeek = useCallback(() => {
+    if (unplannedRemainingDays.length === 1) {
+      void commitReplacement(unplannedRemainingDays[0].key);
+      return;
+    }
+    setDisplacedMealStep("day");
+  }, [commitReplacement, unplannedRemainingDays]);
+
+  const selectedSwapOption = useMemo(
+    () => swapDinnerOptions.find((day) => day.key === selectedSwapDay) ?? null,
+    [selectedSwapDay, swapDinnerOptions]
+  );
+
+  const handleConfirmDinnerSwap = useCallback(async () => {
+    if (
+      isSwapSaving ||
+      !today?.key ||
+      !today.mealId ||
+      !today.meal ||
+      !selectedSwapOption?.mealId ||
+      !selectedSwapOption.meal
+    ) {
+      return;
+    }
+    setSwapSaving(true);
+    const todayKey = today.key;
+    const todayMealId = today.mealId;
+    const selectedDayKey = selectedSwapOption.key;
+    const selectedMealId = selectedSwapOption.mealId;
+    try {
+      const [latestPlan, latestSides] = await Promise.all([
+        getCurrentWeekPlan(weekStartISO),
+        getCurrentWeekSides(weekStartISO),
+      ]);
+      const todayWasServed = servedEntries.some(
+        (entry) =>
+          entry.outcome === "served" &&
+          entry.dayKey === todayKey &&
+          startOfDay(new Date(entry.servedAtISO)).getTime() ===
+            startOfDay(today.plannedDate).getTime()
+      );
+      const mealStillExists = (mealId: string) =>
+        mealId === EAT_OUT_MEAL_ID ||
+        mealId === FLEX_NIGHT_MEAL.id ||
+        meals.some((meal) => meal.id === mealId);
+      const isStillValid =
+        !todayWasServed &&
+        latestPlan[todayKey] === todayMealId &&
+        latestPlan[selectedDayKey] === selectedMealId &&
+        mealStillExists(todayMealId) &&
+        mealStillExists(selectedMealId);
+      if (!isStillValid) {
+        setSelectedSwapDay(null);
+        setSwapMessage("This plan changed. Please try again.");
+        await refreshWeekPlan();
+        return;
+      }
+
+      const nextSpecialMealTitles = {
+        ...(latestPlan.specialMealTitles ?? {}),
+      };
+      const todaySpecialTitle = nextSpecialMealTitles[todayKey];
+      const selectedSpecialTitle = nextSpecialMealTitles[selectedDayKey];
+      if (selectedSpecialTitle) {
+        nextSpecialMealTitles[todayKey] = selectedSpecialTitle;
+      } else {
+        delete nextSpecialMealTitles[todayKey];
+      }
+      if (todaySpecialTitle) {
+        nextSpecialMealTitles[selectedDayKey] = todaySpecialTitle;
+      } else {
+        delete nextSpecialMealTitles[selectedDayKey];
+      }
+
+      const nextPlan: CurrentPlannedWeek = {
+        ...latestPlan,
+        [todayKey]: selectedMealId,
+        [selectedDayKey]: todayMealId,
+        specialMealTitles: Object.keys(nextSpecialMealTitles).length
+          ? nextSpecialMealTitles
+          : undefined,
+      };
+      const nextSides: CurrentWeekSides = {
+        ...latestSides,
+        [todayKey]: [...(latestSides[selectedDayKey] ?? [])],
+        [selectedDayKey]: [...(latestSides[todayKey] ?? [])],
+      };
+
+      setPlanState(nextPlan);
+      setSidesState(nextSides);
+      await Promise.all([
+        setCurrentWeekPlan(weekStartISO, nextPlan),
+        setCurrentWeekSides(weekStartISO, nextSides),
+      ]);
+      setSelectedSwapDay(null);
+      setTodayPlanMealVisible(false);
+      setSwapMessage(null);
+      await refreshWeekPlan();
+    } catch {
+      setSelectedSwapDay(null);
+      setSwapMessage("This plan changed. Please try again.");
+      await refreshWeekPlan();
+    } finally {
+      setSwapSaving(false);
+    }
+  }, [
+    isSwapSaving,
+    meals,
+    refreshWeekPlan,
+    selectedSwapOption,
+    servedEntries,
+    setPlanState,
+    setSidesState,
+    today,
+    weekStartISO,
+  ]);
 
   const handleSaveTodayPlanMeal = useCallback(
     async (meal: Meal, side?: string) => {
@@ -805,14 +1195,6 @@ export default function WeekDashboardScreen() {
     (nextWeekPlan?.weekedPlanned !== true ||
       shouldPromptNextWeekAfterRemainingPlan);
   const showTopPlanButton = canPlanNextWeek && !showSetupCard;
-  const groceryDayDate = useMemo(
-    () => startOfDay(new Date(`${weekStartISO}T00:00:00`)),
-    [weekStartISO]
-  );
-  const hasPlannedMeals = plannedDayCount > 0;
-  const canBuildGroceryList =
-    hasPlannedMeals && startOfDay(effectiveDate).getTime() <= groceryDayDate.getTime();
-
   const handleGoToMeals = useCallback(() => {
     router.push("/meals?showMealStarter=1");
   }, [router]);
@@ -884,7 +1266,7 @@ export default function WeekDashboardScreen() {
     router.push(
       shouldUseRemainingResumeProgress
         ? "/modals/plan-week?mode=remaining"
-        : "/modals/plan-week"
+        : "/modals/plan-week?mode=current"
     );
   }, [router, shouldUseRemainingResumeProgress]);
 
@@ -1213,37 +1595,6 @@ export default function WeekDashboardScreen() {
               </Pressable>
             ) : null}
 
-            {canBuildGroceryList ? (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.planButton,
-                  pressed && styles.planButtonPressed,
-                ]}
-                onPress={() => setGroceryListVisible(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Build grocery list"
-              >
-                <View style={styles.planIconWrap}>
-                  <MaterialCommunityIcons
-                    name="format-list-checks"
-                    size={22}
-                    color={theme.color.accent}
-                  />
-                </View>
-                <View style={styles.planTextStack}>
-                  <Text style={styles.planButtonTitle}>Build Grocery List</Text>
-                  <Text style={styles.planButtonSubtitle}>
-                    Review ingredients for this week's dinners.
-                  </Text>
-                </View>
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={26}
-                  color={theme.color.subtleInk}
-                />
-              </Pressable>
-            ) : null}
-
             {setupCard}
 
             <View style={styles.stack}>
@@ -1296,26 +1647,206 @@ export default function WeekDashboardScreen() {
           </ScrollView>
         </TabParent>
       </Animated.View>
-      <GroceryListSheet
-        visible={isGroceryListVisible}
-        weekId={weekStartISO}
-        days={days}
-        onDismiss={() => setGroceryListVisible(false)}
-      />
-      <SuggestMealModal
+      {dashboardMessage ? (
+        <View
+          pointerEvents="none"
+          accessibilityLiveRegion="polite"
+          style={styles.dashboardMessage}
+        >
+          <MaterialCommunityIcons
+            name="check-circle"
+            size={18}
+            color={theme.color.success}
+          />
+          <Text style={styles.dashboardMessageText}>{dashboardMessage}</Text>
+        </View>
+      ) : null}
+      <Modal
+        transparent
+        animationType="slide"
         visible={isTodayPlanMealVisible}
+        onRequestClose={handleDismissTodayPlanMeal}
+      >
+        <View style={styles.swapModalRoot}>
+          <Pressable
+            style={styles.swapModalBackdrop}
+            onPress={handleDismissTodayPlanMeal}
+            accessibilityRole="button"
+            accessibilityLabel="Close Swap Dinner"
+          />
+          <View style={styles.swapSheet}>
+            <View style={styles.swapSheetHandle} />
+            <View style={styles.swapSheetHeader}>
+              <Text style={styles.swapSheetTitle}>
+                {selectedSwapOption ? "Swap Dinners?" : "Swap Dinner"}
+              </Text>
+              <Pressable
+                onPress={handleDismissTodayPlanMeal}
+                accessibilityRole="button"
+                accessibilityLabel="Close Swap Dinner"
+                style={styles.swapCloseButton}
+              >
+                <MaterialCommunityIcons
+                  name="close"
+                  size={20}
+                  color={theme.color.ink}
+                />
+              </Pressable>
+            </View>
+            {selectedSwapOption && today?.meal ? (
+              <>
+                <View style={styles.swapConfirmationMeals}>
+                  <View style={styles.swapConfirmationMeal}>
+                    <Text style={styles.swapConfirmationDay}>Today</Text>
+                    <Text style={styles.swapConfirmationEmoji}>
+                      {today.meal.emoji}
+                    </Text>
+                    <Text style={styles.swapConfirmationTitle}>
+                      {today.meal.title}
+                    </Text>
+                  </View>
+                  <MaterialCommunityIcons
+                    name="swap-vertical"
+                    size={24}
+                    color={theme.color.accent}
+                    style={styles.swapConfirmationIcon}
+                  />
+                  <View style={styles.swapConfirmationMeal}>
+                    <Text style={styles.swapConfirmationDay}>
+                      {selectedSwapOption.displayName}
+                    </Text>
+                    <Text style={styles.swapConfirmationEmoji}>
+                      {selectedSwapOption.meal?.emoji}
+                    </Text>
+                    <Text style={styles.swapConfirmationTitle}>
+                      {selectedSwapOption.meal?.title}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.swapConfirmationActions}>
+                  <Pressable
+                    disabled={isSwapSaving}
+                    onPress={() => setSelectedSwapDay(null)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel dinner swap"
+                    style={({ pressed }) => [
+                      styles.swapConfirmationCancel,
+                      pressed && styles.swapRowPressed,
+                    ]}
+                  >
+                    <Text style={styles.swapConfirmationCancelText}>
+                      Cancel
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={isSwapSaving}
+                    onPress={handleConfirmDinnerSwap}
+                    accessibilityRole="button"
+                    accessibilityLabel="Confirm dinner swap"
+                    style={({ pressed }) => [
+                      styles.swapConfirmationButton,
+                      isSwapSaving && styles.swapButtonDisabled,
+                      pressed && !isSwapSaving && styles.swapRowPressed,
+                    ]}
+                  >
+                    {isSwapSaving ? (
+                      <ActivityIndicator color={theme.color.ink} />
+                    ) : (
+                      <Text style={styles.swapConfirmationButtonText}>
+                        Swap
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                {swapMessage ? (
+                  <Text style={styles.swapErrorText}>{swapMessage}</Text>
+                ) : null}
+                <Text style={styles.swapSectionLabel}>Planned This Week</Text>
+                {swapDinnerOptions.length > 0 ? (
+                  <View style={styles.swapMealList}>
+                    {swapDinnerOptions.map((day) => (
+                      <Pressable
+                        key={`${day.key}-${day.mealId}`}
+                        onPress={() => {
+                          setSwapMessage(null);
+                          setSelectedSwapDay(day.key);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${day.label}, ${day.meal?.title}`}
+                        style={({ pressed }) => [
+                          styles.swapMealRow,
+                          pressed && styles.swapRowPressed,
+                        ]}
+                      >
+                        <Text style={styles.swapDayLabel}>{day.label}</Text>
+                        <Text style={styles.swapMealEmoji}>
+                          {day.meal?.emoji}
+                        </Text>
+                        <Text style={styles.swapMealTitle} numberOfLines={1}>
+                          {day.meal?.title}
+                        </Text>
+                        <MaterialCommunityIcons
+                          name="chevron-right"
+                          size={22}
+                          color={theme.color.subtleInk}
+                        />
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.swapEmptyText}>
+                    No other meals are planned this week.
+                  </Text>
+                )}
+                <Pressable
+                  onPress={handleBrowseOtherMeals}
+                  accessibilityRole="button"
+                  accessibilityLabel="Browse other meals"
+                  style={({ pressed }) => [
+                    styles.swapBrowseButton,
+                    pressed && styles.swapRowPressed,
+                  ]}
+                >
+                  <Text style={styles.swapBrowseText}>Browse Other Meals</Text>
+                  <MaterialCommunityIcons
+                    name="arrow-right"
+                    size={18}
+                    color={theme.color.accent}
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={handleDismissTodayPlanMeal}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel Swap Dinner"
+                  style={({ pressed }) => [
+                    styles.swapCancelButton,
+                    pressed && styles.swapRowPressed,
+                  ]}
+                >
+                  <Text style={styles.swapCancelText}>Cancel</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+      <SuggestMealModal
+        visible={isBrowseMealsVisible}
         dayName={PLANNED_WEEK_DISPLAY_NAMES[todayPlanDay]}
         mode="changeDinner"
         currentMeal={today?.meal ?? null}
         suggestion={todaySuggestionEntry}
         canSuggestAnother={todaySuggestionPool.length > 1}
-        onDismiss={handleDismissTodayPlanMeal}
-        onAddMeal={handleSaveTodayPlanMeal}
+        onDismiss={handleDismissBrowseMeals}
+        onAddMeal={handleSelectReplacementMeal}
         onSuggestAnother={handleSuggestAnotherTodayMeal}
         meals={sortedMeals}
-        onSelectSearchMeal={handleSaveTodayPlanMeal}
-        onEatOut={handleSaveTodayEatOut}
-        onFlexNight={handleSaveTodayFlexNight}
+        onSelectSearchMeal={handleSelectReplacementMeal}
+        onEatOut={handleSelectReplacementEatOut}
+        onFlexNight={() => handleSelectReplacementMeal(FLEX_NIGHT_MEAL)}
         getLastServedISO={getMealLastServedISO}
         sides={todaySwapSides}
         onAddSide={handleAddTodaySwapSide}
@@ -1323,6 +1854,291 @@ export default function WeekDashboardScreen() {
         pins={todayPlanPins}
         onPinsChange={handleTodayPlanPinsChange}
       />
+      <Modal
+        transparent
+        animationType="slide"
+        visible={Boolean(pendingReplacement && !displacedMealStep)}
+        onRequestClose={handleCancelReplacement}
+      >
+        <View style={styles.swapModalRoot}>
+          <Pressable
+            style={styles.swapModalBackdrop}
+            onPress={handleCancelReplacement}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel dinner replacement"
+          />
+          <View style={styles.swapSheet}>
+            <View style={styles.swapSheetHandle} />
+            <View style={styles.swapSheetHeader}>
+              <Text style={styles.swapSheetTitle}>Replace Today's Dinner?</Text>
+              <Pressable
+                onPress={handleCancelReplacement}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel dinner replacement"
+                style={styles.swapCloseButton}
+              >
+                <MaterialCommunityIcons
+                  name="close"
+                  size={20}
+                  color={theme.color.ink}
+                />
+              </Pressable>
+            </View>
+            {pendingReplacement && today?.meal ? (
+              <>
+                <View style={styles.swapConfirmationMeals}>
+                  <View>
+                    <Text style={styles.swapReplaceSectionLabel}>Today</Text>
+                    <View style={styles.swapConfirmationMeal}>
+                      <Text style={styles.swapConfirmationEmoji}>
+                        {today.meal.emoji}
+                      </Text>
+                      <Text style={styles.swapConfirmationTitle}>
+                        {today.meal.title}
+                      </Text>
+                    </View>
+                  </View>
+                  <View>
+                    <Text style={styles.swapReplaceSectionLabel}>
+                      Replace With
+                    </Text>
+                    <View style={styles.swapConfirmationMeal}>
+                      <Text style={styles.swapConfirmationEmoji}>
+                        {pendingReplacement.meal.emoji}
+                      </Text>
+                      <Text style={styles.swapConfirmationTitle}>
+                        {pendingReplacement.meal.title}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.swapConfirmationActions}>
+                  <Pressable
+                    disabled={isSwapSaving}
+                    onPress={handleCancelReplacement}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel dinner replacement"
+                    style={({ pressed }) => [
+                      styles.swapConfirmationCancel,
+                      pressed && styles.swapRowPressed,
+                    ]}
+                  >
+                    <Text style={styles.swapConfirmationCancelText}>
+                      Cancel
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={isSwapSaving}
+                    onPress={handleConfirmReplacement}
+                    accessibilityRole="button"
+                    accessibilityLabel="Confirm dinner replacement"
+                    style={({ pressed }) => [
+                      styles.swapConfirmationButton,
+                      isSwapSaving && styles.swapButtonDisabled,
+                      pressed && !isSwapSaving && styles.swapRowPressed,
+                    ]}
+                  >
+                    {isSwapSaving ? (
+                      <ActivityIndicator color={theme.color.ink} />
+                    ) : (
+                      <Text style={styles.swapConfirmationButtonText}>
+                        Replace
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        transparent
+        animationType="slide"
+        visible={Boolean(pendingReplacement && displacedMealStep)}
+        onRequestClose={handleCancelReplacement}
+      >
+        <View style={styles.swapModalRoot}>
+          <Pressable
+            style={styles.swapModalBackdrop}
+            onPress={handleCancelReplacement}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel displaced meal choice"
+          />
+          <View style={styles.swapSheet}>
+            <View style={styles.swapSheetHandle} />
+            <View style={styles.swapSheetHeader}>
+              <Text style={styles.swapSheetTitle}>
+                {displacedMealStep === "day" ? "Move To" : "What should happen to:"}
+              </Text>
+              <Pressable
+                disabled={isSwapSaving}
+                onPress={handleCancelReplacement}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel displaced meal choice"
+                style={styles.swapCloseButton}
+              >
+                <MaterialCommunityIcons
+                  name="close"
+                  size={20}
+                  color={theme.color.ink}
+                />
+              </Pressable>
+            </View>
+            {today?.meal && displacedMealStep === "decision" ? (
+              <>
+                <View style={styles.displacedMealSummary}>
+                  <Text style={styles.swapConfirmationEmoji}>
+                    {today.meal.emoji}
+                  </Text>
+                  <Text style={styles.swapConfirmationTitle}>
+                    {today.meal.title}
+                  </Text>
+                </View>
+                <View style={styles.displacedIntro}>
+                  <Text style={styles.displacedIntroTitle}>
+                    You've already planned this meal.
+                  </Text>
+                  <Text style={styles.displacedIntroText}>
+                    Choose what you'd like to do with it.
+                  </Text>
+                </View>
+                <View style={styles.displacedActionList}>
+                  {unplannedRemainingDays.length > 0 ? (
+                    <Pressable
+                      disabled={isSwapSaving}
+                      onPress={handleMoveDisplacedThisWeek}
+                      accessibilityRole="button"
+                      accessibilityLabel="Move to another day"
+                      style={({ pressed }) => [
+                        styles.displacedActionRow,
+                        pressed && styles.swapRowPressed,
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name="calendar-arrow-right"
+                        size={22}
+                        color={theme.color.accent}
+                      />
+                      <View style={styles.displacedActionCopy}>
+                        <Text style={styles.displacedActionTitle}>
+                          Move to Another Day
+                        </Text>
+                        <Text style={styles.displacedActionSubtitle}>
+                          Move this meal to another unplanned day this week.
+                        </Text>
+                      </View>
+                      <MaterialCommunityIcons
+                        name="chevron-right"
+                        size={22}
+                        color={theme.color.subtleInk}
+                      />
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    disabled={isSwapSaving}
+                    onPress={() => void commitReplacement("next")}
+                    accessibilityRole="button"
+                    accessibilityLabel="Move to next week suggestions"
+                    style={({ pressed }) => [
+                      styles.displacedActionRow,
+                      pressed && styles.swapRowPressed,
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name="calendar-week-begin"
+                      size={22}
+                      color={theme.color.accent}
+                    />
+                    <View style={styles.displacedActionCopy}>
+                      <Text style={styles.displacedActionTitle}>
+                        Move to Next Week
+                      </Text>
+                      <Text style={styles.displacedActionSubtitle}>
+                        Add this meal to next week's Suggested by You.
+                      </Text>
+                    </View>
+                    <MaterialCommunityIcons
+                      name="chevron-right"
+                      size={22}
+                      color={theme.color.subtleInk}
+                    />
+                  </Pressable>
+                  <Pressable
+                    disabled={isSwapSaving}
+                    onPress={() => void commitReplacement("remove")}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove from this week"
+                    style={({ pressed }) => [
+                      styles.displacedActionRow,
+                      pressed && styles.swapRowPressed,
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name="calendar-remove-outline"
+                      size={22}
+                      color={theme.color.accent}
+                    />
+                    <View style={styles.displacedActionCopy}>
+                      <Text style={styles.displacedActionTitle}>
+                        Remove from This Week
+                      </Text>
+                      <Text style={styles.displacedActionSubtitle}>
+                        Remove the assignment. The meal stays in your library.
+                      </Text>
+                    </View>
+                    <MaterialCommunityIcons
+                      name="chevron-right"
+                      size={22}
+                      color={theme.color.subtleInk}
+                    />
+                  </Pressable>
+                </View>
+                {isSwapSaving ? (
+                  <ActivityIndicator color={theme.color.accent} />
+                ) : null}
+                <Pressable
+                  disabled={isSwapSaving}
+                  onPress={handleCancelReplacement}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel dinner replacement"
+                  style={styles.swapCancelButton}
+                >
+                  <Text style={styles.swapCancelText}>Cancel</Text>
+                </Pressable>
+              </>
+            ) : null}
+            {displacedMealStep === "day" ? (
+              <View style={styles.swapMealList}>
+                {unplannedRemainingDays.map((day) => (
+                  <Pressable
+                    key={day.key}
+                    disabled={isSwapSaving}
+                    onPress={() => void commitReplacement(day.key)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Move meal to ${day.displayName}`}
+                    style={({ pressed }) => [
+                      styles.swapMealRow,
+                      pressed && styles.swapRowPressed,
+                    ]}
+                  >
+                    <Text style={styles.moveDayTitle}>{day.displayName}</Text>
+                    {isSwapSaving ? (
+                      <ActivityIndicator color={theme.color.accent} />
+                    ) : (
+                      <MaterialCommunityIcons
+                        name="chevron-right"
+                        size={22}
+                        color={theme.color.subtleInk}
+                      />
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
       <SuggestMealModal
         visible={Boolean(pendingResolution)}
         dayName={PLANNED_WEEK_DISPLAY_NAMES[pendingResolutionDay]}
@@ -1364,6 +2180,28 @@ const createStyles = (theme: WeeklyTheme) =>
       borderTopRightRadius: theme.radius.lg,
       borderTopLeftRadius: theme.radius.lg,
       overflow: "hidden",
+    },
+    dashboardMessage: {
+      position: "absolute",
+      left: theme.space.xl,
+      right: theme.space.xl,
+      bottom: 96,
+      zIndex: 20,
+      minHeight: 46,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.lg,
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+    },
+    dashboardMessageText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
     },
     planButton: {
       flexDirection: "row",
@@ -1591,5 +2429,271 @@ const createStyles = (theme: WeeklyTheme) =>
     emptyTodaySubtitle: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.base,
+    },
+    swapModalRoot: {
+      flex: 1,
+      justifyContent: "flex-end",
+    },
+    swapModalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0, 0, 0, 0.56)",
+    },
+    swapSheet: {
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.xl,
+      paddingTop: theme.space.sm,
+      paddingBottom: theme.space["2xl"],
+      borderTopLeftRadius: theme.radius.xl,
+      borderTopRightRadius: theme.radius.xl,
+      backgroundColor: theme.color.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    swapSheetHandle: {
+      width: 38,
+      height: 4,
+      alignSelf: "center",
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.subtleInk,
+      opacity: 0.45,
+    },
+    swapSheetHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: theme.space.md,
+    },
+    swapSheetTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.h2,
+      fontWeight: theme.type.weight.bold,
+    },
+    swapCloseButton: {
+      width: 36,
+      height: 36,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    swapSectionLabel: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+      textTransform: "uppercase",
+    },
+    swapMealList: {
+      overflow: "hidden",
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    swapMealRow: {
+      minHeight: 52,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.md,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.color.border,
+    },
+    swapDayLabel: {
+      width: 42,
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    swapMealEmoji: {
+      width: 26,
+      textAlign: "center",
+      fontSize: 20,
+    },
+    swapMealTitle: {
+      flex: 1,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+    },
+    swapRowPressed: {
+      opacity: 0.72,
+    },
+    swapEmptyText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      paddingVertical: theme.space.md,
+    },
+    swapBrowseButton: {
+      minHeight: 46,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.xs,
+      borderRadius: theme.radius.full,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    swapBrowseText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    swapCancelButton: {
+      minHeight: 42,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: theme.radius.full,
+    },
+    swapCancelText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    swapErrorText: {
+      color: theme.color.danger,
+      fontSize: theme.type.size.sm,
+      padding: theme.space.md,
+      borderRadius: theme.radius.md,
+      backgroundColor:
+        theme.mode === "dark"
+          ? "rgba(239, 68, 68, 0.10)"
+          : "rgba(239, 68, 68, 0.06)",
+    },
+    swapConfirmationMeals: {
+      gap: theme.space.sm,
+      paddingVertical: theme.space.sm,
+    },
+    swapConfirmationMeal: {
+      minHeight: 66,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.lg,
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    swapConfirmationDay: {
+      width: 72,
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    swapReplaceSectionLabel: {
+      marginBottom: theme.space.xs,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    displacedMealSummary: {
+      minHeight: 62,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.lg,
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    displacedIntro: {
+      gap: theme.space.xs,
+    },
+    displacedIntroTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    displacedIntroText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+    },
+    displacedActionList: {
+      overflow: "hidden",
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    displacedActionRow: {
+      minHeight: 68,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.sm,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.color.border,
+    },
+    displacedActionCopy: {
+      flex: 1,
+      gap: 2,
+    },
+    displacedActionTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    displacedActionSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
+      lineHeight: 17,
+    },
+    moveDayTitle: {
+      flex: 1,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    swapConfirmationEmoji: {
+      width: 30,
+      textAlign: "center",
+      fontSize: 24,
+    },
+    swapConfirmationTitle: {
+      flex: 1,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    swapConfirmationIcon: {
+      alignSelf: "center",
+    },
+    swapConfirmationActions: {
+      flexDirection: "row",
+      gap: theme.space.md,
+    },
+    swapConfirmationCancel: {
+      flex: 1,
+      minHeight: 48,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    swapConfirmationCancelText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+    },
+    swapConfirmationButton: {
+      flex: 1,
+      minHeight: 48,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.accent,
+    },
+    swapConfirmationButtonText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    swapButtonDisabled: {
+      opacity: 0.55,
     },
   });

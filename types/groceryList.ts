@@ -1,14 +1,8 @@
 import { PlannedWeekDayKey } from "./weekPlan";
+import { IngredientType } from "./meals";
+import { ShoppingCategory } from "./meals";
 
-export type GroceryCategory =
-  | "produce"
-  | "meat"
-  | "dairy"
-  | "pantry"
-  | "frozen"
-  | "bakery"
-  | "beverages"
-  | "other";
+export type GroceryCategory = ShoppingCategory;
 
 export type GroceryListViewMode = "meal" | "category";
 
@@ -16,6 +10,7 @@ export type GroceryListItem = {
   id: string;
   name: string;
   category: GroceryCategory;
+  ingredientType?: IngredientType;
   source: "planned" | "manual";
   mealId?: string;
   mealTitle?: string;
