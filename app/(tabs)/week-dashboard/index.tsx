@@ -13,11 +13,13 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useFocusEffect } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 import CurrentWeekList from "../../../components/week-dashboard/CurrentWeekList";
 import TodayCard from "../../../components/week-dashboard/TodayCard";
+import DayPlannedToast from "../../../components/plan-week/planned-meals/DayPlannedToast";
 import UnmarkedCard from "../../../components/week-dashboard/UnmarkedCard";
 import DateControls from "../../../components/week-dashboard/DateControls";
 import SuggestMealModal from "../../../components/plan-week/suggestions/SuggestMealModal";
@@ -129,7 +131,8 @@ export default function WeekDashboardScreen() {
     useState<PlannedWeekDayKey | null>(null);
   const [isSwapSaving, setSwapSaving] = useState(false);
   const [swapMessage, setSwapMessage] = useState<string | null>(null);
-  const [dashboardMessage, setDashboardMessage] = useState<string | null>(null);
+  const [moveToNextWeekToastVisible, setMoveToNextWeekToastVisible] =
+    useState(false);
   const [todaySwapSides, setTodaySwapSides] = useState<string[]>([]);
   const [pendingResolution, setPendingResolution] = useState<{
     dayKey: PlannedWeekDayKey;
@@ -276,14 +279,6 @@ export default function WeekDashboardScreen() {
       refreshWeekPlan,
     ])
   );
-
-  useEffect(() => {
-    if (!dashboardMessage) {
-      return;
-    }
-    const timeout = setTimeout(() => setDashboardMessage(null), 2600);
-    return () => clearTimeout(timeout);
-  }, [dashboardMessage]);
 
   const handleFamilyRatingChange = useCallback(
     (mealId: string, memberId: string, rating: FamilyRatingValue) => {
@@ -706,7 +701,10 @@ export default function WeekDashboardScreen() {
       setTodaySwapSides([]);
       await Promise.all([refreshWeekPlan(), refreshNextWeekPlan()]);
       if (destination === "next") {
-        setDashboardMessage("Moved to next week’s suggestions");
+        Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success
+        ).catch(() => {});
+        setMoveToNextWeekToastVisible(true);
       }
     } catch {
       setPendingReplacement(null);
@@ -1602,29 +1600,31 @@ export default function WeekDashboardScreen() {
                 <>
                   {todayCard}
                   {unmarkedCards}
-                  <CurrentWeekList
-                    days={upcomingDays}
-                    title="Current Week Plan"
-                    onDragStateChange={handleWeekListDragStateChange}
-                    onReorder={async (reordered) => {
-                      if (!plan) {
-                        return;
-                      }
-                      const nextPlan = { ...plan };
-                      upcomingDays.forEach((day, index) => {
-                        const nextSlot = reordered[index];
-                        if (!day || !nextSlot) {
+                  {upcomingDays.length > 0 ? (
+                    <CurrentWeekList
+                      days={upcomingDays}
+                      title="Current Week Plan"
+                      onDragStateChange={handleWeekListDragStateChange}
+                      onReorder={async (reordered) => {
+                        if (!plan) {
                           return;
                         }
-                        nextPlan[day.key] = nextSlot.mealId ?? null;
-                      });
-                      setPlanState(nextPlan);
-                      await Promise.all([
-                        setCurrentWeekPlan(weekStartISO, nextPlan),
-                        setCurrentWeekSides(weekStartISO, sides),
-                      ]);
-                    }}
-                  />
+                        const nextPlan = { ...plan };
+                        upcomingDays.forEach((day, index) => {
+                          const nextSlot = reordered[index];
+                          if (!day || !nextSlot) {
+                            return;
+                          }
+                          nextPlan[day.key] = nextSlot.mealId ?? null;
+                        });
+                        setPlanState(nextPlan);
+                        await Promise.all([
+                          setCurrentWeekPlan(weekStartISO, nextPlan),
+                          setCurrentWeekSides(weekStartISO, sides),
+                        ]);
+                      }}
+                    />
+                  ) : null}
                   {nextWeekPlannedDayCount > 0 ? (
                     <CurrentWeekList
                       days={plannedNextWeekDays}
@@ -1647,20 +1647,20 @@ export default function WeekDashboardScreen() {
           </ScrollView>
         </TabParent>
       </Animated.View>
-      {dashboardMessage ? (
-        <View
-          pointerEvents="none"
-          accessibilityLiveRegion="polite"
-          style={styles.dashboardMessage}
-        >
-          <MaterialCommunityIcons
-            name="check-circle"
-            size={18}
-            color={theme.color.success}
+      <Modal
+        animationType="none"
+        visible={moveToNextWeekToastVisible}
+        statusBarTranslucent
+      >
+        <View style={styles.toastModalRoot}>
+          <DayPlannedToast
+            title="Moved to Next Week"
+            subtitle="Added to Carried Over for next week's planning."
+            dimBackground
+            onComplete={() => setMoveToNextWeekToastVisible(false)}
           />
-          <Text style={styles.dashboardMessageText}>{dashboardMessage}</Text>
         </View>
-      ) : null}
+      </Modal>
       <Modal
         transparent
         animationType="slide"
@@ -2175,33 +2175,15 @@ const createStyles = (theme: WeeklyTheme) =>
       flex: 1,
       backgroundColor: "#000",
     },
+    toastModalRoot: {
+      flex: 1,
+      backgroundColor: theme.color.bg,
+    },
     screenWrapper: {
       flex: 1,
       borderTopRightRadius: theme.radius.lg,
       borderTopLeftRadius: theme.radius.lg,
       overflow: "hidden",
-    },
-    dashboardMessage: {
-      position: "absolute",
-      left: theme.space.xl,
-      right: theme.space.xl,
-      bottom: 96,
-      zIndex: 20,
-      minHeight: 46,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: theme.space.sm,
-      paddingHorizontal: theme.space.lg,
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-    },
-    dashboardMessageText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.bold,
     },
     planButton: {
       flexDirection: "row",

@@ -1,0 +1,49 @@
+import { ServedMealEntry } from "../../../stores/servedMealsStorage";
+import { Meal } from "../../../types/meals";
+import { PlannedWeekDayKey } from "../../../types/weekPlan";
+import { isSpecialMealId } from "../../../types/specialMeals";
+
+const MAX_USUAL_MEALS = 5;
+
+export const getUsualMealsForDay = (
+  day: PlannedWeekDayKey,
+  meals: Meal[],
+  history: ServedMealEntry[],
+): Meal[] => {
+  const mealById = new Map(meals.map((meal) => [meal.id, meal]));
+  const weekdayStats = new Map<string, { count: number; latest: number }>();
+
+  history.forEach((entry) => {
+    if (
+      entry.dayKey !== day ||
+      entry.outcome !== "served" ||
+      !entry.mealId ||
+      !mealById.has(entry.mealId)
+    ) {
+      return;
+    }
+    const current = weekdayStats.get(entry.mealId) ?? { count: 0, latest: 0 };
+    weekdayStats.set(entry.mealId, {
+      count: current.count + 1,
+      latest: Math.max(current.latest, new Date(entry.servedAtISO).getTime() || 0),
+    });
+  });
+
+  const weekdayMeals = [...weekdayStats.entries()]
+    .sort(([, left], [, right]) =>
+      right.count === left.count ? right.latest - left.latest : right.count - left.count,
+    )
+    .map(([mealId]) => mealById.get(mealId))
+    .filter((meal): meal is Meal => Boolean(meal));
+
+  const seen = new Set(weekdayMeals.map((meal) => meal.id));
+  const fallbackMeals = meals
+    .filter((meal) => !isSpecialMealId(meal.id) && !seen.has(meal.id))
+    .sort((left, right) => {
+      if (left.isFavorite !== right.isFavorite) return left.isFavorite ? -1 : 1;
+      if ((right.rating ?? 0) !== (left.rating ?? 0)) return (right.rating ?? 0) - (left.rating ?? 0);
+      return 0;
+    });
+
+  return [...weekdayMeals, ...fallbackMeals].slice(0, MAX_USUAL_MEALS);
+};

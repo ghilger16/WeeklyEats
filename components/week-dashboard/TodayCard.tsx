@@ -79,6 +79,18 @@ export default function TodayCard({
 
   const isServed = isLocallyServed || servedFromEntry;
   const hasFamilyMembers = members.length > 0;
+  const isFamilyStar = useMemo(() => {
+    if ((meal as Meal & { isFamilyStar?: boolean }).isFamilyStar === true) {
+      return true;
+    }
+    if (!hasFamilyMembers || !meal.familyRatings) {
+      return false;
+    }
+    const ratings = Object.values(meal.familyRatings).filter(
+      (value) => value > 0
+    );
+    return ratings.length > 0 && ratings.every((value) => value === 3);
+  }, [hasFamilyMembers, meal]);
   const prepNotesToShow = notes ?? meal.prepNotes ?? "";
   const sidesLabel = sides.length ? sides.join(" • ") : "";
   const eatOutMessage = eatOutMessageRef.current;
@@ -359,7 +371,7 @@ export default function TodayCard({
 
   const mealDetails = (
     <Pressable
-      style={styles.touchArea}
+      style={[styles.touchArea, isFamilyStar && styles.familyStarTouchArea]}
       accessibilityRole={meal.recipeUrl ? "button" : "text"}
       accessibilityLabel={
         meal.recipeUrl
@@ -388,7 +400,10 @@ export default function TodayCard({
         </View>
       </View>
 
-      <Text style={styles.emoji} accessibilityLabel={`${meal.title} meal`}>
+      <Text
+        style={[styles.emoji, isFamilyStar && styles.familyStarEmoji]}
+        accessibilityLabel={`${meal.title} meal`}
+      >
         {meal.emoji}
       </Text>
 
@@ -432,7 +447,15 @@ export default function TodayCard({
   );
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, isFamilyStar && styles.familyStarCard]}>
+      {isFamilyStar ? (
+        <View pointerEvents="none" style={styles.familyStarDecorations}>
+          <Text style={styles.familyStarWatermark}>★</Text>
+          <Text style={[styles.familySparkle, styles.familySparkleOne]}>✦</Text>
+          <Text style={[styles.familySparkle, styles.familySparkleTwo]}>✧</Text>
+          <Text style={[styles.familySparkle, styles.familySparkleThree]}>✦</Text>
+        </View>
+      ) : null}
       {isConfettiVisible ? (
         <View pointerEvents="none" style={styles.confettiLayer}>
           {confettiPieces.map((piece, index) => (
@@ -473,7 +496,7 @@ export default function TodayCard({
               <MaterialCommunityIcons
                 name="check-circle-outline"
                 size={96}
-                color={theme.color.accent}
+                color={isFamilyStar ? "#F2C94C" : theme.color.accent}
               />
             )}
           </View>
@@ -495,7 +518,14 @@ export default function TodayCard({
                 >
                   {meal.emoji}
                 </Text>
-                <Text style={styles.completionLabel}>DINNER SERVED</Text>
+                <Text
+                  style={[
+                    styles.completionLabel,
+                    isFamilyStar && styles.familyCompletionLabel,
+                  ]}
+                >
+                  DINNER SERVED
+                </Text>
               </View>
               {celebrationMessage ? (
                 <Text style={styles.completionMessage}>
@@ -592,17 +622,32 @@ export default function TodayCard({
           <Pressable
             style={({ pressed }) => [
               styles.servedButton,
+              isFamilyStar && styles.familyStarServedButton,
               pressed && styles.servedButtonPressed,
             ]}
             accessibilityRole="button"
             accessibilityLabel={servedButtonLabel}
             onPress={handleToggleServed}
           >
-            <Text style={styles.servedButtonText}>{servedButtonLabel}</Text>
+            {isFamilyStar ? (
+              <MaterialCommunityIcons
+                name="star"
+                size={20}
+                color="#A97800"
+              />
+            ) : null}
+            <Text
+              style={[
+                styles.servedButtonText,
+                isFamilyStar && styles.familyStarServedButtonText,
+              ]}
+            >
+              {servedButtonLabel}
+            </Text>
             <MaterialCommunityIcons
               name={toggleIconName as any}
               size={18}
-              color="#FFFFFF"
+              color={isFamilyStar ? "#A97800" : "#FFFFFF"}
             />
           </Pressable>
 
@@ -671,6 +716,38 @@ const createStyles = (theme: WeeklyTheme) =>
       overflow: "hidden",
       position: "relative",
     },
+    familyStarCard: {
+      paddingTop: theme.space.sm,
+      paddingBottom: theme.space.sm,
+      gap: theme.space.sm,
+      backgroundColor: theme.mode === "dark" ? "#3A2A12" : "#FFF4CF",
+      borderColor: "#F2C94C",
+      borderWidth: 2,
+      shadowColor: "#D6A900",
+      shadowOpacity: 0.22,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 3,
+    },
+    familyStarDecorations: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    familyStarWatermark: {
+      position: "absolute",
+      right: -8,
+      top: 30,
+      color: "#F2D15B",
+      fontSize: 116,
+      opacity: theme.mode === "dark" ? 0.08 : 0.12,
+    },
+    familySparkle: {
+      position: "absolute",
+      color: "#F2D15B",
+      opacity: 0.65,
+    },
+    familySparkleOne: { top: 18, left: 20, fontSize: 18 },
+    familySparkleTwo: { top: 28, right: 24, fontSize: 16 },
+    familySparkleThree: { bottom: 62, left: 18, fontSize: 14 },
     confettiLayer: {
       position: "absolute",
       top: 0,
@@ -686,6 +763,9 @@ const createStyles = (theme: WeeklyTheme) =>
     touchArea: {
       alignItems: "center",
       gap: theme.space.sm,
+    },
+    familyStarTouchArea: {
+      gap: theme.space.xs,
     },
     topRow: {
       width: "100%",
@@ -737,6 +817,9 @@ const createStyles = (theme: WeeklyTheme) =>
     emoji: {
       fontSize: 48,
     },
+    familyStarEmoji: {
+      fontSize: 42,
+    },
     title: {
       color: theme.color.ink,
       fontSize: theme.type.size.title,
@@ -781,6 +864,9 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.title,
       fontWeight: theme.type.weight.bold,
       letterSpacing: 0.5,
+    },
+    familyCompletionLabel: {
+      color: "#F2C94C",
     },
     completionMessage: {
       textAlign: "center",
@@ -867,6 +953,11 @@ const createStyles = (theme: WeeklyTheme) =>
       borderRadius: theme.radius.xl,
       paddingVertical: theme.space.md,
     },
+    familyStarServedButton: {
+      backgroundColor: theme.mode === "dark" ? "#4A3414" : "#FFF3C4",
+      borderWidth: 1,
+      borderColor: "#F2D15B",
+    },
     servedButtonPressed: {
       opacity: 0.85,
     },
@@ -874,6 +965,9 @@ const createStyles = (theme: WeeklyTheme) =>
       color: "#FFFFFF",
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.bold,
+    },
+    familyStarServedButtonText: {
+      color: "#A97800",
     },
     drawer: {
       gap: theme.space.sm,
