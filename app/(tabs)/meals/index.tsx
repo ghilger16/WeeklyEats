@@ -26,6 +26,7 @@ import DisplayOnCardsSheet from "../../../components/meals/DisplayOnCardsSheet";
 import MealSearchModal from "../../../components/meals/MealSearchModal";
 import MealTabs, { type MealTabKey } from "../../../components/meals/MealTabs";
 import MealModalOverlay from "../../../components/meals/MealModalOverlay";
+import MealCompletionCard from "../../../components/meals/MealCompletionCard";
 import MealSearchInput, {
   type MealSortSelection,
 } from "../../../components/meals/MealSearchInput";
@@ -35,7 +36,7 @@ import { useMeals } from "../../../hooks/useMeals";
 import { useWeekStartController } from "../../../providers/week-start/WeekStartController";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
-import { Meal, MealDraft, createMealId } from "../../../types/meals";
+import { Ingredient, Meal, MealDraft, createMealId } from "../../../types/meals";
 import { addSavedMealIdeaToWeekPlan } from "../../../stores/weekPlanStorage";
 import { getNextWeekStartForDate } from "../../../utils/weekDays";
 import {
@@ -43,6 +44,10 @@ import {
   removePendingRecipeImport,
   type PendingRecipeImport,
 } from "../../../utils/pendingRecipeImports";
+import {
+  isMealIncomplete,
+  mergeConfirmedIngredients,
+} from "../../../utils/mealCompletion";
 
 const getMealRatingValue = (meal: Meal) =>
   typeof meal.rating === "number" ? meal.rating : 0;
@@ -405,7 +410,27 @@ export default function MealsScreen() {
     [favorites, sortMealsList]
   );
 
-  const data = activeTab === "all" ? sortedAllMeals : sortedFavorites;
+  const incompleteMeals = useMemo(
+    () => meals.filter(isMealIncomplete),
+    [meals]
+  );
+  const sortedIncompleteMeals = useMemo(
+    () => sortMealsList(incompleteMeals),
+    [incompleteMeals, sortMealsList]
+  );
+
+  const data =
+    activeTab === "all"
+      ? sortedAllMeals
+      : activeTab === "complete"
+      ? sortedIncompleteMeals
+      : sortedFavorites;
+
+  useEffect(() => {
+    if (activeTab === "complete" && incompleteMeals.length === 0) {
+      handleTabChange("all");
+    }
+  }, [activeTab, handleTabChange, incompleteMeals.length]);
 
   const handleSortChange = useCallback(
     (selection: MealSortSelection | null) => {
@@ -610,6 +635,16 @@ export default function MealsScreen() {
 
   const renderMeal: ListRenderItem<Meal> = useCallback(
     ({ item }) => {
+      if (activeTab === "complete") {
+        const handleApply = (confirmed: Ingredient[]) => {
+          updateMeal({
+            id: item.id,
+            ingredients: mergeConfirmedIngredients(item.ingredients, confirmed),
+            updatedAt: new Date().toISOString(),
+          });
+        };
+        return <MealCompletionCard meal={item} onApply={handleApply} />;
+      }
       const isFreezerTab = activeTab === "favorites";
       return (
         <MealListItem
@@ -639,6 +674,7 @@ export default function MealsScreen() {
       onOpenMeal,
       openFreezerModal,
       galaxyMealId,
+      updateMeal,
     ]
   );
 
@@ -658,6 +694,16 @@ export default function MealsScreen() {
           <Text style={styles.emptyTitle}>No matches found</Text>
           <Text style={styles.emptySubtitle}>
             Try searching with a different name.
+          </Text>
+        </View>
+      );
+    }
+    if (activeTab === "complete") {
+      return (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>No matches found</Text>
+          <Text style={styles.emptySubtitle}>
+            Try searching with a different meal name.
           </Text>
         </View>
       );
@@ -937,8 +983,27 @@ export default function MealsScreen() {
         menuBtn={menuButtonConfig}
       >
         <View style={styles.tabsHeader}>
-          <MealTabs activeTab={activeTab} onChange={handleTabChange} />
+          <MealTabs
+            activeTab={activeTab}
+            onChange={handleTabChange}
+            incompleteCount={incompleteMeals.length}
+          />
         </View>
+        {activeTab === "complete" ? (
+          <View style={styles.completeHelper}>
+            <View style={styles.completeHelperIcon}>
+              <Text style={styles.completeHelperIconText}>✨</Text>
+            </View>
+            <View style={styles.completeHelperText}>
+              <Text style={styles.completeHelperTitle}>
+                These meals could use a few more details.
+              </Text>
+              <Text style={styles.completeHelperSubtitle}>
+                Add ingredients for better grocery lists and smarter suggestions.
+              </Text>
+            </View>
+          </View>
+        ) : null}
         {isFreezerTab ? (
           <View style={styles.freezerHelper}>
             <Text style={styles.freezerHelperTitle}>Ready to serve</Text>
@@ -972,7 +1037,7 @@ export default function MealsScreen() {
                     onChangeText={setSearchQuery}
                     onSortChange={handleSortChange}
                   />
-                  {shouldShowPendingImports ? (
+                  {activeTab === "all" && shouldShowPendingImports ? (
                     <View style={styles.pendingImportsSection}>
                       <Text style={styles.pendingImportsTitle}>
                         Pending imports
@@ -1284,6 +1349,44 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       lineHeight: theme.type.size.sm * 1.4,
+    },
+    completeHelper: {
+      marginTop: theme.space.lg,
+      marginHorizontal: theme.space.lg,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      backgroundColor: theme.color.surfaceAlt,
+      borderRadius: theme.radius.lg,
+      padding: theme.space.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+    },
+    completeHelperIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255, 75, 145, 0.16)" : "#FFF0F6",
+    },
+    completeHelperIconText: {
+      fontSize: 20,
+    },
+    completeHelperText: {
+      flex: 1,
+      gap: theme.space.xs,
+    },
+    completeHelperTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    completeHelperSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      lineHeight: 19,
     },
     confirmBackdrop: {
       flex: 1,

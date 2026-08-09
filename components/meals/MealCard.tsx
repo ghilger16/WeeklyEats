@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useThemeController } from "../../providers/theme/ThemeController";
-import { WeeklyTheme } from "../../styles/theme";
+import { alpha, WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
 import {
   FamilyRatingValue,
@@ -47,6 +47,8 @@ type MealCardProps = {
 };
 
 type MealFormValues = MealDraft;
+
+type AddMealStep = "entry" | "manual" | "autofill-loading";
 
 const SLIDER_STEPS = 5;
 
@@ -299,6 +301,10 @@ export default function MealCard({
   const autoFillTriggeredRef = useRef(false);
   const [isEmojiPickerVisible, setEmojiPickerVisible] = useState(false);
   const [showTitleRequiredError, setShowTitleRequiredError] = useState(false);
+  const [addMealStep, setAddMealStep] = useState<AddMealStep>(
+    mode === "edit" ? "manual" : "entry"
+  );
+  const [completedLoadingSteps, setCompletedLoadingSteps] = useState(0);
 
   useEffect(() => {
     const showEvent =
@@ -363,7 +369,27 @@ export default function MealCard({
     setNewPantryIngredient("");
     setShowTitleRequiredError(false);
     autoFillTriggeredRef.current = false;
+    setAddMealStep(mode === "edit" ? "manual" : "entry");
+    setCompletedLoadingSteps(0);
   }, [initialMeal, mode]);
+
+  useEffect(() => {
+    if (addMealStep !== "autofill-loading" || !isAutoFillLoading) {
+      return;
+    }
+
+    setCompletedLoadingSteps(0);
+    const findingTimer = setTimeout(() => setCompletedLoadingSteps(1), 350);
+    const ingredientsTimer = setTimeout(
+      () => setCompletedLoadingSteps(2),
+      1100
+    );
+
+    return () => {
+      clearTimeout(findingTimer);
+      clearTimeout(ingredientsTimer);
+    };
+  }, [addMealStep, isAutoFillLoading]);
 
   useEffect(() => {
     setPrepNotesDraft((prev) => {
@@ -541,10 +567,18 @@ export default function MealCard({
 
   const handleAutoFillPress = useCallback(async () => {
     clearError();
+    if (!isEditMode) {
+      setAddMealStep("autofill-loading");
+    }
     const outcome = await requestAutoFill();
     if (!outcome.ok) {
+      if (!isEditMode) {
+        setAddMealStep("entry");
+      }
       return;
     }
+
+    setCompletedLoadingSteps(3);
 
     const normalizedDifficulty =
       typeof outcome.data.difficulty === "number"
@@ -571,16 +605,11 @@ export default function MealCard({
     setNewAutoFillIngredient("");
     setNewAutoFillPantryIngredient("");
     setIsAutoFillIngredientDeleteMode(false);
+    if (!isEditMode) {
+      setAddMealStep("manual");
+    }
     setIsAutoFillPreviewVisible(true);
-  }, [
-    clearError,
-    requestAutoFill,
-    form.title,
-    form.ingredients,
-    form.difficulty,
-    form.expense,
-    prepNotesDraft,
-  ]);
+  }, [clearError, isEditMode, requestAutoFill]);
 
   useEffect(() => {
     if (!autoFillOnOpen) {
@@ -606,7 +635,10 @@ export default function MealCard({
     setNewAutoFillPantryIngredient("");
     setIsAutoFillIngredientDeleteMode(false);
     resetAutoFill();
-  }, [resetAutoFill]);
+    if (!isEditMode) {
+      setAddMealStep("entry");
+    }
+  }, [isEditMode, resetAutoFill]);
 
   const createMealFromValues = useCallback(
     (values: MealFormValues, prepNotesValue: string) => {
@@ -864,6 +896,218 @@ export default function MealCard({
     createMealFromValues(form, prepNotesDraft);
   }, [createMealFromValues, form, isEditMode, prepNotesDraft]);
 
+  const handleHeaderBack = useCallback(() => {
+    if (!isEditMode && addMealStep === "manual") {
+      setAddMealStep("entry");
+      return;
+    }
+    onClose();
+  }, [addMealStep, isEditMode, onClose]);
+
+  const handleRecipeUrlChange = useCallback(
+    (value: string) => {
+      if (autoFillError) {
+        clearError();
+      }
+      if (autoFillResult) {
+        resetAutoFill();
+        setAutoFillDraft(null);
+        setIsAutoFillPreviewVisible(false);
+      }
+      updateField("recipeUrl", value);
+    },
+    [autoFillError, autoFillResult, clearError, resetAutoFill, updateField]
+  );
+
+  const renderHeader = (loading = false) => (
+    <View style={styles.headerRow}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={loading ? "Cancel auto-fill" : "Back"}
+        onPress={loading ? onClose : handleHeaderBack}
+        style={styles.backButton}
+      >
+        <MaterialCommunityIcons
+          name={loading ? "close" : "arrow-left"}
+          size={24}
+          color={theme.color.subtleInk}
+        />
+      </Pressable>
+      {!loading && !isEditMode && addMealStep === "entry" ? (
+        <Text style={styles.headerTitle}>Add Meal</Text>
+      ) : null}
+      <View style={styles.headerSpacer} />
+    </View>
+  );
+
+  if (!isEditMode && addMealStep === "entry") {
+    return (
+      <View style={styles.container}>
+        {renderHeader()}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.entryContent}
+        >
+          <View style={styles.recipeEntryCard}>
+            <View style={styles.recipeEntryHeadingRow}>
+              <View style={styles.recipeEntryIcon}>
+                <MaterialCommunityIcons
+                  name="link-variant"
+                  size={26}
+                  color={theme.color.accent}
+                />
+              </View>
+              <View style={styles.recipeEntryHeadingText}>
+                <Text style={styles.recipeEntryTitle}>
+                  Add from a recipe link
+                </Text>
+                <Text style={styles.recipeEntryDescription}>
+                  Paste a recipe and we’ll fill in the meal details and
+                  ingredients for you.
+                </Text>
+              </View>
+            </View>
+            <View style={styles.entryUrlInput}>
+              <MaterialCommunityIcons
+                name="link-variant"
+                size={18}
+                color={theme.color.subtleInk}
+              />
+              <TextInput
+                accessibilityLabel="Recipe URL"
+                placeholder="Paste recipe URL…"
+                placeholderTextColor={theme.color.subtleInk}
+                style={styles.linkTextInput}
+                value={form.recipeUrl}
+                onChangeText={handleRecipeUrlChange}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+            </View>
+            <Pressable
+              style={({ pressed }) => [
+                styles.entryAutoFillButton,
+                isAutoFillButtonDisabled && styles.autoFillButtonDisabled,
+                pressed && !isAutoFillButtonDisabled &&
+                  styles.entryButtonPressed,
+              ]}
+              disabled={isAutoFillButtonDisabled}
+              onPress={handleAutoFillPress}
+              accessibilityRole="button"
+              accessibilityLabel="Auto-Fill Meal"
+            >
+              <MaterialCommunityIcons
+                name="creation"
+                size={18}
+                color={theme.mode === "dark" ? theme.color.ink : theme.color.bg}
+              />
+              <Text style={styles.entryAutoFillButtonText}>Auto-Fill Meal</Text>
+            </Pressable>
+            {autoFillError ? (
+              <View style={styles.entryError}>
+                <Text style={styles.entryErrorText} accessibilityRole="alert">
+                  We couldn’t read that recipe. Check the link and try again.
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Try recipe auto-fill again"
+                  onPress={handleAutoFillPress}
+                  disabled={isAutoFillButtonDisabled}
+                >
+                  <Text style={styles.entryErrorAction}>Try Again</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.entryDividerRow}>
+            <View style={styles.entryDividerLine} />
+            <Text style={styles.entryDividerText}>or</Text>
+            <View style={styles.entryDividerLine} />
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Enter meal manually"
+            onPress={() => setAddMealStep("manual")}
+            style={({ pressed }) => [
+              styles.manualEntryCard,
+              pressed && styles.entryButtonPressed,
+            ]}
+          >
+            <View style={styles.manualEntryIcon}>
+              <MaterialCommunityIcons
+                name="pencil-outline"
+                size={24}
+                color={theme.color.subtleInk}
+              />
+            </View>
+            <View style={styles.manualEntryText}>
+              <Text style={styles.manualEntryTitle}>Enter meal manually</Text>
+              <Text style={styles.manualEntryDescription}>
+                Add all the meal details yourself.
+              </Text>
+            </View>
+            <MaterialCommunityIcons
+              name="chevron-right"
+              size={26}
+              color={theme.color.subtleInk}
+            />
+          </Pressable>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  if (!isEditMode && addMealStep === "autofill-loading") {
+    const loadingItems = [
+      "Finding the recipe",
+      "Adding ingredients",
+      "Organizing your grocery list",
+    ];
+    return (
+      <View style={styles.container}>
+        {renderHeader(true)}
+        <View style={styles.loadingContent}>
+          <View style={styles.loadingMagicIcon}>
+            <MaterialCommunityIcons
+              name="magic-staff"
+              size={58}
+              color={theme.color.accent}
+            />
+          </View>
+          <Text style={styles.loadingTitle}>Creating your meal…</Text>
+          <View style={styles.loadingChecklist}>
+            {loadingItems.map((label, index) => {
+              const complete = completedLoadingSteps > index;
+              return (
+                <View style={styles.loadingRow} key={label}>
+                  <MaterialCommunityIcons
+                    name={complete ? "check-circle" : "circle-outline"}
+                    size={21}
+                    color={complete ? theme.color.accent : theme.color.border}
+                  />
+                  <Text style={styles.loadingRowText}>{label}</Text>
+                </View>
+              );
+            })}
+          </View>
+          <View style={styles.loadingTrack}>
+            <View
+              style={[
+                styles.loadingProgress,
+                { width: `${Math.max(12, completedLoadingSteps * 33.333)}%` },
+              ]}
+            />
+          </View>
+          <Text style={styles.loadingHelper}>This may take a few seconds</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <KeyboardAvoidingView
@@ -874,7 +1118,7 @@ export default function MealCard({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back"
-            onPress={onClose}
+            onPress={handleHeaderBack}
             style={styles.backButton}
           >
             <MaterialCommunityIcons
@@ -986,15 +1230,7 @@ export default function MealCard({
                 style={styles.linkTextInput}
                 value={form.recipeUrl}
                 onChangeText={(value) => {
-                  if (autoFillError) {
-                    clearError();
-                  }
-                  if (autoFillResult) {
-                    resetAutoFill();
-                    setAutoFillDraft(null);
-                    setIsAutoFillPreviewVisible(false);
-                  }
-                  updateField("recipeUrl", value);
+                  handleRecipeUrlChange(value);
                 }}
                 autoCapitalize="none"
                 keyboardType="url"
@@ -1379,13 +1615,11 @@ export default function MealCard({
                 </View>
                 <View style={styles.autoFillHeaderText}>
                   <Text style={styles.autoFillModalTitle}>
-                    Apply recipe details?
+                    Recipe found ✨
                   </Text>
-                  {autoFillResult?.summary ? (
-                    <Text style={styles.autoFillModalDescription}>
-                      {autoFillResult.summary}
-                    </Text>
-                  ) : null}
+                  <Text style={styles.autoFillModalDescription}>
+                    Make any changes before adding this meal.
+                  </Text>
                 </View>
               </View>
 
@@ -1430,7 +1664,7 @@ export default function MealCard({
                             <Pressable
                               key={`${ingredientName}-${index}`}
                               style={({ pressed }) => [
-                                styles.chip,
+                                styles.autoFillIngredientChip,
                                 isAutoFillIngredientDeleteMode &&
                                   styles.chipDeleteMode,
                                 pressed &&
@@ -1451,7 +1685,7 @@ export default function MealCard({
                                 handleToggleAutoFillIngredientType(index);
                               }}
                             >
-                              <Text style={styles.chipText}>
+                              <Text style={styles.autoFillIngredientChipText}>
                                 {ingredientName}
                               </Text>
                             </Pressable>
@@ -1464,7 +1698,7 @@ export default function MealCard({
                     <TextInput
                       placeholder="Add ingredient"
                       placeholderTextColor={theme.color.subtleInk}
-                      style={styles.ingredientInput}
+                      style={styles.autoFillIngredientInput}
                       value={newAutoFillIngredient}
                       onChangeText={setNewAutoFillIngredient}
                       onFocus={() => setIsAutoFillIngredientDeleteMode(false)}
@@ -1531,8 +1765,8 @@ export default function MealCard({
                               <Pressable
                                 key={`${ingredientName}-${index}`}
                                 style={({ pressed }) => [
-                                  styles.chip,
-                                  styles.pantryChip,
+                                  styles.autoFillIngredientChip,
+                                  styles.autoFillPantryChip,
                                   isAutoFillIngredientDeleteMode &&
                                     styles.chipDeleteMode,
                                   pressed &&
@@ -1555,8 +1789,8 @@ export default function MealCard({
                               >
                                 <Text
                                   style={[
-                                    styles.chipText,
-                                    styles.pantryChipText,
+                                    styles.autoFillIngredientChipText,
+                                    styles.autoFillPantryChipText,
                                   ]}
                                 >
                                   {ingredientName}
@@ -1570,7 +1804,7 @@ export default function MealCard({
                         <TextInput
                           placeholder="Add ingredient"
                           placeholderTextColor={theme.color.subtleInk}
-                          style={styles.ingredientInput}
+                          style={styles.autoFillIngredientInput}
                           value={newAutoFillPantryIngredient}
                           onChangeText={setNewAutoFillPantryIngredient}
                           onFocus={() =>
@@ -1628,20 +1862,15 @@ export default function MealCard({
                 <View style={styles.autoFillEditorSection}>
                   <Text style={styles.autoFillFieldLabel}>Difficulty</Text>
                   <View style={styles.levelChipRow}>
-                    {DIFFICULTY_LEVELS.map(({ label, value, colorKey }) => {
+                    {DIFFICULTY_LEVELS.map(({ label, value }) => {
                       const isSelected = autoFillDraft?.difficulty === value;
-                      const levelColor = theme.color[colorKey];
                       return (
                         <Pressable
                           key={label}
                           style={[
                             styles.levelChip,
-                            {
-                              borderColor: levelColor,
-                              backgroundColor: isSelected
-                                ? levelColor
-                                : theme.color.surface,
-                            },
+                            styles.autoFillLevelChip,
+                            isSelected && styles.autoFillLevelChipSelected,
                           ]}
                           accessibilityRole="button"
                           accessibilityState={{ selected: isSelected }}
@@ -1651,22 +1880,11 @@ export default function MealCard({
                           }
                         >
                           <View style={styles.levelChipContent}>
-                            {!isSelected ? (
-                              <View
-                                style={[
-                                  styles.levelChipDot,
-                                  { backgroundColor: levelColor },
-                                ]}
-                              />
-                            ) : null}
                             <Text
                               style={[
                                 styles.levelChipText,
-                                {
-                                  color: isSelected
-                                    ? theme.color.ink
-                                    : levelColor,
-                                },
+                                isSelected &&
+                                  styles.autoFillLevelChipTextSelected,
                               ]}
                             >
                               {label}
@@ -1688,7 +1906,8 @@ export default function MealCard({
                           key={label}
                           style={[
                             styles.levelChip,
-                            isSelected && styles.levelChipSelectedExpense,
+                            styles.autoFillLevelChip,
+                            isSelected && styles.autoFillLevelChipSelected,
                           ]}
                           accessibilityRole="button"
                           accessibilityState={{ selected: isSelected }}
@@ -1698,7 +1917,8 @@ export default function MealCard({
                           <Text
                             style={[
                               styles.levelChipText,
-                              isSelected && styles.levelChipTextSelected,
+                              isSelected &&
+                                styles.autoFillLevelChipTextSelected,
                             ]}
                           >
                             {label}
@@ -1736,9 +1956,9 @@ export default function MealCard({
                   style={styles.autoFillModalButton}
                   onPress={closeAutoFillPreview}
                   accessibilityRole="button"
-                  accessibilityLabel="Cancel applying auto-filled details"
+                  accessibilityLabel="Go back without adding auto-filled details"
                 >
-                  <Text style={styles.autoFillModalButtonText}>Cancel</Text>
+                  <Text style={styles.autoFillModalButtonText}>Back</Text>
                 </Pressable>
                 <Pressable
                   style={[
@@ -1750,7 +1970,7 @@ export default function MealCard({
                   disabled={!hasAutoFillSelection}
                   onPress={handleConfirmAutoFill}
                   accessibilityRole="button"
-                  accessibilityLabel="Apply the selected auto-filled details"
+                  accessibilityLabel="Add meal with the reviewed recipe details"
                 >
                   <Text
                     style={[
@@ -1760,7 +1980,7 @@ export default function MealCard({
                         styles.autoFillModalButtonTextDisabled,
                     ]}
                   >
-                    Apply
+                    Add Meal
                   </Text>
                 </Pressable>
               </View>
@@ -1794,6 +2014,13 @@ const createStyles = (theme: WeeklyTheme) =>
     headerSpacer: {
       width: 44,
       height: 44,
+    },
+    headerTitle: {
+      flex: 1,
+      marginLeft: theme.space.lg,
+      color: theme.color.ink,
+      fontSize: theme.type.size.h2,
+      fontWeight: theme.type.weight.bold,
     },
     backButton: {
       width: 44,
@@ -1845,6 +2072,191 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingTop: theme.space["2xl"],
       paddingBottom: theme.space["2xl"] + theme.space.xl,
       gap: theme.space["2xl"],
+    },
+    entryContent: {
+      paddingHorizontal: theme.space.xl,
+      paddingTop: theme.space.xl,
+      paddingBottom: theme.space["2xl"],
+      gap: theme.space.xl,
+    },
+    recipeEntryCard: {
+      padding: theme.space.lg,
+      gap: theme.space.lg,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.color.cardOutline,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    recipeEntryHeadingRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: theme.space.md,
+    },
+    recipeEntryIcon: {
+      width: 52,
+      height: 52,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.focus,
+    },
+    recipeEntryHeadingText: {
+      flex: 1,
+      gap: theme.space.xs,
+    },
+    recipeEntryTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+    },
+    recipeEntryDescription: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      lineHeight: 22,
+    },
+    entryUrlInput: {
+      minHeight: theme.component.input.height,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: theme.space.md,
+      gap: theme.space.sm,
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      backgroundColor: theme.color.surface,
+    },
+    entryAutoFillButton: {
+      minHeight: theme.component.button.height,
+      borderRadius: theme.radius.xl,
+      backgroundColor: theme.color.accent,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+    },
+    entryAutoFillButtonText: {
+      color: theme.mode === "dark" ? theme.color.ink : theme.color.bg,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    entryButtonPressed: {
+      opacity: 0.82,
+    },
+    entryError: {
+      gap: theme.space.sm,
+    },
+    entryErrorText: {
+      color: theme.color.danger,
+      fontSize: theme.type.size.sm,
+      lineHeight: 20,
+    },
+    entryErrorAction: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    entryDividerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.xl,
+    },
+    entryDividerLine: {
+      flex: 1,
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: theme.color.border,
+    },
+    entryDividerText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    manualEntryCard: {
+      minHeight: 92,
+      padding: theme.space.lg,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      borderRadius: theme.radius.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      backgroundColor: theme.color.surface,
+    },
+    manualEntryIcon: {
+      width: 48,
+      height: 48,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    manualEntryText: {
+      flex: 1,
+      gap: theme.space.xs,
+    },
+    manualEntryTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    manualEntryDescription: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      lineHeight: 20,
+    },
+    loadingContent: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: theme.space["2xl"],
+      paddingBottom: 72,
+    },
+    loadingMagicIcon: {
+      width: 96,
+      height: 96,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: theme.space.lg,
+    },
+    loadingTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.h1,
+      fontWeight: theme.type.weight.bold,
+      marginBottom: theme.space.xl,
+      textAlign: "center",
+    },
+    loadingChecklist: {
+      width: "100%",
+      maxWidth: 320,
+      gap: theme.space.lg,
+      marginBottom: theme.space.xl,
+    },
+    loadingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+    },
+    loadingRowText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+    },
+    loadingTrack: {
+      width: "100%",
+      maxWidth: 320,
+      height: 7,
+      overflow: "hidden",
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    loadingProgress: {
+      height: "100%",
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.accent,
+    },
+    loadingHelper: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      marginTop: theme.space.md,
     },
     section: {
       gap: theme.space.md,
@@ -2093,7 +2505,7 @@ const createStyles = (theme: WeeklyTheme) =>
     autoFillModalContent: {
       width: "100%",
       maxHeight: "86%",
-      borderRadius: theme.radius.lg,
+      borderRadius: theme.radius.xl,
       backgroundColor: theme.color.surface,
       padding: theme.space.xl,
       gap: theme.space.lg,
@@ -2104,17 +2516,17 @@ const createStyles = (theme: WeeklyTheme) =>
       gap: theme.space.md,
     },
     autoFillEmojiPreview: {
-      width: 64,
-      height: 64,
-      borderRadius: theme.radius.lg,
+      width: 52,
+      height: 52,
+      borderRadius: theme.radius.md,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: theme.color.surfaceAlt,
-      borderWidth: 1,
+      borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.cardOutline,
     },
     autoFillEmojiGlyph: {
-      fontSize: 36,
+      fontSize: 29,
     },
     autoFillHeaderText: {
       flex: 1,
@@ -2122,19 +2534,20 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     autoFillModalTitle: {
       color: theme.color.ink,
-      fontSize: theme.type.size.title,
+      fontSize: theme.type.size.h2,
       fontWeight: theme.type.weight.bold,
     },
     autoFillModalDescription: {
       color: theme.color.subtleInk,
-      fontSize: theme.type.size.base,
+      fontSize: theme.type.size.sm,
+      lineHeight: 19,
     },
     autoFillModalScroll: {
       flexGrow: 0,
     },
     autoFillModalScrollContent: {
-      gap: theme.space.lg,
-      paddingBottom: theme.space.xs,
+      gap: theme.space.xl,
+      paddingBottom: theme.space.sm,
     },
     autoFillEditorSection: {
       gap: theme.space.sm,
@@ -2142,12 +2555,55 @@ const createStyles = (theme: WeeklyTheme) =>
     autoFillInput: {
       backgroundColor: theme.color.surfaceAlt,
       borderRadius: theme.radius.md,
-      paddingVertical: theme.space.sm,
+      paddingVertical: theme.space.md,
       paddingHorizontal: theme.space.md,
       color: theme.color.ink,
-      fontSize: theme.type.size.base,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.medium,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
+    },
+    autoFillIngredientChip: {
+      maxWidth: "100%",
+      backgroundColor: theme.color.surfaceAlt,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.xs + 1,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+    },
+    autoFillIngredientChipText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      lineHeight: 19,
+    },
+    autoFillPantryChip: {
+      backgroundColor: theme.color.bg,
+      borderColor: theme.color.cardOutline,
+    },
+    autoFillPantryChipText: {
+      color: theme.color.subtleInk,
+    },
+    autoFillIngredientInput: {
+      flex: 1,
+      paddingVertical: theme.space.xs,
+      paddingHorizontal: theme.space.sm,
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.color.border,
+    },
+    autoFillLevelChip: {
+      backgroundColor: theme.color.surfaceAlt,
+      borderColor: theme.color.border,
+    },
+    autoFillLevelChipSelected: {
+      backgroundColor: alpha(theme.color.accent, 0.14),
+      borderColor: theme.color.accent,
+    },
+    autoFillLevelChipTextSelected: {
+      color: theme.color.ink,
+      fontWeight: theme.type.weight.bold,
     },
     autoFillNotesInput: {
       backgroundColor: theme.color.surfaceAlt,
@@ -2156,7 +2612,7 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingVertical: theme.space.sm,
       color: theme.color.ink,
       fontSize: theme.type.size.base,
-      minHeight: 92,
+      minHeight: 104,
       textAlignVertical: "top",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
@@ -2176,10 +2632,10 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     autoFillFieldLabel: {
       color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
+      fontSize: theme.type.size.xs,
       fontWeight: theme.type.weight.medium,
       textTransform: "uppercase",
-      letterSpacing: 0.5,
+      letterSpacing: 0.7,
     },
     autoFillFieldValue: {
       color: theme.color.ink,
@@ -2191,16 +2647,21 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     autoFillModalActions: {
       flexDirection: "row",
-      justifyContent: "flex-end",
-      gap: theme.space.sm,
+      gap: theme.space.md,
+      paddingTop: theme.space.lg,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.color.border,
     },
     autoFillModalButton: {
+      flex: 1,
+      minHeight: theme.component.button.height,
       paddingHorizontal: theme.space.lg,
-      paddingVertical: theme.space.sm,
-      borderRadius: theme.radius.md,
+      borderRadius: theme.radius.xl,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
       backgroundColor: theme.color.surfaceAlt,
+      alignItems: "center",
+      justifyContent: "center",
     },
     autoFillModalButtonPrimary: {
       backgroundColor: theme.color.accent,
@@ -2215,7 +2676,8 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.medium,
     },
     autoFillModalButtonTextPrimary: {
-      color: theme.color.ink,
+      color: theme.mode === "dark" ? theme.color.ink : theme.color.bg,
+      fontWeight: theme.type.weight.bold,
     },
     autoFillModalButtonTextDisabled: {
       color: theme.color.subtleInk,

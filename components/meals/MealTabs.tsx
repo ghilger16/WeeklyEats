@@ -11,12 +11,7 @@ import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
 
-export type MealTabKey = "all" | "favorites";
-
-const tabs: Array<{ key: MealTabKey; label: string }> = [
-  { key: "all", label: "All" },
-  { key: "favorites", label: "Freezer" },
-];
+export type MealTabKey = "all" | "favorites" | "complete";
 
 type TabLayout = {
   x: number;
@@ -26,16 +21,28 @@ type TabLayout = {
 type Props = {
   activeTab: MealTabKey;
   onChange: (tab: MealTabKey) => void;
+  incompleteCount?: number;
 };
 
-const MealTabs = ({ activeTab, onChange }: Props) => {
+const MealTabs = ({ activeTab, onChange, incompleteCount = 0 }: Props) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const animationDuration = theme.motion.duration.normal;
   const [layouts, setLayouts] = useState<Record<MealTabKey, TabLayout>>({
     all: { x: 0, width: 0 },
     favorites: { x: 0, width: 0 },
+    complete: { x: 0, width: 0 },
   });
+  const tabs = useMemo(
+    () => [
+      { key: "all" as const, label: "All" },
+      { key: "favorites" as const, label: "Freezer" },
+      ...(incompleteCount > 0
+        ? [{ key: "complete" as const, label: "Complete" }]
+        : []),
+    ],
+    [incompleteCount]
+  );
   const indicatorX = useRef(new Animated.Value(0)).current;
   const indicatorWidth = useRef(new Animated.Value(0)).current;
 
@@ -109,7 +116,21 @@ const MealTabs = ({ activeTab, onChange }: Props) => {
               pressed && styles.tabButtonPressed,
             ]}
           >
-            <Text style={styles.tabLabel}>{tab.label}</Text>
+            <View style={styles.tabLabelRow}>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  activeTab === tab.key && styles.tabLabelActive,
+                ]}
+              >
+                {tab.label}
+              </Text>
+              {tab.key === "complete" ? (
+                <View style={styles.countBadge}>
+                  <Text style={styles.countBadgeText}>{incompleteCount}</Text>
+                </View>
+              ) : null}
+            </View>
           </Pressable>
         ))}
         <View style={styles.underline} />
@@ -132,6 +153,28 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.title,
       color: theme.color.ink,
       fontWeight: theme.type.weight.medium,
+    },
+    tabLabelActive: {
+      color: theme.color.accent,
+    },
+    tabLabelRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
+    },
+    countBadge: {
+      minWidth: 24,
+      height: 24,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 7,
+      backgroundColor: theme.color.accent,
+    },
+    countBadgeText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
     },
     indicator: {
       position: "absolute",

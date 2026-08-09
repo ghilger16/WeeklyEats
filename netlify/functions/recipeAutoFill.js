@@ -355,6 +355,34 @@ const buildOpenAiPayload = (url, text) => ({
   ],
 });
 
+const buildIngredientSuggestionPayload = (title) => ({
+  model: OPENAI_MODEL,
+  temperature: 0.2,
+  max_tokens: 700,
+  response_format: { type: "json_object" },
+  messages: [
+    {
+      role: "system",
+      content: "You suggest likely ingredients for a named family meal. Return only JSON.",
+    },
+    {
+      role: "user",
+      content: [
+        "Return a JSON object with one key named ingredients.",
+        "Suggest 4-7 key ingredients and 2-5 pantry staples likely needed for this meal.",
+        "Suggestions are recommendations, not a complete recipe.",
+        "Return each ingredient as { name, category, ingredientType }.",
+        "Names must be short ingredient names only, without quantities or preparation notes.",
+        `Category must be one of: ${SHOPPING_CATEGORIES.join(", ")}.`,
+        "ingredientType must be keyIngredient or pantryStaple.",
+        "Use pantryStaple only for common oils, salt, pepper, dried herbs, dried spices, and basic vinegars.",
+        "Fresh garlic, onions, produce, dairy, proteins, grains, and sauces are keyIngredient.",
+        `Meal title: ${title}`,
+      ].join("\n"),
+    },
+  ],
+});
+
 const parseOpenAiContent = (data) => {
   const content = data?.choices?.[0]?.message?.content;
   if (!content) {
@@ -397,24 +425,41 @@ exports.handler = async (event) => {
     };
   }
 
+  const suggestionTitle =
+    typeof body.suggestionTitle === "string" ? body.suggestionTitle.trim() : "";
   const url = typeof body.url === "string" ? body.url.trim() : "";
-  if (!url) {
+  if (!url && !suggestionTitle) {
     return {
       statusCode: 400,
       body: JSON.stringify({ ok: false, error: "Missing recipe URL." }),
     };
   }
 
-  let html;
-  try {
-    const recipeResponse = await fetch(url, {
-      headers: {
-        Accept: "text/html,application/xhtml+xml",
-        "User-Agent": "WeeklyEatsBot/1.0",
-      },
-    });
+  let aiPayload;
+  if (suggestionTitle) {
+    aiPayload = buildIngredientSuggestionPayload(suggestionTitle);
+  } else {
+    let html;
+    try {
+      const recipeResponse = await fetch(url, {
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          "User-Agent": "WeeklyEatsBot/1.0",
+        },
+      });
 
-    if (!recipeResponse.ok) {
+      if (!recipeResponse.ok) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({
+            ok: false,
+            error: "Could not fetch recipe URL.",
+          }),
+        };
+      }
+
+      html = await recipeResponse.text();
+    } catch (error) {
       return {
         statusCode: 400,
         body: JSON.stringify({
@@ -423,19 +468,9 @@ exports.handler = async (event) => {
         }),
       };
     }
-
-    html = await recipeResponse.text();
-  } catch (error) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        ok: false,
-        error: "Could not fetch recipe URL.",
-      }),
-    };
+    const trimmedText = stripHtml(html).slice(0, MAX_HTML_CHARS);
+    aiPayload = buildOpenAiPayload(url, trimmedText);
   }
-
-  const trimmedText = stripHtml(html).slice(0, MAX_HTML_CHARS);
 
   let aiResponse;
   try {
@@ -445,7 +480,7 @@ exports.handler = async (event) => {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(buildOpenAiPayload(url, trimmedText)),
+      body: JSON.stringify(aiPayload),
     });
   } catch (error) {
     return {
@@ -506,6 +541,13 @@ exports.handler = async (event) => {
         parsed.ingredients.map(normalizeIngredient).filter(Boolean),
       )
     : [];
+
+  if (suggestionTitle) {
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ ok: true, data: { ingredients } }),
+    };
+  }
 
   const difficulty =
     typeof parsed.difficulty === "number" ? clamp(parsed.difficulty, 1, 5) : 3;
