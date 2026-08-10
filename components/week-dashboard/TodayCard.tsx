@@ -78,7 +78,7 @@ export default function TodayCard({
   const [isFreezerModalVisible, setFreezerModalVisible] = useState(false);
 
   const isServed = isLocallyServed || servedFromEntry;
-  const hasFamilyMembers = members.length > 0;
+  const hasFamilyMembers = members.length > 1;
   const isFamilyStar = useMemo(() => {
     if ((meal as Meal & { isFamilyStar?: boolean }).isFamilyStar === true) {
       return true;

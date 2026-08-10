@@ -263,6 +263,7 @@ const MealSearchInputComponent = ({
           placeholderTextColor={theme.color.subtleInk}
           style={styles.input}
           returnKeyType="search"
+          autoCapitalize="words"
           onFocus={() => {
             setFocused(true);
             handleCloseDropdown();

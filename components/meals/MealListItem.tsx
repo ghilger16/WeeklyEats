@@ -21,9 +21,9 @@ import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
 import { FlexGrid } from "../../styles/flex-grid";
 import RatingStars from "./RatingStars";
-import FamilyRatingIcons from "./FamilyRatingIcons";
 import { MealBadge } from "./MealBadge";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
+import { getFamilyRatingSummary } from "../../utils/familyRatings";
 
 type Props = {
   meal: Meal;
@@ -82,7 +82,6 @@ const MealListItem = memo(function MealListItem({
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { members } = useFamilyMembers();
-  const hasFamilyMembers = members.length > 0;
   const scale = useRef(new Animated.Value(1)).current;
   const swipeableRef = useRef<Swipeable | null>(null);
   const pressDuration = theme.motion.duration.fast;
@@ -183,7 +182,6 @@ const MealListItem = memo(function MealListItem({
   const showExpense = displayOptions?.showExpense ?? true;
   const ratingMode = displayOptions?.ratingMode ?? "family";
   const showRatings = ratingMode !== "off";
-  const useFamilyRatingSummary = ratingMode === "summary";
   const showServed = displayOptions?.showServed ?? true;
   const showEmoji = displayOptions?.showEmoji ?? true;
 
@@ -226,43 +224,22 @@ const MealListItem = memo(function MealListItem({
     </View>
   );
 
-  const { isFamilyStar } = useMemo(() => {
-    if ((meal as Meal & { isFamilyStar?: boolean }).isFamilyStar === true) {
-      return { isFamilyStar: true };
-    }
-    if (!hasFamilyMembers || !meal.familyRatings) {
-      return { isFamilyStar: false };
-    }
-    const mapped = Object.values(meal.familyRatings)
-      .map((value) => {
-        if (value === 3) return 5;
-        if (value === 2) return 3;
-        if (value === 1) return 1;
-        return 0;
-      })
-      .filter((value) => value > 0);
-    if (mapped.length === 0) {
-      return { isFamilyStar: false };
-    }
-    return {
-      isFamilyStar: mapped.every((value) => value === 5),
-    };
-  }, [hasFamilyMembers, meal, meal.familyRatings]);
-
   const familySummary = useMemo(() => {
-    if (!hasFamilyMembers || !meal.familyRatings) return null;
-    const scores = Object.values(meal.familyRatings)
-      .map((value) => {
-        if (value === 3) return 5;
-        if (value === 2) return 3;
-        if (value === 1) return 1;
-        return 0;
-      })
-      .filter((value) => value > 0);
-    if (!scores.length) return null;
-    const avg = scores.reduce<number>((a, b) => a + b, 0) / scores.length;
-    return { avg, count: scores.length };
-  }, [hasFamilyMembers, meal.familyRatings]);
+    if (members.length <= 1) return null;
+    return getFamilyRatingSummary(
+      meal.familyRatings,
+      members.map((member) => member.id)
+    );
+  }, [meal.familyRatings, members]);
+  const isFamilyStar = useMemo(() => {
+    if (
+      members.length > 1 &&
+      (meal as Meal & { isFamilyStar?: boolean }).isFamilyStar === true
+    ) {
+      return true;
+    }
+    return familySummary?.isUnanimousHeart ?? false;
+  }, [familySummary, meal, members.length]);
 
   const shouldUseFamilyStarStyle = isFamilyStar && !isGalaxyMeal;
   const cardVariant: MealCardVariant = isGalaxyMeal
@@ -281,16 +258,6 @@ const MealListItem = memo(function MealListItem({
     style,
   ];
 
-  const familyRatingsNode = hasFamilyMembers ? (
-    <FamilyRatingIcons
-      ratings={meal.familyRatings}
-      showNames={false}
-      size={24}
-      singleRow
-      gap={theme.space.xs}
-    />
-  ) : null;
-
   const cardBody = (
     <Pressable
       accessibilityRole="button"
@@ -303,35 +270,6 @@ const MealListItem = memo(function MealListItem({
       onPress={handlePress}
       style={combinedStyle}
     >
-      {cardVariant === "galaxy" ? (
-        <>
-          <View style={[styles.galaxyStar, styles.galaxyStarOne]} />
-          <View style={[styles.galaxyStar, styles.galaxyStarTwo]} />
-          <View style={[styles.galaxyStar, styles.galaxyStarThree]} />
-          <View style={[styles.galaxyStar, styles.galaxyStarFour]} />
-          <View style={[styles.galaxyStar, styles.galaxyStarFive]} />
-          <View style={styles.galaxyGlow} />
-        </>
-      ) : cardVariant === "familyStar" ? (
-        <>
-          <Text style={styles.familyStarWatermark}>★</Text>
-          <Text style={[styles.familySparkle, styles.familySparkleOne]}>
-            ✦
-          </Text>
-          <Text style={[styles.familySparkle, styles.familySparkleTwo]}>
-            ✧
-          </Text>
-          <Text style={[styles.familySparkle, styles.familySparkleThree]}>
-            ✦
-          </Text>
-          <Text style={[styles.familySparkle, styles.familySparkleFour]}>
-            ✧
-          </Text>
-          <Text style={[styles.familySparkle, styles.familySparkleFive]}>
-            ✦
-          </Text>
-        </>
-      ) : null}
       <View
         style={[
           cardVariant === "galaxy" && styles.galaxyContent,
@@ -376,7 +314,7 @@ const MealListItem = memo(function MealListItem({
                 <FlexGrid.Col span={showEmoji ? 7 : 9} grow={1}>
                   <View style={styles.details}>
                     <Text
-                      style={[styles.title, isGalaxyMeal && styles.galaxyTitle]}
+                      style={styles.title}
                       numberOfLines={1}
                       adjustsFontSizeToFit
                       minimumFontScale={0.85}
@@ -384,40 +322,31 @@ const MealListItem = memo(function MealListItem({
                     >
                       {meal.title}
                     </Text>
-                    {isFamilyStar ? (
-                      <MealBadge
-                        variant={isGalaxyMeal ? "galaxy" : "family"}
-                        style={styles.badge}
-                      />
-                    ) : showRatings ? (
-                      ratingMode === "family" ? (
-                        familyRatingsNode ?? (
-                          <RatingStars
-                            value={meal.rating ?? 0}
-                            size={16}
-                            gap={0}
+                    {showRatings ? (
+                      ratingMode === "family" && members.length > 1 ? (
+                        isFamilyStar ? (
+                          <MealBadge
+                            variant={isGalaxyMeal ? "galaxy" : "family"}
+                            style={styles.badge}
                           />
+                        ) : familySummary ? (
+                          <Text style={styles.familySummary}>
+                            ⭐ {familySummary.average.toFixed(1)}
+                          </Text>
+                        ) : (
+                          <Text style={styles.notYetRated}>Not yet rated</Text>
                         )
                       ) : (
-                        <Text
-                          style={[
-                            styles.familySummary,
-                            isGalaxyMeal && styles.galaxySecondaryText,
-                          ]}
-                        >
-                          ⭐{" "}
-                          {familySummary
-                            ? familySummary.avg.toFixed(1)
-                            : (meal.rating ?? 0).toFixed(1)}
-                        </Text>
+                        <RatingStars
+                          value={meal.rating ?? 0}
+                          size={16}
+                          gap={0}
+                        />
                       )
                     ) : null}
                     {showServed ? (
                       <Text
-                        style={[
-                          styles.servedCount,
-                          isGalaxyMeal && styles.galaxySecondaryText,
-                        ]}
+                        style={styles.servedCount}
                       >
                         Served {servedCount}{" "}
                         {servedCount === 1 ? "time" : "times"}
@@ -449,11 +378,7 @@ const MealListItem = memo(function MealListItem({
                       <MaterialCommunityIcons
                         name="lock"
                         size={18}
-                        color={
-                          isGalaxyMeal
-                            ? "rgba(255,255,255,0.72)"
-                            : theme.color.subtleInk
-                        }
+                        color={theme.color.subtleInk}
                         accessibilityLabel="Meal locked"
                       />
                     ) : null}
@@ -526,7 +451,7 @@ const createStyles = (theme: WeeklyTheme) =>
     familyStarCard: {
       position: "relative",
       overflow: "hidden",
-      backgroundColor: theme.mode === "dark" ? "#3A2A12" : "#FFF4CF",
+      backgroundColor: theme.color.surface,
       borderWidth: 0,
     },
     familyStarBorder: {
@@ -594,7 +519,7 @@ const createStyles = (theme: WeeklyTheme) =>
     galaxyCard: {
       position: "relative",
       overflow: "hidden",
-      backgroundColor: "#0B0F17",
+      backgroundColor: theme.color.surface,
       borderWidth: 0,
     },
     galaxyContent: {
@@ -673,6 +598,11 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     servedCount: {
       marginTop: theme.space.xs,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    notYetRated: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,

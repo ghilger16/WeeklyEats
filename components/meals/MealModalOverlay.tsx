@@ -22,6 +22,7 @@ type Props = {
   meal?: Meal | null;
   draftOverrides?: Partial<MealDraft>;
   autoFillOnOpen?: boolean;
+  isGalaxyMeal?: boolean;
   onDismiss: () => void;
   onCreateMeal: (draft: MealDraft) => void;
   onUpdateMeal: (meal: Meal) => void;
@@ -35,6 +36,7 @@ export default function MealModalOverlay({
   meal,
   draftOverrides,
   autoFillOnOpen = false,
+  isGalaxyMeal = false,
   onDismiss,
   onCreateMeal,
   onUpdateMeal,
@@ -160,6 +162,7 @@ export default function MealModalOverlay({
           mode={mode}
           initialMeal={initialMeal}
           autoFillOnOpen={autoFillOnOpen}
+          isGalaxyMeal={isGalaxyMeal}
           onClose={dismiss}
           onCreateMeal={onCreateMeal}
           onUpdateMeal={onUpdateMeal}

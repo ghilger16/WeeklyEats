@@ -93,14 +93,17 @@ jest.mock("../../../../components/meals/MealSearchInput", () => {
   return function MockMealSearchInput({
     value,
     onChangeText,
+    onSubmitEditing,
   }: {
     value: string;
     onChangeText: (value: string) => void;
+    onSubmitEditing?: () => void;
   }) {
     return React.createElement(TextInput, {
       placeholder: "Search meals",
       value,
       onChangeText,
+      onSubmitEditing,
     });
   };
 });
@@ -268,5 +271,50 @@ describe("MealsScreen", () => {
     });
 
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows ingredient matches and filters meals by the selected ingredient", () => {
+    const ingredientMeals: Meal[] = [
+      {
+        ...mockMeals[0],
+        id: "chicken-fajitas",
+        title: "Chicken Fajitas",
+        ingredients: [
+          { name: "Chicken breast", category: "meat", ingredientType: "keyIngredient" },
+        ],
+      },
+      {
+        ...mockMeals[1],
+        id: "salad",
+        title: "Garden Salad",
+        ingredients: [
+          { name: "Chicken breast", category: "meat", ingredientType: "pantryStaple" },
+          { name: "Chickpeas", category: "pantry", ingredientType: "keyIngredient" },
+        ],
+      },
+    ];
+    mockUseMeals.mockReturnValue(
+      createHookReturn({ meals: ingredientMeals, favorites: ingredientMeals })
+    );
+
+    const { getByLabelText, getByPlaceholderText, getByText, queryByText } =
+      render(<MealsScreen />);
+
+    fireEvent.changeText(getByPlaceholderText("Search meals"), "chick");
+
+    expect(queryByText("Search: chick")).toBeNull();
+    fireEvent(getByPlaceholderText("Search meals"), "submitEditing");
+    expect(getByText("Search: chick")).toBeTruthy();
+    expect(getByText("Chicken Fajitas")).toBeTruthy();
+    expect(getByText("Chicken breast")).toBeTruthy();
+    expect(getByText("2 meals")).toBeTruthy();
+    expect(getByText("Chickpeas")).toBeTruthy();
+
+    fireEvent.press(getByLabelText("Show meals with Chicken breast"));
+
+    expect(getByText("Ingredient: Chicken breast")).toBeTruthy();
+    expect(getByText("Chicken Fajitas")).toBeTruthy();
+    expect(getByText("Garden Salad")).toBeTruthy();
+    expect(queryByText("Chickpeas")).toBeNull();
   });
 });

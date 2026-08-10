@@ -4,6 +4,7 @@ import {
   AppState,
   Easing,
   FlatList,
+  Keyboard,
   ListRenderItem,
   Linking,
   Modal,
@@ -14,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams } from "expo-router";
 import {
   GestureHandlerRootView,
@@ -33,6 +35,7 @@ import MealSearchInput, {
 import DayPlannedToast from "../../../components/plan-week/planned-meals/DayPlannedToast";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useMeals } from "../../../hooks/useMeals";
+import { useFamilyMembers } from "../../../hooks/useFamilyMembers";
 import { useWeekStartController } from "../../../providers/week-start/WeekStartController";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
@@ -48,25 +51,16 @@ import {
   isMealIncomplete,
   mergeConfirmedIngredients,
 } from "../../../utils/mealCompletion";
+import { getFamilyRatingSummary } from "../../../utils/familyRatings";
 
 const getMealRatingValue = (meal: Meal) =>
   typeof meal.rating === "number" ? meal.rating : 0;
 
-const hasFiveStarRating = (meal: Meal) => {
-  if (getMealRatingValue(meal) === 5) {
-    return true;
-  }
-  const familyRatings = Object.values(meal.familyRatings ?? {})
-    .map((value) => {
-      if (value === 3) return 5;
-      if (value === 2) return 3;
-      if (value === 1) return 1;
-      return 0;
-    })
-    .filter((value) => value > 0);
-
-  return familyRatings.length > 0 && familyRatings.every((value) => value === 5);
-};
+const hasFiveStarRating = (meal: Meal, memberIds: string[]) =>
+  memberIds.length > 1
+    ? getFamilyRatingSummary(meal.familyRatings, memberIds)?.isUnanimousHeart ??
+      false
+    : getMealRatingValue(meal) === 5;
 
 const getMealCostTier = (meal: Meal) => {
   if (typeof meal.expense === "number") {
@@ -122,6 +116,72 @@ const getMealServedCount = (meal: Meal) => {
   return 0;
 };
 
+type IngredientSearchResult = {
+  name: string;
+  normalizedName: string;
+  mealCount: number;
+};
+
+const normalizeIngredientName = (name: string) =>
+  name.trim().replace(/\s+/g, " ").toLowerCase();
+
+const getMealIngredientNames = (meal: Meal) =>
+  (meal.ingredients ?? [])
+    .map((ingredient) =>
+      typeof ingredient === "string" ? ingredient : ingredient.name
+    )
+    .map((name) => name.trim())
+    .filter(Boolean);
+
+const mealContainsIngredient = (meal: Meal, normalizedIngredient: string) =>
+  getMealIngredientNames(meal).some(
+    (name) => normalizeIngredientName(name) === normalizedIngredient
+  );
+
+const getIngredientSearchResults = (
+  scopedMeals: Meal[],
+  query: string
+): IngredientSearchResult[] => {
+  const normalizedQuery = normalizeIngredientName(query);
+  if (!normalizedQuery) return [];
+
+  const index = new Map<
+    string,
+    { name: string; mealIds: Set<string> }
+  >();
+
+  scopedMeals.forEach((meal) => {
+    const seenInMeal = new Set<string>();
+    getMealIngredientNames(meal).forEach((name) => {
+      const normalizedName = normalizeIngredientName(name);
+      if (!normalizedName.includes(normalizedQuery) || seenInMeal.has(normalizedName)) {
+        return;
+      }
+      seenInMeal.add(normalizedName);
+      const current = index.get(normalizedName) ?? { name, mealIds: new Set<string>() };
+      current.mealIds.add(meal.id);
+      index.set(normalizedName, current);
+    });
+  });
+
+  const matchStrength = (name: string) => {
+    if (name === normalizedQuery) return 0;
+    if (name.startsWith(normalizedQuery)) return 1;
+    if (name.split(" ").some((word) => word.startsWith(normalizedQuery))) return 2;
+    return 3;
+  };
+
+  return Array.from(index, ([normalizedName, entry]) => ({
+    name: entry.name,
+    normalizedName,
+    mealCount: entry.mealIds.size,
+  })).sort((a, b) =>
+    matchStrength(a.normalizedName) - matchStrength(b.normalizedName) ||
+    b.mealCount - a.mealCount ||
+    a.name.localeCompare(b.name)
+  );
+};
+
 const parseSharedRecipeUrl = (incomingUrl: string) => {
   try {
     const parsed = new URL(incomingUrl);
@@ -166,6 +226,7 @@ export default function MealsScreen() {
     url?: string | string[];
   }>();
   const { theme } = useThemeController();
+  const { members } = useFamilyMembers();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { startDay } = useWeekStartController();
   const {
@@ -192,6 +253,12 @@ export default function MealsScreen() {
     PendingRecipeImport[]
   >([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchSubmitted, setSearchSubmitted] = useState(false);
+  const [activeIngredientFilter, setActiveIngredientFilter] = useState<
+    IngredientSearchResult | null
+  >(null);
+  const [showAllIngredientResults, setShowAllIngredientResults] =
+    useState(false);
   const [sortSelection, setSortSelection] = useState<MealSortSelection | null>({
     id: "dateAdded",
     direction: "desc",
@@ -204,7 +271,10 @@ export default function MealsScreen() {
   const [displayOptions, setDisplayOptions] = useState({
     showDifficulty: true,
     showExpense: true,
-    ratingMode: "family" as "family" | "summary" | "off",
+    ratingMode: (members.length > 1 ? "family" : "summary") as
+      | "family"
+      | "summary"
+      | "off",
     showServed: true,
     showEmoji: true,
   });
@@ -235,15 +305,31 @@ export default function MealsScreen() {
     [animateContent]
   );
 
-  const filteredMeals = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return meals;
-    }
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-    return meals.filter((meal) =>
-      meal.title.toLowerCase().includes(normalizedQuery)
-    );
-  }, [meals, searchQuery]);
+  const filterMealsForSearch = useCallback(
+    (sourceMeals: Meal[]) => {
+      if (activeIngredientFilter) {
+        return sourceMeals.filter((meal) =>
+          mealContainsIngredient(meal, activeIngredientFilter.normalizedName)
+        );
+      }
+      const normalizedQuery = searchQuery.trim().toLowerCase();
+      if (!normalizedQuery) return sourceMeals;
+      return sourceMeals.filter((meal) =>
+        meal.title.toLowerCase().includes(normalizedQuery)
+      );
+    },
+    [activeIngredientFilter, searchQuery]
+  );
+
+  const filteredMeals = useMemo(
+    () => filterMealsForSearch(meals),
+    [filterMealsForSearch, meals]
+  );
+
+  const filteredFavorites = useMemo(
+    () => filterMealsForSearch(favorites),
+    [favorites, filterMealsForSearch]
+  );
 
   const sortMealsList = useCallback(
     (list: Meal[]) => {
@@ -406,8 +492,24 @@ export default function MealsScreen() {
   );
 
   const sortedFavorites = useMemo(
-    () => sortMealsList(favorites),
-    [favorites, sortMealsList]
+    () => sortMealsList(filteredFavorites),
+    [filteredFavorites, sortMealsList]
+  );
+
+  const ingredientSearchScope = activeTab === "favorites" ? favorites : meals;
+  const ingredientSearchResults = useMemo(
+    () =>
+      activeTab === "complete" || activeIngredientFilter
+        ? []
+        : getIngredientSearchResults(ingredientSearchScope, searchQuery),
+    [activeIngredientFilter, activeTab, ingredientSearchScope, searchQuery]
+  );
+  const visibleIngredientResults = showAllIngredientResults
+    ? ingredientSearchResults
+    : ingredientSearchResults.slice(0, 6);
+  const hiddenIngredientResultCount = Math.max(
+    0,
+    ingredientSearchResults.length - visibleIngredientResults.length
   );
 
   const incompleteMeals = useMemo(
@@ -439,7 +541,39 @@ export default function MealsScreen() {
     []
   );
 
+  const handleSearchQueryChange = useCallback((query: string) => {
+    setSearchQuery(query);
+    setSearchSubmitted(false);
+    setActiveIngredientFilter(null);
+    setShowAllIngredientResults(false);
+  }, []);
+
+  const handleSubmitSearch = useCallback(() => {
+    if (!searchQuery.trim()) return;
+    setSearchSubmitted(true);
+    Keyboard.dismiss();
+  }, [searchQuery]);
+
+  const handleSelectIngredient = useCallback(
+    (ingredient: IngredientSearchResult) => {
+      Keyboard.dismiss();
+      setActiveIngredientFilter(ingredient);
+      setSearchQuery("");
+      setSearchSubmitted(false);
+      setShowAllIngredientResults(false);
+    },
+    []
+  );
+
+  const handleClearIngredientFilter = useCallback(() => {
+    setActiveIngredientFilter(null);
+    setSearchQuery("");
+    setSearchSubmitted(false);
+    setShowAllIngredientResults(false);
+  }, []);
+
   const onOpenMeal = useCallback((meal: Meal) => {
+    Keyboard.dismiss();
     setModalMode("edit");
     setSelectedMealId(meal.id);
     setModalVisible(true);
@@ -518,7 +652,10 @@ export default function MealsScreen() {
 
     const eligibleMeals = meals.filter(
       (meal) =>
-        hasFiveStarRating(meal) &&
+        hasFiveStarRating(
+          meal,
+          members.map((member) => member.id)
+        ) &&
         getMealServedCount(meal) === highestServedCount
     );
     if (!eligibleMeals.length) {
@@ -537,7 +674,7 @@ export default function MealsScreen() {
       }
       return a.title.localeCompare(b.title);
     })[0]?.id ?? null;
-  }, [meals]);
+  }, [meals, members]);
 
   const openFreezerModal = useCallback((meal: Meal) => {
     setSelectedFreezerMeal(null);
@@ -681,6 +818,16 @@ export default function MealsScreen() {
   const keyExtractor = useCallback((item: Meal) => item.id, []);
 
   const listEmpty = useMemo(() => {
+    if (activeIngredientFilter) {
+      return (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>No meals contain this ingredient</Text>
+          <Pressable onPress={handleClearIngredientFilter} accessibilityRole="button">
+            <Text style={styles.emptyAction}>Clear ingredient filter</Text>
+          </Pressable>
+        </View>
+      );
+    }
     if (
       activeTab === "all" &&
       pendingImportQueue.length > 0 &&
@@ -688,7 +835,11 @@ export default function MealsScreen() {
     ) {
       return null;
     }
-    if (activeTab === "all" && searchQuery.trim()) {
+    if (
+      (activeTab === "all" || activeTab === "favorites") &&
+      searchQuery.trim()
+    ) {
+      if (ingredientSearchResults.length > 0) return null;
       return (
         <View style={styles.emptyState}>
           <Text style={styles.emptyTitle}>No matches found</Text>
@@ -716,7 +867,7 @@ export default function MealsScreen() {
         </Text>
       </View>
     );
-  }, [activeTab, pendingImportQueue.length, searchQuery, styles]);
+  }, [activeIngredientFilter, activeTab, handleClearIngredientFilter, ingredientSearchResults.length, pendingImportQueue.length, searchQuery, styles]);
 
   const opacity = contentProgress.interpolate({
     inputRange: [0, 1],
@@ -912,14 +1063,28 @@ export default function MealsScreen() {
   const cycleRatingMode = useCallback(() => {
     setDisplayOptions((prev) => {
       const next =
-        prev.ratingMode === "family"
+        members.length > 1
+          ? prev.ratingMode === "family"
+            ? "summary"
+            : prev.ratingMode === "summary"
+            ? "off"
+            : "family"
+          : prev.ratingMode === "off"
           ? "summary"
-          : prev.ratingMode === "summary"
-          ? "off"
-          : "family";
+          : "off";
       return { ...prev, ratingMode: next };
     });
-  }, []);
+  }, [members.length]);
+
+  useEffect(() => {
+    if (members.length <= 1) {
+      setDisplayOptions((prev) =>
+        prev.ratingMode === "family"
+          ? { ...prev, ratingMode: "summary" }
+          : prev
+      );
+    }
+  }, [members.length]);
 
   const displayOptionList = useMemo(
     () => [
@@ -938,10 +1103,10 @@ export default function MealsScreen() {
       {
         id: "ratings",
         label:
-          displayOptions.ratingMode === "family"
-            ? "Family Ratings"
+          displayOptions.ratingMode === "family" && members.length > 1
+            ? "Family Rating"
             : displayOptions.ratingMode === "summary"
-            ? "Ratings Star"
+            ? "Ratings Stars"
             : "Ratings Off",
         selected: displayOptions.ratingMode !== "off",
         onPress: cycleRatingMode,
@@ -959,7 +1124,7 @@ export default function MealsScreen() {
         onPress: () => toggleDisplayOption("showEmoji"),
       },
     ],
-    [cycleRatingMode, displayOptions, toggleDisplayOption]
+    [cycleRatingMode, displayOptions, members.length, toggleDisplayOption]
   );
 
   const menuButtonConfig = useMemo(
@@ -1013,13 +1178,16 @@ export default function MealsScreen() {
             </Text>
           </View>
         ) : null}
-        <Animated.View style={{ opacity }}>
+        <Animated.View style={[styles.listContainer, { opacity }]}>
           <FlatList
             testID="meals-list"
+            style={styles.list}
             data={data}
             keyExtractor={keyExtractor}
             renderItem={renderMeal}
             contentContainerStyle={styles.listContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             refreshControl={
               <RefreshControl
                 testID="meals-refresh-control"
@@ -1030,13 +1198,62 @@ export default function MealsScreen() {
               />
             }
             ListHeaderComponent={
-              activeTab === "all" ? (
+              activeTab !== "complete" ? (
                 <View style={styles.searchHeader}>
                   <MealSearchInput
                     value={searchQuery}
-                    onChangeText={setSearchQuery}
+                    onChangeText={handleSearchQueryChange}
+                    onSubmitEditing={handleSubmitSearch}
                     onSortChange={handleSortChange}
                   />
+                  {isSearchSubmitted && searchQuery.trim() && !activeIngredientFilter ? (
+                    <View style={styles.activeIngredientFilterRow}>
+                      <View style={styles.activeIngredientFilterChip}>
+                        <MaterialCommunityIcons
+                          name="magnify"
+                          size={16}
+                          color={theme.color.accent}
+                        />
+                        <Text style={styles.activeIngredientFilterText} numberOfLines={1}>
+                          Search: {searchQuery.trim()}
+                        </Text>
+                        <Pressable
+                          onPress={() => handleSearchQueryChange("")}
+                          accessibilityRole="button"
+                          accessibilityLabel="Clear meal search"
+                          hitSlop={theme.space.sm}
+                        >
+                          <MaterialCommunityIcons
+                            name="close"
+                            size={17}
+                            color={theme.color.accent}
+                          />
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : null}
+                  {activeIngredientFilter ? (
+                    <View style={styles.activeIngredientFilterRow}>
+                      <View style={styles.activeIngredientFilterChip}>
+                        <View style={styles.ingredientDot} />
+                        <Text style={styles.activeIngredientFilterText} numberOfLines={1}>
+                          Ingredient: {activeIngredientFilter.name}
+                        </Text>
+                        <Pressable
+                          onPress={handleClearIngredientFilter}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Clear ${activeIngredientFilter.name} ingredient filter`}
+                          hitSlop={theme.space.sm}
+                        >
+                          <MaterialCommunityIcons
+                            name="close"
+                            size={17}
+                            color={theme.color.accent}
+                          />
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : null}
                   {activeTab === "all" && shouldShowPendingImports ? (
                     <View style={styles.pendingImportsSection}>
                       <Text style={styles.pendingImportsTitle}>
@@ -1114,6 +1331,61 @@ export default function MealsScreen() {
                 </View>
               ) : null
             }
+            ListFooterComponent={
+              searchQuery.trim() && ingredientSearchResults.length > 0 ? (
+                <View style={styles.ingredientResultsSection}>
+                  <View style={styles.ingredientResultsHeader}>
+                    <Text style={styles.ingredientResultsTitle}>
+                      INGREDIENTS WITH “{searchQuery.trim().toUpperCase()}”
+                    </Text>
+                    {ingredientSearchResults.length > 6 ? (
+                      <Pressable
+                        onPress={() => setShowAllIngredientResults((current) => !current)}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.ingredientResultsAction}>
+                          {showAllIngredientResults ? "Show less" : "See all"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  <View style={styles.ingredientResultsGrid}>
+                    {visibleIngredientResults.map((ingredient) => (
+                      <Pressable
+                        key={ingredient.normalizedName}
+                        onPress={() => handleSelectIngredient(ingredient)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Show meals with ${ingredient.name}`}
+                        style={({ pressed }) => [
+                          styles.ingredientResultCard,
+                          pressed && styles.ingredientResultCardPressed,
+                        ]}
+                      >
+                        <View style={styles.ingredientResultNameRow}>
+                          <View style={styles.ingredientDot} />
+                          <Text style={styles.ingredientResultName} numberOfLines={2}>
+                            {ingredient.name}
+                          </Text>
+                        </View>
+                        <Text style={styles.ingredientResultCount}>
+                          {ingredient.mealCount} {ingredient.mealCount === 1 ? "meal" : "meals"}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {!showAllIngredientResults && hiddenIngredientResultCount > 0 ? (
+                    <Pressable
+                      onPress={() => setShowAllIngredientResults(true)}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.ingredientMoreText}>
+                        + {hiddenIngredientResultCount} more ingredient{hiddenIngredientResultCount === 1 ? "" : "s"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null
+            }
             ItemSeparatorComponent={() => <View style={styles.separator} />}
             ListEmptyComponent={listEmpty}
           />
@@ -1132,6 +1404,7 @@ export default function MealsScreen() {
             : undefined
         }
         autoFillOnOpen={Boolean(pendingSharedRecipeUrl)}
+        isGalaxyMeal={modalMode === "edit" && selectedMeal?.id === galaxyMealId}
         onDismiss={handleDismissModal}
         onCreateMeal={handleCreateMeal}
         onUpdateMeal={handleUpdateMeal}
@@ -1229,6 +1502,13 @@ const createStyles = (theme: WeeklyTheme) =>
       flex: 1,
       padding: 0,
     },
+    listContainer: {
+      flex: 1,
+      minHeight: 0,
+    },
+    list: {
+      flex: 1,
+    },
     listContent: {
       paddingHorizontal: theme.space.lg,
       paddingBottom: theme.space["2xl"],
@@ -1249,6 +1529,97 @@ const createStyles = (theme: WeeklyTheme) =>
     searchHeader: {
       paddingBottom: theme.space.lg,
       gap: theme.space.lg,
+    },
+    activeIngredientFilterRow: {
+      flexDirection: "row",
+    },
+    activeIngredientFilterChip: {
+      maxWidth: "100%",
+      minHeight: 36,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.md,
+      borderRadius: theme.radius.full,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.accent,
+      backgroundColor: theme.mode === "dark" ? "rgba(255, 75, 145, 0.14)" : "#FFF0F6",
+    },
+    activeIngredientFilterText: {
+      flexShrink: 1,
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+      textTransform: "capitalize",
+    },
+    ingredientResultsSection: {
+      paddingTop: theme.space.xl,
+      gap: theme.space.md,
+    },
+    ingredientResultsHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: theme.space.md,
+    },
+    ingredientResultsTitle: {
+      flex: 1,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+      letterSpacing: 0.6,
+    },
+    ingredientResultsAction: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    ingredientResultsGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: theme.space.sm,
+    },
+    ingredientResultCard: {
+      width: "48.5%",
+      minHeight: 88,
+      justifyContent: "center",
+      gap: theme.space.xs,
+      padding: theme.space.md,
+      borderRadius: theme.radius.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    ingredientResultCardPressed: {
+      opacity: 0.82,
+    },
+    ingredientResultNameRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
+    },
+    ingredientDot: {
+      width: 7,
+      height: 7,
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.accent,
+    },
+    ingredientResultName: {
+      flex: 1,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+      textTransform: "capitalize",
+    },
+    ingredientResultCount: {
+      marginLeft: 7 + theme.space.sm,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+    },
+    ingredientMoreText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
     },
     pendingImportsSection: {
       gap: theme.space.sm,
@@ -1466,5 +1837,10 @@ const createStyles = (theme: WeeklyTheme) =>
     emptySubtitle: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.base,
+    },
+    emptyAction: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
     },
   });

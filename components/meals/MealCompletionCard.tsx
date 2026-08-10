@@ -44,7 +44,7 @@ const MealCompletionCard = ({ meal, onApply }: Props) => {
     }
     const next = [...outcome.data.keyIngredients, ...outcome.data.pantryStaples];
     setSuggestions(next);
-    setSelected(new Set(next.map((item) => item.name.trim().toLowerCase())));
+    setSelected(new Set());
     setLoading(false);
   }, [meal.title]);
 
@@ -105,14 +105,22 @@ const MealCompletionCard = ({ meal, onApply }: Props) => {
                 pressed && styles.pressed,
               ]}
             >
+              <View style={styles.chipDot} />
+              <Text
+                style={[styles.chipText, isSelected && styles.chipTextSelected]}
+                numberOfLines={1}
+              >
+                {ingredient.name}
+              </Text>
               <MaterialCommunityIcons
                 name={isSelected ? "check" : "plus"}
                 size={15}
-                color={isSelected ? theme.color.accent : theme.color.subtleInk}
+                color={
+                  isSelected
+                    ? theme.color.accent
+                    : alpha(theme.color.accent, 0.58)
+                }
               />
-              <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
-                {ingredient.name}
-              </Text>
             </Pressable>
           );
         })}
@@ -165,7 +173,7 @@ const MealCompletionCard = ({ meal, onApply }: Props) => {
               returnKeyType="done"
             />
             <Pressable onPress={() => addManualIngredient("keyIngredient")} style={styles.addButton}>
-              <MaterialCommunityIcons name="plus" size={20} color={theme.color.accent} />
+              <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
             </Pressable>
           </View>
 
@@ -186,7 +194,7 @@ const MealCompletionCard = ({ meal, onApply }: Props) => {
               returnKeyType="done"
             />
             <Pressable onPress={() => addManualIngredient("pantryStaple")} style={styles.addButton}>
-              <MaterialCommunityIcons name="plus" size={20} color={theme.color.accent} />
+              <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
             </Pressable>
           </View>
           <View style={styles.footer}>
@@ -221,16 +229,17 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   status: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
   prompt: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm },
-  chip: { flexDirection: "row", alignItems: "center", gap: theme.space.xs, borderRadius: theme.radius.full, borderWidth: 1, borderColor: theme.color.border, backgroundColor: theme.color.surfaceAlt, paddingHorizontal: theme.space.md, paddingVertical: 7 },
-  pantryChip: { backgroundColor: theme.color.bg },
+  chip: { width: "48.5%", height: 44, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderRadius: theme.radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border, backgroundColor: theme.color.surfaceAlt, paddingHorizontal: theme.space.md },
+  chipDot: { width: 7, height: 7, borderRadius: theme.radius.full, backgroundColor: theme.color.accent },
+  pantryChip: { backgroundColor: theme.color.surfaceAlt, borderColor: theme.color.cardOutline },
   chipSelected: { borderColor: theme.color.accent, backgroundColor: alpha(theme.color.accent, 0.12) },
-  chipText: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
+  chipText: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium, textTransform: "capitalize" },
   chipTextSelected: { color: theme.color.accent },
   pantrySection: { gap: theme.space.sm, paddingTop: theme.space.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.color.border },
   pantryTitle: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
   manualRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
-  manualInput: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, backgroundColor: theme.color.surfaceAlt, borderRadius: theme.radius.md, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm },
-  addButton: { width: 38, height: 38, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: alpha(theme.color.accent, 0.12) },
+  manualInput: { flex: 1, minHeight: 44, color: theme.color.ink, fontSize: theme.type.size.base, backgroundColor: theme.color.surfaceAlt, borderRadius: theme.radius.md, paddingHorizontal: theme.space.md },
+  addButton: { width: 44, height: 44, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.accent },
   footer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: theme.space.md, marginTop: theme.space.xs },
   skip: { flex: 1, color: theme.color.subtleInk, fontSize: theme.type.size.xs },
   applyButton: { minHeight: 42, borderRadius: theme.radius.md, backgroundColor: theme.color.accent, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.space.lg },
