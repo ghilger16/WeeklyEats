@@ -2,6 +2,7 @@ import {
   getBeenAwhileMeals,
   getBudgetMeals,
   getEasyMeals,
+  getRecentlyAddedUnservedMeals,
 } from "../components/plan-week/inspirationSelectors";
 import { Meal } from "../types/meals";
 
@@ -46,5 +47,29 @@ describe("inspiration selectors", () => {
       "easy-budget",
       "hard",
     ]);
+  });
+
+  it("returns only unserved meals added within the last 30 days", () => {
+    const now = new Date("2026-08-10T12:00:00.000Z").getTime();
+    const meals = [
+      meal("newest", { createdAt: "2026-08-09T12:00:00.000Z" }),
+      meal("recent", { createdAt: "2026-07-20T12:00:00.000Z" }),
+      meal("served-history", { createdAt: "2026-08-08T12:00:00.000Z" }),
+      meal("served-count", { createdAt: "2026-08-07T12:00:00.000Z", servedCount: 1 }),
+      meal("old", { createdAt: "2026-06-01T12:00:00.000Z" }),
+    ];
+    const history = [
+      {
+        id: "served-1",
+        dayKey: "mon" as const,
+        mealId: "served-history",
+        servedAtISO: "2026-08-09T18:00:00.000Z",
+        outcome: "served" as const,
+      },
+    ];
+
+    expect(
+      getRecentlyAddedUnservedMeals(meals, history, now).map((item) => item.id),
+    ).toEqual(["newest", "recent"]);
   });
 });

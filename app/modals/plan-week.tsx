@@ -8,6 +8,7 @@ import {
   Animated,
   Dimensions,
   Easing,
+  Keyboard,
   PanResponder,
   Platform,
   Pressable,
@@ -27,6 +28,7 @@ import { useServedMeals } from "../../hooks/useServedMeals";
 import SuggestionsContainer from "../../components/plan-week/suggestions/SuggestionsContainer";
 import {
   CurrentPlannedWeek,
+  CurrentWeekSides,
   PLANNED_WEEK_DISPLAY_NAMES,
   PLANNED_WEEK_LABELS,
   PLANNED_WEEK_ORDER,
@@ -72,11 +74,13 @@ import MealInspirationSection, {
   MealPool,
   MealPoolId,
 } from "../../components/plan-week/MealInspirationSection";
+import { buildAutoPlan } from "../../components/plan-week/autoPlan";
 import CarryOverSection from "../../components/plan-week/CarryOverSection";
 import {
   getBeenAwhileMeals,
   getFamilyStarMeals,
   getFreezerMeals,
+  getRecentlyAddedUnservedMeals,
 } from "../../components/plan-week/inspirationSelectors";
 import PinInventory, {
   InventoryPinId,
@@ -154,6 +158,30 @@ const isFamilyStarMeal = (meal: Meal) => {
 const isPlannedWeekDayKey = (value: unknown): value is PlannedWeekDayKey =>
   typeof value === "string" &&
   PLANNED_WEEK_ORDER.includes(value as PlannedWeekDayKey);
+
+type AutoPlanSession = {
+  mode: "fill" | "alternate";
+  ownedDays: Partial<
+    Record<
+      PlannedWeekDayKey,
+      { mealId: Meal["id"]; originalSides: string[] }
+    >
+  >;
+  previousGeneratedMealIds: Meal["id"][];
+  manualChanges: number;
+};
+
+type AlternateWeekSnapshot = {
+  plannedWeek: CurrentPlannedWeek;
+  sides: CurrentWeekSides;
+};
+
+type AutoPlanAnimationPhase =
+  | "idle"
+  | "thinking"
+  | "cascading"
+  | "result"
+  | "retrying";
 
 export default function PlanWeekModal() {
   const router = useRouter();
@@ -252,6 +280,7 @@ export default function PlanWeekModal() {
     useState<PlannedWeekDayKey | null>(null);
   const [expandedDrawerDay, setExpandedDrawerDay] =
     useState<PlannedWeekDayKey | null>(null);
+  const previousExpandedDrawerDayRef = useRef<PlannedWeekDayKey | null>(null);
   const [pendingInlineMeal, setPendingInlineMeal] = useState<{
     day: PlannedWeekDayKey;
     meal: Meal;
@@ -278,7 +307,30 @@ export default function PlanWeekModal() {
     Meal["id"] | null
   >(null);
   const [activeInspirationPoolId, setActiveInspirationPoolId] =
-    useState<MealPoolId>("beenAwhile");
+    useState<MealPoolId | null>(null);
+  const [autoPlanSession, setAutoPlanSession] =
+    useState<AutoPlanSession | null>(null);
+  const [isCompleteWeekPromptVisible, setCompleteWeekPromptVisible] =
+    useState(false);
+  const [alternateWeekSnapshot, setAlternateWeekSnapshot] =
+    useState<AlternateWeekSnapshot | null>(null);
+  const [autoPlanMessage, setAutoPlanMessage] = useState<string | null>(null);
+  const [autoPlanAnimationPhase, setAutoPlanAnimationPhase] =
+    useState<AutoPlanAnimationPhase>("idle");
+  const [autoPlanThinkingIcons, setAutoPlanThinkingIcons] = useState<string[]>(
+    [],
+  );
+  const [isReduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const autoPlanTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const autoPlanRowAnimationsRef = useRef(
+    PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, Animated.Value>>(
+      (values, day) => {
+        values[day] = new Animated.Value(1);
+        return values;
+      },
+      {} as Record<PlannedWeekDayKey, Animated.Value>,
+    ),
+  );
   const [isCalendarContextVisible, setCalendarContextVisible] =
     useState(false);
   const [planningCalendarEvents, setPlanningCalendarEvents] = useState<
@@ -292,6 +344,29 @@ export default function PlanWeekModal() {
     [sessionDays],
   );
   const fallbackRowCelebrationScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) setReduceMotionEnabled(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotionEnabled,
+    );
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      autoPlanTimersRef.current.forEach(clearTimeout);
+      autoPlanTimersRef.current = [];
+    },
+    [],
+  );
 
   const animateSummaryTo = useCallback(
     (toValue: number, duration: number, easing: (value: number) => number) =>
@@ -614,20 +689,46 @@ export default function PlanWeekModal() {
     [plannedWeek],
   );
 
+  const hasServedMealData = useMemo(() => {
+    const mealIds = new Set(meals.map((meal) => meal.id));
+    return servedEntries.some(
+      (entry) =>
+        entry.outcome === "served" &&
+        Boolean(entry.mealId) &&
+        mealIds.has(entry.mealId as string) &&
+        Number.isFinite(new Date(entry.servedAtISO).getTime()),
+    );
+  }, [meals, servedEntries]);
+
   const mealPools = useMemo<MealPool[]>(() => {
     const availableMeals = meals.filter((meal) => !plannedMealIds.has(meal.id));
-    return [
+    const pools: MealPool[] = [
+      ...(hasServedMealData
+        ? [
+            {
+              id: "beenAwhile" as const,
+              title: "Been Awhile",
+              subtitle: "Meals you haven’t served lately.",
+              nextIcon: "⭐",
+              emptyText: "No meal history yet.",
+              meals: getBeenAwhileMeals(availableMeals, servedEntries),
+            },
+          ]
+        : []),
       {
-        id: "beenAwhile",
-        title: "Been Awhile",
-        subtitle: "Meals you haven’t served lately.",
+        id: "recentlyAdded",
+        title: "Recently Added",
+        subtitle: "New meals you haven’t served yet.",
         nextIcon: "⭐",
-        emptyText: "No meal history yet.",
-        meals: getBeenAwhileMeals(availableMeals, servedEntries),
+        emptyText: "No unserved meals added recently.",
+        meals: getRecentlyAddedUnservedMeals(
+          availableMeals,
+          servedEntries,
+        ),
       },
       {
         id: "familyStars",
-        title: "Stars",
+        title: "Family Star",
         subtitle: "Your highest-rated meals.",
         nextIcon: "❄️",
         chipIcon: "⭐",
@@ -649,7 +750,10 @@ export default function PlanWeekModal() {
         subtitle: "Low-effort meals.",
         nextIcon: "💰",
         emptyText: "No easy meals yet.",
-        meals: availableMeals,
+        meals: availableMeals.filter(
+          (meal) => typeof meal.difficulty === "number",
+        ),
+        cycle: "difficulty",
       },
       {
         id: "budget",
@@ -658,9 +762,414 @@ export default function PlanWeekModal() {
         nextIcon: "🕒",
         emptyText: "No budget meals yet.",
         meals: availableMeals,
+        cycle: "expense",
       },
     ];
-  }, [meals, plannedMealIds, servedEntries]);
+    return pools.filter((pool) => pool.meals.length > 0);
+  }, [hasServedMealData, meals, plannedMealIds, servedEntries]);
+
+  const resolvedActiveInspirationPoolId =
+    activeInspirationPoolId &&
+    mealPools.some((pool) => pool.id === activeInspirationPoolId)
+      ? activeInspirationPoolId
+      : null;
+
+  useEffect(() => {
+    if (resolvedActiveInspirationPoolId !== activeInspirationPoolId) {
+      setActiveInspirationPoolId(resolvedActiveInspirationPoolId);
+    }
+  }, [activeInspirationPoolId, resolvedActiveInspirationPoolId]);
+
+  const runAutoPlanReveal = useCallback(
+    (days: PlannedWeekDayKey[], isRetry = false) => {
+      autoPlanTimersRef.current.forEach(clearTimeout);
+      autoPlanTimersRef.current = [];
+      const thinkingDuration = isReduceMotionEnabled ? 120 : 3000;
+      const stagger = isReduceMotionEnabled ? 0 : isRetry ? 135 : 360;
+      const rowDuration = isReduceMotionEnabled ? 140 : isRetry ? 510 : 600;
+      setAutoPlanAnimationPhase(isRetry ? "retrying" : "thinking");
+
+      const revealTimer = setTimeout(() => {
+        setAutoPlanAnimationPhase("cascading");
+        const animations = days.map((day) =>
+          Animated.timing(autoPlanRowAnimationsRef.current[day], {
+            toValue: 1,
+            duration: rowDuration,
+            useNativeDriver: true,
+          }),
+        );
+        if (isReduceMotionEnabled) {
+          Animated.parallel(animations).start();
+        } else {
+          Animated.stagger(stagger, animations).start();
+        }
+      }, thinkingDuration);
+
+      const finishDelay =
+        thinkingDuration + Math.max(0, days.length - 1) * stagger + rowDuration + 30;
+      const finishTimer = setTimeout(() => {
+        days.forEach((day) =>
+          autoPlanRowAnimationsRef.current[day].setValue(1),
+        );
+        setAutoPlanAnimationPhase("result");
+      }, finishDelay);
+      const hapticDays = isReduceMotionEnabled ? days.slice(0, 1) : days;
+      const hapticTimers = hapticDays.map((_, index) =>
+        setTimeout(() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+            () => {},
+          );
+        }, thinkingDuration + index * stagger),
+      );
+      autoPlanTimersRef.current = [
+        revealTimer,
+        finishTimer,
+        ...hapticTimers,
+      ];
+    },
+    [isReduceMotionEnabled],
+  );
+
+  const handlePlanItForMe = useCallback(() => {
+    if (
+      autoPlanAnimationPhase === "thinking" ||
+      autoPlanAnimationPhase === "cascading" ||
+      autoPlanAnimationPhase === "retrying"
+    ) {
+      return;
+    }
+    if (isWeekComplete) {
+      setCompleteWeekPromptVisible(true);
+      setAutoPlanAnimationPhase("result");
+      setAutoPlanMessage(null);
+      setActiveInspirationPoolId(null);
+      Haptics.selectionAsync().catch(() => {});
+      return;
+    }
+    const assignments = buildAutoPlan({
+      days: sessionDays,
+      meals,
+      plannedWeek,
+      dayPinsMap,
+      servedEntries,
+    });
+    if (!assignments.length) {
+      setAutoPlanMessage(
+        sessionDays.every((day) => Boolean(plannedWeek[day]))
+          ? "Your week is already planned."
+          : "Add a few meals first so we can build your week.",
+      );
+      return;
+    }
+
+    const ownedDays: AutoPlanSession["ownedDays"] = {};
+    const nextPlan = { ...plannedWeek };
+    assignments.forEach(({ day, meal }) => {
+      autoPlanRowAnimationsRef.current[day].setValue(0);
+      nextPlan[day] = meal.id;
+      ownedDays[day] = {
+        mealId: meal.id,
+        originalSides: [...(daySidesMap[day] ?? [])],
+      };
+    });
+    nextPlan.weekedPlanned = false;
+    setPlannedWeek(nextPlan);
+    setAutoPlanSession({
+      mode: "fill",
+      ownedDays,
+      previousGeneratedMealIds: assignments.map(({ meal }) => meal.id),
+      manualChanges: 0,
+    });
+    setAutoPlanMessage(null);
+    setAutoPlanThinkingIcons(
+      assignments.slice(0, 4).map(({ meal }) => meal.emoji || "🍽️"),
+    );
+    setActiveInspirationPoolId(null);
+    runAutoPlanReveal(
+      assignments.map(({ day }) => day),
+      false,
+    );
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+      () => {},
+    );
+  }, [autoPlanAnimationPhase, dayPinsMap, daySidesMap, isWeekComplete, meals, plannedWeek, runAutoPlanReveal, servedEntries, sessionDays]);
+
+  const handleTryAnotherAutoPlan = useCallback(() => {
+    if (autoPlanAnimationPhase !== "result") return;
+    if (isCompleteWeekPromptVisible || autoPlanSession?.mode === "alternate") {
+      const snapshot =
+        alternateWeekSnapshot ?? {
+          plannedWeek: {
+            ...plannedWeek,
+            specialMealTitles: plannedWeek.specialMealTitles
+              ? { ...plannedWeek.specialMealTitles }
+              : undefined,
+            savedIdeas: [...(plannedWeek.savedIdeas ?? [])],
+            carryOverIdeas: [...(plannedWeek.carryOverIdeas ?? [])],
+          },
+          sides: PLANNED_WEEK_ORDER.reduce<CurrentWeekSides>((copy, day) => {
+            copy[day] = [...(daySidesMap[day] ?? [])];
+            return copy;
+          }, {} as CurrentWeekSides),
+        };
+      if (!alternateWeekSnapshot) setAlternateWeekSnapshot(snapshot);
+
+      const basePlan: CurrentPlannedWeek = { ...plannedWeek };
+      sessionDays.forEach((day) => {
+        basePlan[day] = null;
+      });
+      const previousMealIds = new Set<string>([
+        ...sessionDays
+          .map((day) => plannedWeek[day])
+          .filter((mealId): mealId is string => Boolean(mealId)),
+        ...(autoPlanSession?.previousGeneratedMealIds ?? []),
+      ]);
+      const assignments = buildAutoPlan({
+        days: sessionDays,
+        meals,
+        plannedWeek: basePlan,
+        dayPinsMap,
+        servedEntries,
+        previousGeneratedMealIds: previousMealIds,
+      });
+      if (!assignments.length) return;
+
+      const nextPlan: CurrentPlannedWeek = {
+        ...plannedWeek,
+        weekedPlanned: false,
+      };
+      const nextSpecialMealTitles = { ...(plannedWeek.specialMealTitles ?? {}) };
+      const nextSides = PLANNED_WEEK_ORDER.reduce<CurrentWeekSides>(
+        (copy, day) => {
+          copy[day] = [...(daySidesMap[day] ?? [])];
+          return copy;
+        },
+        {} as CurrentWeekSides,
+      );
+      const nextOwnedDays: AutoPlanSession["ownedDays"] = {};
+      assignments.forEach(({ day, meal }) => {
+        autoPlanRowAnimationsRef.current[day].setValue(0);
+        nextPlan[day] = meal.id;
+        delete nextSpecialMealTitles[day];
+        nextSides[day] = [];
+        nextOwnedDays[day] = {
+          mealId: meal.id,
+          originalSides: [...snapshot.sides[day]],
+        };
+      });
+      nextPlan.specialMealTitles = Object.keys(nextSpecialMealTitles).length
+        ? nextSpecialMealTitles
+        : undefined;
+      setPlannedWeek(nextPlan);
+      resetSides(nextSides);
+      setCompleteWeekPromptVisible(false);
+      setAutoPlanSession({
+        mode: "alternate",
+        ownedDays: nextOwnedDays,
+        previousGeneratedMealIds: [...new Set([
+          ...(autoPlanSession?.previousGeneratedMealIds ?? []),
+          ...assignments.map(({ meal }) => meal.id),
+        ])],
+        manualChanges: autoPlanSession?.manualChanges ?? 0,
+      });
+      setAutoPlanThinkingIcons(
+        assignments.slice(0, 4).map(({ meal }) => meal.emoji || "🍽️"),
+      );
+      runAutoPlanReveal(
+        assignments.map(({ day }) => day),
+        Boolean(autoPlanSession),
+      );
+      Haptics.selectionAsync().catch(() => {});
+      return;
+    }
+    if (!autoPlanSession) return;
+    const ownedEntries = Object.entries(autoPlanSession.ownedDays).filter(
+      ([day, ownership]) =>
+        ownership &&
+        plannedWeek[day as PlannedWeekDayKey] === ownership.mealId,
+    ) as [PlannedWeekDayKey, NonNullable<AutoPlanSession["ownedDays"][PlannedWeekDayKey]>][];
+    if (!ownedEntries.length) return;
+
+    const basePlan = { ...plannedWeek };
+    ownedEntries.forEach(([day]) => {
+      basePlan[day] = null;
+    });
+    const assignments = buildAutoPlan({
+      days: ownedEntries.map(([day]) => day),
+      meals,
+      plannedWeek: basePlan,
+      dayPinsMap,
+      servedEntries,
+      previousGeneratedMealIds: new Set(
+        autoPlanSession.previousGeneratedMealIds,
+      ),
+    });
+    if (!assignments.length) return;
+
+    const nextPlan = { ...basePlan, weekedPlanned: false };
+    const nextOwnedDays: AutoPlanSession["ownedDays"] = {};
+    assignments.forEach(({ day, meal }) => {
+      autoPlanRowAnimationsRef.current[day].setValue(0);
+      nextPlan[day] = meal.id;
+      nextOwnedDays[day] = {
+        mealId: meal.id,
+        originalSides:
+          autoPlanSession.ownedDays[day]?.originalSides ?? [],
+      };
+    });
+    const nextSides = { ...daySidesMap };
+    ownedEntries.forEach(([day, ownership]) => {
+      nextSides[day] = [...ownership.originalSides];
+    });
+    setPlannedWeek(nextPlan);
+    setAutoPlanThinkingIcons(
+      assignments.slice(0, 4).map(({ meal }) => meal.emoji || "🍽️"),
+    );
+    resetSides(nextSides);
+    setAutoPlanSession((current) =>
+      current
+        ? {
+            ...current,
+            ownedDays: nextOwnedDays,
+            previousGeneratedMealIds: [
+              ...new Set([
+                ...current.previousGeneratedMealIds,
+                ...assignments.map(({ meal }) => meal.id),
+              ]),
+            ],
+          }
+        : current,
+    );
+    runAutoPlanReveal(
+      assignments.map(({ day }) => day),
+      true,
+    );
+    Haptics.selectionAsync().catch(() => {});
+  }, [alternateWeekSnapshot, autoPlanAnimationPhase, autoPlanSession, dayPinsMap, daySidesMap, isCompleteWeekPromptVisible, meals, plannedWeek, resetSides, runAutoPlanReveal, servedEntries, sessionDays]);
+
+  const handleClearAutoPlan = useCallback(() => {
+    if (!autoPlanSession) return;
+    const nextPlan = { ...plannedWeek };
+    const nextSides = { ...daySidesMap };
+    const nextSpecialMealTitles = { ...(plannedWeek.specialMealTitles ?? {}) };
+    if (autoPlanSession.mode === "alternate") {
+      sessionDays.forEach((day) => {
+        nextPlan[day] = null;
+        nextSides[day] = [];
+        delete nextSpecialMealTitles[day];
+      });
+    } else {
+      Object.entries(autoPlanSession.ownedDays).forEach(([dayKey, ownership]) => {
+        if (!ownership) return;
+        const day = dayKey as PlannedWeekDayKey;
+        if (nextPlan[day] !== ownership.mealId) return;
+        nextPlan[day] = null;
+        nextSides[day] = [...ownership.originalSides];
+        delete nextSpecialMealTitles[day];
+      });
+    }
+    nextPlan.specialMealTitles = Object.keys(nextSpecialMealTitles).length
+      ? nextSpecialMealTitles
+      : undefined;
+    nextPlan.weekedPlanned = false;
+    setPlannedWeek(nextPlan);
+    resetSides(nextSides);
+    autoPlanTimersRef.current.forEach(clearTimeout);
+    autoPlanTimersRef.current = [];
+    Object.keys(autoPlanSession.ownedDays).forEach((day) =>
+      autoPlanRowAnimationsRef.current[day as PlannedWeekDayKey].setValue(1),
+    );
+    setAutoPlanSession(null);
+    setAlternateWeekSnapshot(null);
+    setCompleteWeekPromptVisible(false);
+    setAutoPlanAnimationPhase("idle");
+    setAutoPlanMessage(null);
+    setActiveInspirationPoolId(null);
+    Haptics.selectionAsync().catch(() => {});
+  }, [autoPlanSession, daySidesMap, plannedWeek, resetSides, sessionDays]);
+
+  const handleAcceptAutoPlan = useCallback(() => {
+    if (!autoPlanSession) return;
+    autoPlanTimersRef.current.forEach(clearTimeout);
+    autoPlanTimersRef.current = [];
+    Object.keys(autoPlanSession.ownedDays).forEach((day) =>
+      autoPlanRowAnimationsRef.current[day as PlannedWeekDayKey].setValue(1),
+    );
+    setAutoPlanSession(null);
+    setAlternateWeekSnapshot(null);
+    setCompleteWeekPromptVisible(false);
+    setAutoPlanAnimationPhase("idle");
+    setAutoPlanMessage(null);
+    setActiveInspirationPoolId(null);
+    Haptics.selectionAsync().catch(() => {});
+  }, [autoPlanSession]);
+
+  const handleKeepCurrentWeek = useCallback(() => {
+    setCompleteWeekPromptVisible(false);
+    setAutoPlanAnimationPhase("idle");
+    setAutoPlanMessage(null);
+    setActiveInspirationPoolId(null);
+    Haptics.selectionAsync().catch(() => {});
+  }, []);
+
+  const handleRestorePreviousWeek = useCallback(() => {
+    if (!alternateWeekSnapshot) return;
+    autoPlanTimersRef.current.forEach(clearTimeout);
+    autoPlanTimersRef.current = [];
+    setPlannedWeek({
+      ...alternateWeekSnapshot.plannedWeek,
+      specialMealTitles: alternateWeekSnapshot.plannedWeek.specialMealTitles
+        ? { ...alternateWeekSnapshot.plannedWeek.specialMealTitles }
+        : undefined,
+      savedIdeas: [...(alternateWeekSnapshot.plannedWeek.savedIdeas ?? [])],
+      carryOverIdeas: [
+        ...(alternateWeekSnapshot.plannedWeek.carryOverIdeas ?? []),
+      ],
+    });
+    resetSides(
+      PLANNED_WEEK_ORDER.reduce<CurrentWeekSides>((copy, day) => {
+        copy[day] = [...(alternateWeekSnapshot.sides[day] ?? [])];
+        return copy;
+      }, {} as CurrentWeekSides),
+    );
+    PLANNED_WEEK_ORDER.forEach((day) =>
+      autoPlanRowAnimationsRef.current[day].setValue(1),
+    );
+    setAlternateWeekSnapshot(null);
+    setAutoPlanSession(null);
+    setCompleteWeekPromptVisible(false);
+    setAutoPlanAnimationPhase("idle");
+    setAutoPlanMessage(null);
+    setActiveInspirationPoolId(null);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+      () => {},
+    );
+  }, [alternateWeekSnapshot, resetSides]);
+
+  useEffect(() => {
+    if (!autoPlanSession) return;
+    if (autoPlanSession.mode === "alternate") return;
+    const nextOwnedDays = { ...autoPlanSession.ownedDays };
+    let releasedCount = 0;
+    Object.entries(autoPlanSession.ownedDays).forEach(([dayKey, ownership]) => {
+      if (!ownership) return;
+      const day = dayKey as PlannedWeekDayKey;
+      if (plannedWeek[day] === ownership.mealId) return;
+      delete nextOwnedDays[day];
+      releasedCount += 1;
+    });
+    if (!releasedCount) return;
+    if (!Object.keys(nextOwnedDays).length) {
+      setAutoPlanSession(null);
+      setAutoPlanAnimationPhase("idle");
+      return;
+    }
+    setAutoPlanSession({
+      ...autoPlanSession,
+      ownedDays: nextOwnedDays,
+      manualChanges: autoPlanSession.manualChanges + releasedCount,
+    });
+  }, [autoPlanSession, plannedWeek]);
 
   const carryOverMeals = useMemo(
     () =>
@@ -990,6 +1499,16 @@ export default function PlanWeekModal() {
     [theme.space.sm],
   );
 
+  useEffect(() => {
+    const previousDay = previousExpandedDrawerDayRef.current;
+    previousExpandedDrawerDayRef.current = expandedDrawerDay;
+    if (!previousDay || expandedDrawerDay !== null) return;
+
+    requestAnimationFrame(() => {
+      plannerScrollRef.current?.scrollTo({ y: 0, animated: true });
+    });
+  }, [expandedDrawerDay]);
+
   const beginInspirationDayEditor = useCallback(
     (day: PlannedWeekDayKey, meal: Meal) => {
       const targetIndex = sessionDays.indexOf(day);
@@ -1058,6 +1577,9 @@ export default function PlanWeekModal() {
     setSelectedMealPoolId(null);
     setInspirationTargetDay(null);
     setPendingInlineMeal(null);
+    requestAnimationFrame(() => {
+      plannerScrollRef.current?.scrollTo({ y: 0, animated: true });
+    });
   }, []);
 
   const handleSelectMealPoolMeal = useCallback(
@@ -1078,7 +1600,7 @@ export default function PlanWeekModal() {
     [],
   );
 
-  const handleInspirationPoolChange = useCallback((poolId: MealPoolId) => {
+  const handleInspirationPoolChange = useCallback((poolId: MealPoolId | null) => {
     setActiveInspirationPoolId(poolId);
     setSelectedSavedIdeaMealId(null);
     setSelectedMealPoolId(null);
@@ -1401,6 +1923,11 @@ export default function PlanWeekModal() {
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success,
       ).catch(() => {});
+      setAutoPlanSession(null);
+      setAlternateWeekSnapshot(null);
+      setCompleteWeekPromptVisible(false);
+      setAutoPlanAnimationPhase("idle");
+      setAutoPlanMessage(null);
       await runSavePlanCelebration();
       router.back();
     } finally {
@@ -1719,13 +2246,33 @@ export default function PlanWeekModal() {
                 orderedDays={sessionDays}
                 plannedWeek={plannedWeek}
                 selectedMealId={selectedSavedIdeaMealId}
-                activePoolId={activeInspirationPoolId}
+                activePoolId={resolvedActiveInspirationPoolId}
                 onActivePoolChange={handleInspirationPoolChange}
                 onSelectMeal={handleSelectMealPoolMeal}
                 onRemoveSuggestedMeal={handleRemoveSavedIdea}
                 getLastServedISO={getMealLastServedISO}
+                isAutoPlanActive={
+                  Boolean(autoPlanSession) || isCompleteWeekPromptVisible
+                }
+                autoPlanCardState={
+                  isCompleteWeekPromptVisible
+                    ? "complete"
+                    : autoPlanSession
+                      ? "fill"
+                      : null
+                }
+                autoPlanAnimationPhase={autoPlanAnimationPhase}
+                autoPlanThinkingIcons={autoPlanThinkingIcons}
+                isReduceMotionEnabled={isReduceMotionEnabled}
+                autoPlanMessage={autoPlanMessage}
+                onPlanItForMe={handlePlanItForMe}
+                onAcceptAutoPlan={handleAcceptAutoPlan}
+                onTryAnotherAutoPlan={handleTryAnotherAutoPlan}
+                onClearAutoPlan={handleClearAutoPlan}
+                onKeepCurrentWeek={handleKeepCurrentWeek}
+                onRestorePreviousWeek={handleRestorePreviousWeek}
                 beforeActivePoolContent={
-                  activeInspirationPoolId === "beenAwhile" ? (
+                  resolvedActiveInspirationPoolId === "beenAwhile" ? (
                     <CarryOverSection
                       meals={carryOverMeals}
                       orderedDays={sessionDays}
@@ -1810,6 +2357,13 @@ export default function PlanWeekModal() {
                     : [];
                   const isActive = day === activeDay;
                   const isExpanded = expandedDrawerDay === day;
+                  const isAutoSuggested = Boolean(
+                    displayedMeal &&
+                      autoPlanSession?.ownedDays[day]?.mealId ===
+                        displayedMeal.id,
+                  );
+                  const autoPlanRowAnimation =
+                    autoPlanRowAnimationsRef.current[day];
                   const isCelebrated =
                     celebratedDayIndex !== null && index <= celebratedDayIndex;
                   const rowScale =
@@ -1890,35 +2444,45 @@ export default function PlanWeekModal() {
                               </Text>
                             )}
                           </View>
-                          <View
+                          <Animated.View
                             style={[
                               styles.weekRowMeal,
-                              isEatOutPlan && styles.weekRowMealEatOut,
+                              {
+                                opacity: autoPlanRowAnimation,
+                                transform: isReduceMotionEnabled
+                                  ? []
+                                  : [
+                                      {
+                                        translateY: autoPlanRowAnimation.interpolate({
+                                          inputRange: [0, 1],
+                                          outputRange: [6, 0],
+                                        }),
+                                      },
+                                      {
+                                        scale: autoPlanRowAnimation.interpolate({
+                                          inputRange: [0, 1],
+                                          outputRange: [0.98, 1],
+                                        }),
+                                      },
+                                    ],
+                              },
                             ]}
                           >
                             {isEatOutPlan ? (
-                              <View style={styles.weekRowEatOutStack}>
-                                <View style={styles.weekRowEatOutBadge}>
-                                  <Text style={styles.weekRowEatOutBadgeText}>
-                                    Eat Out
-                                  </Text>
-                                </View>
-                                {eatOutSubtitle ? (
-                                  <Text
-                                    style={styles.weekRowEatOutSubtitle}
-                                    numberOfLines={1}
-                                  >
-                                    {eatOutSubtitle}
-                                  </Text>
-                                ) : null}
+                              <View style={styles.weekRowSpecialIcon}>
+                                <MaterialCommunityIcons
+                                  name="silverware-fork-knife"
+                                  size={24}
+                                  color={theme.color.accent}
+                                />
                               </View>
                             ) : displayedMeal ? (
                               <Text style={styles.weekRowEmoji}>
                                 {displayedMeal.emoji}
                               </Text>
                             ) : null}
-                            {!isEatOutPlan ? (
-                              <View style={styles.weekRowMealTextStack}>
+                            <View style={styles.weekRowMealTextStack}>
+                              <View style={styles.weekRowTitleLine}>
                                 <Text
                                   style={[
                                     styles.weekRowTitle,
@@ -1927,14 +2491,26 @@ export default function PlanWeekModal() {
                                   numberOfLines={1}
                                   ellipsizeMode="tail"
                                 >
-                                  {plannedMealLabel}
+                                  {isEatOutPlan ? "Eat Out" : plannedMealLabel}
                                 </Text>
-                                {sidesLabel ? (
-                                  <CompactSidesSummary sides={sides} />
+                                {isAutoSuggested ? (
+                                  <Text
+                                    style={styles.weekRowSuggested}
+                                    accessibilityLabel="Suggested by Plan It For Me"
+                                  >
+                                    ✨
+                                  </Text>
                                 ) : null}
                               </View>
-                            ) : null}
-                          </View>
+                              {isEatOutPlan && eatOutSubtitle ? (
+                                <Text style={styles.weekRowSubtitle} numberOfLines={1}>
+                                  {eatOutSubtitle}
+                                </Text>
+                              ) : !isEatOutPlan && sidesLabel ? (
+                                <CompactSidesSummary sides={sides} />
+                              ) : null}
+                            </View>
+                          </Animated.View>
                           {isChoosingInspirationDay ? (
                             plannedMeal ? (
                               <Text style={styles.weekRowReplace}>Replace</Text>
@@ -2059,6 +2635,11 @@ export default function PlanWeekModal() {
                                 meal: plannedMeal,
                                 sides: daySidesMap[day] ?? [],
                               });
+                            }}
+                            onViewDetails={() => {
+                              if (!plannedMeal) return;
+                              Keyboard.dismiss();
+                              setViewingMealId(plannedMeal.id);
                             }}
                             onRemove={() => removeInlineAssignment(day)}
                             onExpandedLayout={() => focusExpandedDay(day)}
@@ -2558,42 +3139,18 @@ const createStyles = (theme: WeeklyTheme) =>
       alignItems: "center",
       gap: theme.space.sm,
     },
-    weekRowMealEatOut: {
-      justifyContent: "center",
-    },
-    weekRowEatOutStack: {
-      flex: 1,
-      alignItems: "center",
-      gap: theme.space.xs,
-    },
-    weekRowEatOutBadge: {
-      borderRadius: theme.radius.full,
-      backgroundColor:
-        theme.mode === "dark"
-          ? "rgba(255, 75, 145, 0.16)"
-          : "rgba(255, 75, 145, 0.1)",
-      paddingHorizontal: theme.space.lg,
-      paddingVertical: theme.space.xs,
-    },
-    weekRowEatOutBadgeText: {
-      color: theme.color.accent,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.bold,
-      letterSpacing: 0,
-    },
-    weekRowEatOutSubtitle: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
-      textAlign: "center",
-      maxWidth: "100%",
-    },
     weekRowEmoji: {
       width: 34,
       textAlign: "center",
       fontSize: 24,
     },
+    weekRowSpecialIcon: {
+      width: 34,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     weekRowTitle: {
+      flexShrink: 1,
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.bold,
@@ -2602,6 +3159,20 @@ const createStyles = (theme: WeeklyTheme) =>
       flex: 1,
       justifyContent: "center",
       gap: 2,
+    },
+    weekRowTitleLine: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs,
+    },
+    weekRowSuggested: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.xs,
+    },
+    weekRowSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.regular,
     },
     weekRowTitleMuted: {
       color: theme.color.subtleInk,

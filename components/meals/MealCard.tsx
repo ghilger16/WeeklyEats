@@ -140,6 +140,7 @@ const triggerMealSaveHaptic = () => {
 type AutoFillPreviewDraft = {
   title: string;
   ingredients: IngredientValue[];
+  suggestedSides: string[];
   difficulty?: number;
   expense?: number;
   prepNotes: string;
@@ -222,6 +223,9 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
     ? (meal.ingredients as IngredientValue[])
         .map(normalizeIngredientValue)
         .filter(isIngredient)
+    : [],
+  suggestedSides: Array.isArray(meal.suggestedSides)
+    ? [...meal.suggestedSides]
     : [],
   difficulty: snapToLevelValue(meal.difficulty ?? 3, DIFFICULTY_LEVELS),
   expense: snapToLevelValue(meal.expense ?? 3, EXPENSE_LEVELS),
@@ -607,6 +611,7 @@ export default function MealCard({
     setAutoFillDraft({
       title: outcome.data.title?.trim() ?? "",
       ingredients: normalizedIngredients,
+      suggestedSides: [...(outcome.data.suggestedSides ?? [])],
       difficulty: normalizedDifficulty,
       expense: normalizedExpense,
       prepNotes: outcome.data.prepNotes?.trim() ?? "",
@@ -708,6 +713,7 @@ export default function MealCard({
     if (cleanedIngredients.length > 0) {
       nextForm.ingredients = cleanedIngredients;
     }
+    nextForm.suggestedSides = [...autoFillDraft.suggestedSides];
 
     if (typeof autoFillDraft.difficulty === "number") {
       nextForm.difficulty = autoFillDraft.difficulty;

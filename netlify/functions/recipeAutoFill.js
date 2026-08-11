@@ -151,6 +151,21 @@ const extractTitleFromUrl = (url) => {
 const clamp = (value, min, max) =>
   Math.min(Math.max(Math.round(value), min), max);
 
+const normalizeSuggestedSides = (value) => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const sides = [];
+  value.forEach((item) => {
+    if (typeof item !== "string" || sides.length >= 6) return;
+    const side = item.trim().replace(/\s+/g, " ");
+    const key = side.toLocaleLowerCase();
+    if (!side || seen.has(key)) return;
+    seen.add(key);
+    sides.push(side);
+  });
+  return sides;
+};
+
 const cleanIngredient = (ingredient) => {
   if (!ingredient || typeof ingredient !== "string") {
     return "";
@@ -288,7 +303,7 @@ const buildOpenAiPayload = (url, text) => ({
     {
       role: "user",
       content: [
-        "Return a JSON object with keys: title, ingredients, difficulty, expense, prepNotes.",
+        "Return a JSON object with keys: title, ingredients, difficulty, expense, prepNotes, suggestedSides.",
 
         "For title, invent the short meal name a family would say at dinner. Do not copy the recipe page title.",
         "Title should usually be 2-4 words and under 28 characters.",
@@ -347,6 +362,19 @@ const buildOpenAiPayload = (url, text) => ({
 
         "PrepNotes should only include advance-ahead tasks, like defrosting or marinating. Keep it short.",
         "Difficulty and expense are integers 1-5. PrepNotes is short.",
+
+        "SIDE SUGGESTIONS",
+        "Based on this specific recipe, return exactly 6 simple side dish suggestions in suggestedSides.",
+        "Consider the actual main dish, ingredients, and cuisine, not cuisine alone.",
+        "Prefer common, practical household sides that pair naturally with the meal.",
+        "Side names should usually be 1-3 words.",
+        "Avoid elaborate chef-style sides and avoid substantially duplicating the main dish.",
+        "Avoid ingredients or components already in the main dish unless commonly served separately.",
+        "Provide variety across all six suggestions.",
+        "Do not include beverages or desserts.",
+        "Do not include sauces, dips, garnishes, or appetizers unless an item such as Chips & Salsa is genuinely a common side.",
+        "Suggested sides are metadata only. Never add them to ingredients or pantry staples unless they are actual recipe ingredients.",
+        "Examples of suitable side names include Corn, Rice, Garlic Bread, Green Beans, Salad, Broccoli, Mashed Potatoes, Beans, Fruit, Chips & Salsa, Naan, and Roasted Vegetables.",
 
         `Recipe URL: ${url}`,
         `Recipe text: ${text}`,
@@ -557,6 +585,7 @@ exports.handler = async (event) => {
 
   const prepNotes =
     typeof parsed.prepNotes === "string" ? parsed.prepNotes.trim() : "";
+  const suggestedSides = normalizeSuggestedSides(parsed.suggestedSides);
 
   return {
     statusCode: 200,
@@ -568,6 +597,7 @@ exports.handler = async (event) => {
         difficulty,
         expense,
         prepNotes,
+        suggestedSides,
       },
     }),
   };

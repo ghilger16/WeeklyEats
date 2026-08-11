@@ -29,6 +29,7 @@ type Props = {
   onSelectEatOut: () => void;
   onSelectFlexNight: () => void;
   onEditSides: () => void;
+  onViewDetails: () => void;
   onRemove: () => void;
   onExpandedLayout: () => void;
 };
@@ -42,6 +43,7 @@ export default function InlineDaySearch({
   onSelectEatOut,
   onSelectFlexNight,
   onEditSides,
+  onViewDetails,
   onRemove,
   onExpandedLayout,
 }: Props) {
@@ -99,6 +101,16 @@ export default function InlineDaySearch({
             contentContainerStyle={styles.quickOptions}
             keyboardShouldPersistTaps="handled"
           >
+            {assignedMeal && !isSpecialMealId(assignedMeal.id) ? (
+              <QuickOption
+                icon="card-text-outline"
+                label="Details"
+                accessibilityLabel={`View details for ${assignedMeal.title}`}
+                onPress={onViewDetails}
+                styles={styles}
+                theme={theme}
+              />
+            ) : null}
             {assignedMeal && !isSpecialMealId(assignedMeal.id) ? (
               <QuickOption
                 icon="food-variant"
@@ -191,6 +203,7 @@ function QuickOption({
     | "silverware-fork-knife"
     | "sync"
     | "food-variant"
+    | "card-text-outline"
     | "delete-outline";
   label: string;
   accessibilityLabel?: string;

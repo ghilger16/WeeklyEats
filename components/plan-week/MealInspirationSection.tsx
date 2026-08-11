@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { ReactNode, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   LayoutChangeEvent,
@@ -23,6 +23,7 @@ import { Meal } from "../../types/meals";
 
 export type MealPoolId =
   | "beenAwhile"
+  | "recentlyAdded"
   | "familyStars"
   | "freezerMeals"
   | "easy"
@@ -36,6 +37,7 @@ export type MealPool = {
   chipIcon?: string;
   emptyText: string;
   meals: Meal[];
+  cycle?: "difficulty" | "expense";
 };
 
 type Props = {
@@ -43,12 +45,24 @@ type Props = {
   orderedDays: PlannedWeekDayKey[];
   plannedWeek: CurrentPlannedWeek;
   selectedMealId?: Meal["id"] | null;
-  activePoolId?: MealPoolId;
-  onActivePoolChange?: (poolId: MealPoolId) => void;
+  activePoolId?: MealPoolId | null;
+  onActivePoolChange?: (poolId: MealPoolId | null) => void;
   onSelectMeal: (meal: Meal, poolId: MealPoolId) => void;
   onRemoveSuggestedMeal?: (mealId: Meal["id"]) => void;
   getLastServedISO?: (mealId: Meal["id"]) => string | null;
   beforeActivePoolContent?: ReactNode;
+  isAutoPlanActive?: boolean;
+  autoPlanCardState?: "fill" | "complete" | "alternate" | null;
+  autoPlanAnimationPhase?: "idle" | "thinking" | "cascading" | "result" | "retrying";
+  autoPlanThinkingIcons?: string[];
+  isReduceMotionEnabled?: boolean;
+  autoPlanMessage?: string | null;
+  onPlanItForMe?: () => void;
+  onAcceptAutoPlan?: () => void;
+  onTryAnotherAutoPlan?: () => void;
+  onClearAutoPlan?: () => void;
+  onKeepCurrentWeek?: () => void;
+  onRestorePreviousWeek?: () => void;
 };
 
 const SWIPE_THRESHOLD = 36;
@@ -70,6 +84,18 @@ export default function MealInspirationSection({
   onRemoveSuggestedMeal,
   getLastServedISO,
   beforeActivePoolContent,
+  isAutoPlanActive = false,
+  autoPlanCardState = null,
+  autoPlanAnimationPhase = "idle",
+  autoPlanThinkingIcons = [],
+  isReduceMotionEnabled = false,
+  autoPlanMessage,
+  onPlanItForMe,
+  onAcceptAutoPlan,
+  onTryAnotherAutoPlan,
+  onClearAutoPlan,
+  onKeepCurrentWeek,
+  onRestorePreviousWeek,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -81,16 +107,130 @@ export default function MealInspirationSection({
   const [difficultyMode, setDifficultyMode] =
     useState<DifficultyMode>("easy");
   const [expenseMode, setExpenseMode] = useState<ExpenseMode>(1);
+  const [isDiscoveryExpanded, setDiscoveryExpanded] = useState(false);
+  const [isPlanTransitioning, setPlanTransitioning] = useState(false);
+  const thinkingOpacity = useRef(new Animated.Value(0)).current;
+  const cloudScale = useRef(new Animated.Value(1)).current;
+  const cloudTranslateY = useRef(new Animated.Value(0)).current;
+  const iconShuffle = useRef(new Animated.Value(0)).current;
+  const thinkingFoodPositions = [
+    styles.thinkingFoodIcon0,
+    styles.thinkingFoodIcon1,
+    styles.thinkingFoodIcon2,
+    styles.thinkingFoodIcon3,
+  ];
 
   const visiblePools = pools;
-  const activeIndex = Math.max(
-    0,
-    visiblePools.findIndex((pool) => pool.id === activePoolId),
+  const standardPoolIds = useMemo(
+    () =>
+      new Set<MealPoolId>([
+        "beenAwhile",
+        "recentlyAdded",
+        "familyStars",
+        "freezerMeals",
+        "easy",
+        "budget",
+      ]),
+    [],
   );
+  const discoveryPools = useMemo(
+    () => [
+      ...visiblePools.filter((pool) => !standardPoolIds.has(pool.id)),
+      ...visiblePools.filter((pool) => standardPoolIds.has(pool.id)),
+    ],
+    [standardPoolIds, visiblePools],
+  );
+  const hasPlanItForMe = typeof onPlanItForMe === "function";
+  const reservedDiscoverySlots = hasPlanItForMe ? 1 : 0;
+  const hasMoreDiscoveryPools =
+    discoveryPools.length + reservedDiscoverySlots > 6;
+  const collapsedDiscoveryPools = hasMoreDiscoveryPools
+    ? discoveryPools.slice(0, Math.max(0, 5 - reservedDiscoverySlots))
+    : discoveryPools;
+  const displayedDiscoveryPools = isDiscoveryExpanded
+    ? discoveryPools
+    : collapsedDiscoveryPools;
+
+  useEffect(() => {
+    if (!hasMoreDiscoveryPools && isDiscoveryExpanded) {
+      setDiscoveryExpanded(false);
+    }
+  }, [hasMoreDiscoveryPools, isDiscoveryExpanded]);
+
+  useEffect(() => {
+    if (isAutoPlanActive) return;
+    transition.stopAnimation();
+    transition.setValue(1);
+    setPlanTransitioning(false);
+  }, [isAutoPlanActive, transition]);
+
+  useEffect(() => {
+    const isThinking =
+      autoPlanAnimationPhase === "thinking" ||
+      autoPlanAnimationPhase === "retrying" ||
+      autoPlanAnimationPhase === "cascading";
+    if (isThinking) {
+      thinkingOpacity.setValue(1);
+      cloudScale.setValue(1);
+      cloudTranslateY.setValue(0);
+      iconShuffle.setValue(0);
+      if (isReduceMotionEnabled) return;
+      const cloudLoop = Animated.loop(
+        Animated.sequence([
+          Animated.parallel([
+            Animated.timing(cloudScale, {
+              toValue: 1.03,
+              duration: 360,
+              useNativeDriver: true,
+            }),
+            Animated.timing(cloudTranslateY, {
+              toValue: -4,
+              duration: 360,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(cloudScale, {
+              toValue: 1,
+              duration: 360,
+              useNativeDriver: true,
+            }),
+            Animated.timing(cloudTranslateY, {
+              toValue: 0,
+              duration: 360,
+              useNativeDriver: true,
+            }),
+          ]),
+        ]),
+      );
+      const iconLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(iconShuffle, {
+            toValue: 1,
+            duration: 280,
+            useNativeDriver: true,
+          }),
+          Animated.timing(iconShuffle, {
+            toValue: 0,
+            duration: 280,
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      cloudLoop.start();
+      iconLoop.start();
+      return () => {
+        cloudLoop.stop();
+        iconLoop.stop();
+      };
+    }
+  }, [autoPlanAnimationPhase, cloudScale, cloudTranslateY, iconShuffle, isReduceMotionEnabled, thinkingOpacity]);
+  const activeIndex = visiblePools.findIndex((pool) => pool.id === activePoolId);
   const sourceActivePool =
-    visiblePools[activeIndex % Math.max(visiblePools.length, 1)];
+    activeIndex >= 0 ? visiblePools[activeIndex] : undefined;
   const activePool = useMemo(() => {
-    if (sourceActivePool.id === "easy") {
+    if (!sourceActivePool) return null;
+    if (sourceActivePool.cycle === "difficulty") {
       const label = getDifficultyModeLabel(difficultyMode);
       return {
         ...sourceActivePool,
@@ -102,7 +242,7 @@ export default function MealInspirationSection({
         ),
       };
     }
-    if (sourceActivePool.id === "budget") {
+    if (sourceActivePool.cycle === "expense") {
       const expenseLabel = "$".repeat(expenseMode);
       return {
         ...sourceActivePool,
@@ -125,10 +265,18 @@ export default function MealInspirationSection({
     }).start();
   };
 
+  const collapseToDiscovery = () => {
+    transition.setValue(0);
+    onActivePoolChange?.(null);
+    setActiveCardIndex(0);
+    Animated.timing(transition, {
+      toValue: 1,
+      duration: theme.motion.duration.normal,
+      useNativeDriver: true,
+    }).start();
+  };
+
   const setPoolIndex = (index: number) => {
-    if (visiblePools.length <= 1) {
-      return;
-    }
     const nextPool = visiblePools[index];
     if (!nextPool) {
       return;
@@ -139,29 +287,45 @@ export default function MealInspirationSection({
   };
 
   const handleTabPress = (index: number, pool: MealPool) => {
-    if (pool.id === "easy" && pool.id === activePool.id) {
+    const isActive = pool.id === activePool?.id;
+    if (pool.cycle === "difficulty" && isActive) {
       const nextIndex =
         (DIFFICULTY_MODES.indexOf(difficultyMode) + 1) %
         DIFFICULTY_MODES.length;
+      if (difficultyMode === "hard") {
+        setDifficultyMode("easy");
+        collapseToDiscovery();
+        return;
+      }
       setDifficultyMode(DIFFICULTY_MODES[nextIndex]);
       setActiveCardIndex(0);
       carouselRef.current?.scrollTo({ x: 0, animated: false });
       animateIn();
       return;
     }
-    if (pool.id === "budget" && pool.id === activePool.id) {
+    if (pool.cycle === "expense" && isActive) {
       const nextIndex =
         (EXPENSE_MODES.indexOf(expenseMode) + 1) % EXPENSE_MODES.length;
+      if (expenseMode === 3) {
+        setExpenseMode(1);
+        collapseToDiscovery();
+        return;
+      }
       setExpenseMode(EXPENSE_MODES[nextIndex]);
       setActiveCardIndex(0);
       carouselRef.current?.scrollTo({ x: 0, animated: false });
       animateIn();
       return;
     }
+    if (isActive) {
+      collapseToDiscovery();
+      return;
+    }
     setPoolIndex(index);
   };
 
   const advancePool = () => {
+    if (activeIndex < 0 || visiblePools.length === 0) return;
     setPoolIndex((activeIndex + 1) % visiblePools.length);
   };
 
@@ -180,10 +344,6 @@ export default function MealInspirationSection({
       }),
     [advancePool],
   );
-
-  if (!activePool) {
-    return null;
-  }
 
   const contentStyle = {
     opacity: transition,
@@ -208,90 +368,332 @@ export default function MealInspirationSection({
     const nextIndex = Math.max(
       0,
       Math.min(
-        activePool.meals.length - 1,
+        (activePool?.meals.length ?? 1) - 1,
         Math.round(event.nativeEvent.contentOffset.x / snapInterval),
       ),
     );
     setActiveCardIndex(nextIndex);
   };
 
+  const handlePlanItPress = () => {
+    if (isPlanTransitioning || !onPlanItForMe) return;
+    setPlanTransitioning(true);
+    Animated.timing(transition, {
+      toValue: 0,
+      duration: isReduceMotionEnabled ? 80 : 180,
+      useNativeDriver: true,
+    }).start(() => {
+      onPlanItForMe();
+      transition.setValue(0);
+      Animated.timing(transition, {
+        toValue: 1,
+        duration: isReduceMotionEnabled ? 100 : 160,
+        useNativeDriver: true,
+      }).start(() => setPlanTransitioning(false));
+    });
+  };
+
   return (
     <View style={styles.wrap} {...panResponder.panHandlers}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabsScroller}
-        contentContainerStyle={styles.tabs}
-        onTouchStart={() => {
-          isChipScrollActiveRef.current = true;
-        }}
-        onTouchEnd={() => {
-          isChipScrollActiveRef.current = false;
-        }}
-        onMomentumScrollEnd={() => {
-          isChipScrollActiveRef.current = false;
-        }}
-      >
-        {visiblePools.map((pool, index) => {
-          const isActive = pool.id === activePool.id;
-          return (
+      {isAutoPlanActive && autoPlanAnimationPhase === "result" ? (
+        <View style={styles.autoPlanPanel}>
+          <View style={styles.autoPlanHeadingRow}>
+            <Text style={styles.autoPlanSparkle}>✨</Text>
+            <Text style={styles.autoPlanTitle}>
+              {autoPlanCardState === "complete"
+                ? "Week Is Planned"
+                : autoPlanCardState === "alternate"
+                  ? "New Week Suggested!"
+                  : "Week Suggested!"}
+            </Text>
+          </View>
+          <Text style={styles.autoPlanSubtitle}>
+            {autoPlanCardState === "complete"
+              ? "Want to see a different version?"
+              : autoPlanCardState === "alternate"
+                ? "Want to make any changes?"
+                : "A first draft based on your meals, favorites, and history."}
+          </Text>
+          <View style={styles.autoPlanActions}>
             <Pressable
-              key={pool.id}
+              onPress={
+                autoPlanCardState === "fill"
+                  ? onAcceptAutoPlan
+                  : onTryAnotherAutoPlan
+              }
               accessibilityRole="button"
-              accessibilityLabel={`${getPoolTabLabel(pool.id, difficultyMode)} tab`}
-              accessibilityState={{ selected: isActive }}
-              onPress={() => handleTabPress(index, pool)}
+              accessibilityLabel={
+                autoPlanCardState === "fill"
+                  ? "Use this suggested plan"
+                  : "Try another week"
+              }
               style={({ pressed }) => [
-                styles.tab,
-                isActive && styles.tabActive,
+                styles.autoPlanPrimaryButton,
                 pressed && styles.pressed,
               ]}
             >
-              {pool.id === "freezerMeals" ? (
-                <MaterialCommunityIcons
-                  name="snowflake"
-                  size={20}
-                  color={isActive ? theme.color.ink : theme.color.accent}
-                  style={[styles.tabIcon, isActive && styles.tabIconActive]}
-                />
-              ) : pool.id === "easy" ? (
-                <View
-                  style={[
-                    styles.difficultyDot,
-                    {
-                      backgroundColor: getDifficultyModeColor(
-                        difficultyMode,
-                        theme,
-                      ),
-                    },
-                  ]}
-                  accessibilityLabel={`${getDifficultyModeLabel(difficultyMode)} difficulty`}
-                />
-              ) : pool.id === "budget" ? (
-                <Text
-                  style={styles.expenseText}
-                  accessibilityLabel={`${expenseMode} dollar sign${expenseMode === 1 ? "" : "s"} expense`}
-                >
-                  {"$".repeat(expenseMode)}
-                </Text>
-              ) : (
-                <Text
-                  style={[styles.tabIcon, isActive && styles.tabIconActive]}
-                >
-                  {getPoolIcon(pool.id)}
-                </Text>
-              )}
-              <Text
-                style={[styles.tabText, isActive && styles.tabTextActive]}
-                numberOfLines={1}
-              >
-                {getPoolTabLabel(pool.id, difficultyMode)}
+              <Text style={styles.autoPlanPrimaryText}>
+                {autoPlanCardState === "fill"
+                  ? "Use This Plan"
+                  : "Try Another Week"}
               </Text>
             </Pressable>
-          );
-        })}
-      </ScrollView>
+            {autoPlanCardState === "fill" ? (
+              <Pressable
+                onPress={onTryAnotherAutoPlan}
+                accessibilityRole="button"
+                accessibilityLabel="Try another suggested week"
+                style={({ pressed }) => [
+                  styles.autoPlanSecondaryButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.autoPlanSecondaryText}>Try Another Week</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable
+            onPress={
+              autoPlanCardState === "complete"
+                ? onKeepCurrentWeek
+                : autoPlanCardState === "alternate"
+                  ? onRestorePreviousWeek
+                  : onClearAutoPlan
+            }
+            accessibilityRole="button"
+            accessibilityLabel={
+              autoPlanCardState === "complete"
+                ? "Keep this week"
+                : autoPlanCardState === "alternate"
+                  ? "Restore previous week"
+                  : "Clear suggested meals"
+            }
+            style={({ pressed }) => [
+              styles.autoPlanClearButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            {autoPlanCardState !== "complete" ? (
+              <MaterialCommunityIcons
+                name="backup-restore"
+                size={18}
+                color={theme.color.accent}
+              />
+            ) : null}
+            <Text style={styles.autoPlanClearText}>
+              {autoPlanCardState === "complete"
+                ? "Keep This Week"
+                : autoPlanCardState === "alternate"
+                  ? "Restore Previous Week"
+                  : "Clear Suggestions"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : isAutoPlanActive ? (
+        <Animated.View
+          style={[
+            styles.thinkingWrap,
+            {
+              opacity: thinkingOpacity,
+              transform: [
+                { scale: cloudScale },
+                { translateY: cloudTranslateY },
+              ],
+            },
+          ]}
+          accessibilityLabel="Planning your week"
+        >
+          <View style={styles.thinkingVisual}>
+            <Text style={styles.thinkingCloud}>☁️</Text>
+            <Text style={styles.thinkingSparkle}>✨</Text>
+            {!isReduceMotionEnabled
+              ? (autoPlanThinkingIcons.length
+                  ? autoPlanThinkingIcons
+                  : ["🌮", "🍚", "🍝", "🥗"]
+                ).slice(0, 4).map((icon, index) => (
+                  <Animated.Text
+                    key={`${icon}-${index}`}
+                    style={[
+                      styles.thinkingFoodIcon,
+                      thinkingFoodPositions[index],
+                      {
+                        opacity: iconShuffle.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: index % 2 ? [0.45, 1] : [1, 0.45],
+                        }),
+                        transform: [
+                          {
+                            translateY: iconShuffle.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: index % 2 ? [2, -3] : [-2, 3],
+                            }),
+                          },
+                          {
+                            translateX: iconShuffle.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: index % 2 ? [-2, 3] : [2, -3],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  >
+                    {icon}
+                  </Animated.Text>
+                ))
+              : null}
+          </View>
+          <Text style={styles.thinkingText}>Planning your week…</Text>
+        </Animated.View>
+      ) : activePool ? (
+        <View style={styles.activeTabRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${getPoolTabLabel(activePool.id, difficultyMode)} active tab`}
+            accessibilityState={{ selected: true }}
+            onPress={() => handleTabPress(activeIndex, activePool)}
+            style={({ pressed }) => [
+              styles.tab,
+              styles.tabActive,
+              pressed && styles.pressed,
+            ]}
+          >
+            {activePool.id === "freezerMeals" ? (
+              <MaterialCommunityIcons
+                name="snowflake"
+                size={20}
+                color={theme.color.ink}
+                style={[styles.tabIcon, styles.tabIconActive]}
+              />
+            ) : activePool.cycle === "difficulty" ? (
+              <View
+                style={[
+                  styles.difficultyDot,
+                  { backgroundColor: getDifficultyModeColor(difficultyMode, theme) },
+                ]}
+                accessibilityLabel={`${getDifficultyModeLabel(difficultyMode)} difficulty`}
+              />
+            ) : activePool.cycle === "expense" ? (
+              <Text
+                style={styles.expenseText}
+                accessibilityLabel={`${expenseMode} dollar sign${expenseMode === 1 ? "" : "s"} expense`}
+              >
+                {"$".repeat(expenseMode)}
+              </Text>
+            ) : (
+              <Text style={[styles.tabIcon, styles.tabIconActive]}>
+                {(activePool.chipIcon ?? getPoolIcon(activePool.id)) || "🍽️"}
+              </Text>
+            )}
+            <Text style={[styles.tabText, styles.tabTextActive]} numberOfLines={1}>
+              {getPoolTabLabel(activePool.id, difficultyMode)}
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Animated.View
+          style={[
+            styles.discoveryWrap,
+            isPlanTransitioning ? contentStyle : null,
+          ]}
+        >
+          <Text style={styles.discoverySectionLabel}>Need Help Deciding?</Text>
+          <View style={styles.discoveryGrid}>
+            {hasPlanItForMe ? (
+              <Pressable
+                onPress={handlePlanItPress}
+                disabled={isPlanTransitioning}
+                accessibilityRole="button"
+                accessibilityLabel="Plan It For Me"
+                style={({ pressed }) => [
+                  styles.discoveryCell,
+                  styles.planItCell,
+                  pressed && !isReduceMotionEnabled && styles.planItCellPressed,
+                  pressed && styles.discoveryCellPressed,
+                ]}
+              >
+                <Text style={[styles.discoveryIcon, styles.planItIcon]}>✨</Text>
+                <Text style={styles.discoveryLabel} numberOfLines={1}>
+                  Plan It For Me
+                </Text>
+              </Pressable>
+            ) : null}
+            {displayedDiscoveryPools.map((pool, index) => (
+              <Pressable
+                key={pool.id}
+                onPress={() => setPoolIndex(visiblePools.indexOf(pool))}
+                accessibilityRole="button"
+                accessibilityLabel={`Browse ${getPoolTabLabel(pool.id, difficultyMode)} meal suggestions`}
+                style={({ pressed }) => [
+                  styles.discoveryCell,
+                  pressed && styles.discoveryCellPressed,
+                ]}
+              >
+                {pool.cycle === "difficulty" ? (
+                  <View
+                    style={[
+                      styles.discoveryDifficultyIcon,
+                      { backgroundColor: getDifficultyModeColor("easy", theme) },
+                    ]}
+                    accessibilityLabel="Easy difficulty"
+                  />
+                ) : pool.id === "freezerMeals" ? (
+                  <MaterialCommunityIcons
+                    name="snowflake"
+                    size={21}
+                    color={theme.color.accent}
+                    style={styles.discoveryMaterialIcon}
+                    accessibilityLabel="Freezer"
+                  />
+                ) : pool.cycle === "expense" ? (
+                  <Text
+                    style={styles.discoveryExpenseIcon}
+                    accessibilityLabel="One dollar sign expense"
+                  >
+                    $
+                  </Text>
+                ) : (
+                  <Text style={styles.discoveryIcon}>
+                    {getDiscoveryPoolIcon(pool.id, pool.chipIcon)}
+                  </Text>
+                )}
+                <Text style={styles.discoveryLabel} numberOfLines={1}>
+                  {getPoolTabLabel(pool.id, difficultyMode)}
+                </Text>
+              </Pressable>
+            ))}
+            {!isDiscoveryExpanded && hasMoreDiscoveryPools ? (
+              <Pressable
+                onPress={() => setDiscoveryExpanded(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Show more suggestion categories"
+                style={({ pressed }) => [
+                  styles.discoveryCell,
+                  pressed && styles.discoveryCellPressed,
+                ]}
+              >
+                <Text style={styles.discoveryMoreLabel}>More →</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {autoPlanMessage ? (
+            <Text style={styles.autoPlanMessage}>{autoPlanMessage}</Text>
+          ) : null}
+          {isDiscoveryExpanded && hasMoreDiscoveryPools ? (
+            <Pressable
+              onPress={() => setDiscoveryExpanded(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Show fewer suggestion categories"
+              style={styles.discoveryShowLess}
+            >
+              <Text style={styles.discoveryShowLessText}>Show less</Text>
+            </Pressable>
+          ) : null}
+        </Animated.View>
+      )}
 
+      {!isAutoPlanActive && activePool ? (
+        <>
       <Animated.View
         style={[styles.carouselSection, contentStyle]}
         onLayout={(event: LayoutChangeEvent) =>
@@ -434,14 +836,22 @@ export default function MealInspirationSection({
       </Animated.View>
 
       {beforeActivePoolContent}
+        </>
+      ) : null}
     </View>
   );
 }
 
 const getPoolIcon = (poolId: MealPoolId) => {
   if (poolId === "beenAwhile") return "🕒";
+  if (poolId === "recentlyAdded") return "🕐";
   if (poolId === "familyStars") return "⭐";
   return "";
+};
+
+const getDiscoveryPoolIcon = (poolId: MealPoolId, configuredIcon?: string) => {
+  if (poolId === "freezerMeals") return "❄️";
+  return (configuredIcon ?? getPoolIcon(poolId)) || "🍽️";
 };
 
 const getPoolTabLabel = (
@@ -449,7 +859,8 @@ const getPoolTabLabel = (
   difficultyMode: DifficultyMode = "easy",
 ) => {
   if (poolId === "beenAwhile") return "Been Awhile";
-  if (poolId === "familyStars") return "Stars";
+  if (poolId === "recentlyAdded") return "Recently Added";
+  if (poolId === "familyStars") return "Family Star";
   if (poolId === "freezerMeals") return "Freezer";
   if (poolId === "easy") return getDifficultyModeLabel(difficultyMode);
   return "Expense";
@@ -528,6 +939,7 @@ const getMealReason = (
   if (poolId === "familyStars" || poolId === "beenAwhile") {
     return formatLastServed(lastServedISO);
   }
+  if (poolId === "recentlyAdded") return "Added within the last month";
   if (meal.isFavorite && getDifficultyLabel(meal) === "Easy") {
     return "Easy family favorite";
   }
@@ -570,6 +982,7 @@ const formatLastServed = (servedAtISO?: string | null) => {
 
 const getPoolEmptyText = (poolId: MealPoolId, fallback: string) => {
   if (poolId === "beenAwhile") return "No meal history yet.";
+  if (poolId === "recentlyAdded") return "No unserved meals added recently.";
   if (poolId === "freezerMeals") return "Your freezer is empty.";
   if (poolId === "familyStars") {
     return "Meals loved by everyone will appear here.";
@@ -583,6 +996,230 @@ const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
     wrap: {
       gap: theme.space.sm,
+    },
+    discoveryWrap: {
+      gap: theme.space.md,
+    },
+    discoverySectionLabel: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    discoveryGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: theme.space.sm,
+    },
+    discoveryCell: {
+      width: "48.5%",
+      height: 58,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.lg,
+      borderRadius: theme.radius.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    discoveryCellPressed: {
+      opacity: 0.78,
+    },
+    planItCell: {
+      borderColor: theme.color.accent,
+      backgroundColor:
+        theme.mode === "dark"
+          ? "rgba(255, 75, 145, 0.08)"
+          : "rgba(255, 75, 145, 0.04)",
+    },
+    planItCellPressed: {
+      transform: [{ scale: 0.97 }],
+    },
+    planItIcon: {
+      color: theme.color.accent,
+    },
+    discoveryIcon: {
+      width: 24,
+      textAlign: "center",
+      fontSize: 21,
+    },
+    discoveryMaterialIcon: {
+      width: 24,
+      textAlign: "center",
+    },
+    discoveryDifficultyIcon: {
+      width: 10,
+      height: 10,
+      marginHorizontal: 7,
+      borderRadius: theme.radius.full,
+    },
+    discoveryExpenseIcon: {
+      width: 24,
+      color: theme.color.success,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    discoveryLabel: {
+      flex: 1,
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    discoveryMoreLabel: {
+      flex: 1,
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    discoveryShowLess: {
+      alignSelf: "flex-start",
+      paddingVertical: theme.space.xs,
+    },
+    discoveryShowLessText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    autoPlanMessage: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      lineHeight: 19,
+    },
+    thinkingWrap: {
+      minHeight: 208,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+    },
+    thinkingVisual: {
+      width: 132,
+      height: 82,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    thinkingCloud: {
+      fontSize: 54,
+      opacity: 0.92,
+    },
+    thinkingSparkle: {
+      position: "absolute",
+      top: 3,
+      right: 25,
+      fontSize: 17,
+    },
+    thinkingFoodIcon: {
+      position: "absolute",
+      fontSize: 20,
+    },
+    thinkingFoodIcon0: {
+      left: 5,
+      top: 7,
+    },
+    thinkingFoodIcon1: {
+      right: 4,
+      top: 24,
+    },
+    thinkingFoodIcon2: {
+      left: 18,
+      bottom: 0,
+    },
+    thinkingFoodIcon3: {
+      right: 21,
+      bottom: -2,
+    },
+    thinkingText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    autoPlanPanel: {
+      minHeight: 208,
+      gap: theme.space.sm,
+      padding: theme.space.lg,
+      borderRadius: theme.radius.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.accent,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    autoPlanHeadingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+    },
+    autoPlanSparkle: {
+      fontSize: 20,
+    },
+    autoPlanTitle: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+    },
+    autoPlanSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      lineHeight: 19,
+      textAlign: "center",
+    },
+    autoPlanActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+      marginTop: theme.space.xs,
+    },
+    autoPlanPrimaryButton: {
+      flex: 1,
+      minHeight: 40,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: theme.space.lg,
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.accent,
+    },
+    autoPlanPrimaryText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    autoPlanSecondaryButton: {
+      flex: 1,
+      minHeight: 40,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: theme.space.md,
+      borderRadius: theme.radius.full,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      backgroundColor: theme.color.surface,
+    },
+    autoPlanSecondaryText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    autoPlanClearButton: {
+      minHeight: 32,
+      marginTop: theme.space.xs,
+      alignSelf: "center",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.xs,
+      paddingHorizontal: theme.space.sm,
+    },
+    autoPlanClearText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    activeTabRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      minHeight: 48,
     },
     tabsScroller: {
       maxWidth: "100%",

@@ -135,11 +135,7 @@ export default function InlineSideEditor({
         })}
       </View>
 
-      <Pressable
-        onPress={() => inputRef.current?.focus()}
-        style={styles.customInputRow}
-      >
-        <MaterialCommunityIcons name="plus-circle-outline" size={25} color={theme.color.subtleInk} />
+      <View style={styles.customInputRow}>
         <TextInput
           ref={inputRef}
           value={customSide}
@@ -149,11 +145,9 @@ export default function InlineSideEditor({
           placeholderTextColor={theme.color.subtleInk}
           accessibilityLabel="Add a custom side"
           returnKeyType="done"
+          autoCapitalize="words"
           style={styles.input}
         />
-      </Pressable>
-
-      <View style={styles.actions}>
         <Pressable
           onPress={addCustomSide}
           disabled={!customSide.trim()}
@@ -161,25 +155,20 @@ export default function InlineSideEditor({
           accessibilityLabel="Add custom side"
           accessibilityState={{ disabled: !customSide.trim() }}
           style={({ pressed }) => [
-            styles.addButton,
-            customSide.trim() && styles.addButtonActive,
+            styles.customAddButton,
+            !customSide.trim() && styles.customAddButtonDisabled,
             pressed && customSide.trim() && styles.pressed,
           ]}
         >
           <MaterialCommunityIcons
             name="plus"
-            size={22}
-            color={customSide.trim() ? theme.color.ink : theme.color.subtleInk}
+            size={20}
+            color="#FFFFFF"
           />
-          <Text
-            style={[
-              styles.addText,
-              customSide.trim() && styles.addTextActive,
-            ]}
-          >
-            Add
-          </Text>
         </Pressable>
+      </View>
+
+      <View style={styles.actions}>
         <Pressable
           onPress={() => {
             Keyboard.dismiss();
@@ -210,13 +199,11 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   sideChip: { width: "48.5%", minHeight: 56, paddingHorizontal: theme.space.md, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
   sideChipSelected: { borderColor: theme.color.accent, backgroundColor: theme.mode === "dark" ? "rgba(255, 75, 145, 0.10)" : "rgba(255, 75, 145, 0.06)" },
   sideName: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base },
-  customInputRow: { minHeight: 52, paddingHorizontal: theme.space.md, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderRadius: theme.radius.md, borderWidth: 1, borderStyle: "dashed", borderColor: theme.color.cardOutline },
-  input: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base, paddingVertical: theme.space.sm },
+  customInputRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+  input: { flex: 1, minHeight: 44, borderRadius: theme.radius.md, paddingHorizontal: theme.space.md, color: theme.color.ink, fontSize: theme.type.size.base, backgroundColor: theme.color.surfaceAlt },
+  customAddButton: { width: 44, height: 44, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.accent },
+  customAddButtonDisabled: { opacity: 0.45 },
   actions: { marginTop: theme.space.sm, flexDirection: "row", gap: theme.space.sm },
-  addButton: { flex: 1, minHeight: 52, borderRadius: theme.radius.xl, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border, backgroundColor: theme.color.surfaceAlt, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm, opacity: 0.55 },
-  addButtonActive: { borderColor: theme.color.accent, backgroundColor: theme.color.accent, opacity: 1 },
-  addText: { color: theme.color.subtleInk, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
-  addTextActive: { color: theme.color.ink },
   doneButton: { flex: 1, minHeight: 52, borderRadius: theme.radius.xl, backgroundColor: theme.color.accent, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm },
   doneText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
   pressed: { opacity: 0.72 },

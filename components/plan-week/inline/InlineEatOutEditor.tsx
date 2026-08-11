@@ -48,7 +48,6 @@ export default function InlineEatOutEditor({
             color={theme.color.subtleInk}
           />
         </Pressable>
-        <Text style={styles.icon}>🍽️</Text>
         <Text style={styles.title}>Eat Out</Text>
       </View>
 
@@ -104,7 +103,6 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   content: { paddingHorizontal: theme.space.sm, paddingBottom: theme.space.sm, gap: theme.space.md },
   titleRow: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: theme.space.md },
   backButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.full },
-  icon: { width: 36, textAlign: "center", fontSize: 28 },
   title: { color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
   input: { minHeight: 52, paddingHorizontal: theme.space.md, color: theme.color.ink, fontSize: theme.type.size.base, borderRadius: theme.radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.cardOutline, backgroundColor: theme.color.surfaceAlt },
   calendarSection: { gap: theme.space.sm },

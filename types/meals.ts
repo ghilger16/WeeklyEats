@@ -46,6 +46,7 @@ export type Meal = {
   freezerAddedAt?: string;
   recipeUrl?: string;
   ingredients?: MealIngredient[];
+  suggestedSides?: string[];
   difficulty?: number;
   expense?: number;
   prepNotes?: string;

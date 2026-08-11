@@ -31,6 +31,21 @@ const sanitizeFamilyRatings = (
   );
 };
 
+const sanitizeSuggestedSides = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  const sides: string[] = [];
+  value.forEach((item) => {
+    if (typeof item !== "string" || sides.length >= 6) return;
+    const side = item.trim().replace(/\s+/g, " ");
+    const key = side.toLocaleLowerCase();
+    if (!side || seen.has(key)) return;
+    seen.add(key);
+    sides.push(side);
+  });
+  return sides.length ? sides : undefined;
+};
+
 const applyMealDefaults = (meal: Meal): Meal => ({
   ...meal,
   servedCount:
@@ -39,6 +54,7 @@ const applyMealDefaults = (meal: Meal): Meal => ({
       : 0,
   showServedCount: Boolean(meal.showServedCount),
   familyRatings: sanitizeFamilyRatings(meal.familyRatings),
+  suggestedSides: sanitizeSuggestedSides(meal.suggestedSides),
 });
 
 const parseMeals = (raw: string | null): Meal[] => {

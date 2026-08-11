@@ -21,6 +21,33 @@ export const getBeenAwhileMeals = (
   );
 };
 
+export const getRecentlyAddedUnservedMeals = (
+  meals: Meal[],
+  history: ServedMealEntry[],
+  now = Date.now(),
+): Meal[] => {
+  const servedMealIds = new Set(
+    history
+      .filter((entry) => entry.outcome === "served" && Boolean(entry.mealId))
+      .map((entry) => entry.mealId as string),
+  );
+  const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+
+  return meals
+    .filter((meal) => {
+      if (servedMealIds.has(meal.id) || (meal.servedCount ?? 0) > 0) {
+        return false;
+      }
+      const createdAt = meal.createdAt ? new Date(meal.createdAt).getTime() : NaN;
+      return Number.isFinite(createdAt) && createdAt >= cutoff && createdAt <= now;
+    })
+    .sort(
+      (left, right) =>
+        new Date(right.createdAt as string).getTime() -
+        new Date(left.createdAt as string).getTime(),
+    );
+};
+
 export const getFamilyStarMeals = (
   meals: Meal[],
   isFamilyStar: (meal: Meal) => boolean,
