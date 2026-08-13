@@ -22,6 +22,11 @@ const normalizeList = (value: unknown): GroceryList | null => {
   if (!isGroceryList(value)) {
     return null;
   }
+  const promotedPantryItems = Array.isArray(value.promotedPantryItems)
+    ? value.promotedPantryItems.filter((item): item is string => typeof item === "string")
+    : value.items
+        .filter((item) => item?.ingredientType === "pantryStaple" && value.checkedItems.includes(item.id))
+        .map((item) => item.id);
   return {
     ...value,
     generatedFromPlan: Boolean(value.generatedFromPlan),
@@ -30,6 +35,7 @@ const normalizeList = (value: unknown): GroceryList | null => {
     checkedItems: value.checkedItems.filter(
       (item): item is string => typeof item === "string"
     ),
+    promotedPantryItems,
     createdAtISO:
       typeof value.createdAtISO === "string"
         ? value.createdAtISO
@@ -106,6 +112,7 @@ export const createGroceryList = (
     items,
     manualItems: [],
     checkedItems: [],
+    promotedPantryItems: [],
     createdAtISO: now,
     updatedAtISO: now,
   };
@@ -146,6 +153,11 @@ export const reconcileGroceryList = (
       .map((id) => storedStableKeys.get(id))
       .filter((key): key is string => Boolean(key))
   );
+  const promotedStableKeys = new Set(
+    storedList.promotedPantryItems
+      .map((id) => storedStableKeys.get(id))
+      .filter((key): key is string => Boolean(key))
+  );
 
   const validItemIds = new Set([
     ...plannedItems.map((item) => item.id),
@@ -159,6 +171,12 @@ export const reconcileGroceryList = (
       checkedItems.add(itemId);
     }
   });
+  const promotedPantryItems = plannedItems
+    .filter((item) => {
+      const stableKey = plannedStableKeys.get(item.id);
+      return item.ingredientType === "pantryStaple" && Boolean(stableKey && promotedStableKeys.has(stableKey));
+    })
+    .map((item) => item.id);
 
   return {
     ...storedList,
@@ -166,6 +184,7 @@ export const reconcileGroceryList = (
     generatedFromPlan: true,
     items: plannedItems,
     checkedItems: Array.from(checkedItems),
+    promotedPantryItems,
   };
 };
 

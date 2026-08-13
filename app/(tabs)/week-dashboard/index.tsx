@@ -17,17 +17,16 @@ import * as Haptics from "expo-haptics";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
-import CurrentWeekList from "../../../components/week-dashboard/CurrentWeekList";
 import TodayCard from "../../../components/week-dashboard/TodayCard";
+import TomorrowPreview from "../../../components/week-dashboard/TomorrowPreview";
+import ThisWeekList from "../../../components/week-dashboard/ThisWeekList";
+import MealRowDetailsSheet from "../../../components/week-dashboard/MealRowDetailsSheet";
+import GroceryDayBanner from "../../../components/week-dashboard/GroceryDayBanner";
 import DayPlannedToast from "../../../components/plan-week/planned-meals/DayPlannedToast";
-import UnmarkedCard from "../../../components/week-dashboard/UnmarkedCard";
 import DateControls from "../../../components/week-dashboard/DateControls";
 import SuggestMealModal from "../../../components/plan-week/suggestions/SuggestMealModal";
 import { buildMealSuggestions } from "../../../components/plan-week/suggestions/suggestionMatcher";
-import ServedList, {
-  ServedWeek,
-} from "../../../components/week-dashboard/ServedList";
-import { useCurrentWeekPlan } from "../../../hooks/useCurrentWeekPlan";
+import { useCurrentWeekPlan, WeekPlanDay } from "../../../hooks/useCurrentWeekPlan";
 import { useMeals } from "../../../hooks/useMeals";
 import { useFeatureFlag } from "../../../hooks/useFeatureFlags";
 import { useWeekStartController } from "../../../providers/week-start/WeekStartController";
@@ -41,7 +40,6 @@ import {
 } from "../../../utils/weekDays";
 import {
   PLANNED_WEEK_DISPLAY_NAMES,
-  PLANNED_WEEK_LABELS,
   PLANNED_WEEK_ORDER,
   CurrentPlannedWeek,
   CurrentWeekSides,
@@ -71,8 +69,6 @@ import {
 import { clearServedMeals } from "../../../stores/servedMealsStorage";
 import type { ServedOutcome } from "../../../components/week-dashboard/servedActions";
 import { getRandomCelebrationMessage } from "../../../components/week-dashboard/celebrations";
-import { FamilyRatingValue } from "../../../types/meals";
-import { setFamilyRatingValue } from "../../../utils/familyRatings";
 import {
   formatPlanningDayRange,
   getRemainingPlanningDays,
@@ -80,6 +76,10 @@ import {
 import useDayPins from "../../../hooks/plan-week/useDayPins";
 import { DayPinsState, normalizeDayPinsState } from "../../../types/dayPins";
 import { Meal } from "../../../types/meals";
+import { FamilyRatingValue } from "../../../types/meals";
+import { useFamilyMembers } from "../../../hooks/useFamilyMembers";
+import { getFamilyRatingSummary, setFamilyRatingValue } from "../../../utils/familyRatings";
+import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>(
@@ -112,14 +112,19 @@ export default function WeekDashboardScreen() {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals, updateMeal } = useMeals();
-  const { startDay, orderedDays } = useWeekStartController();
+  const { members } = useFamilyMembers();
+  const { mode: ratingDisplayMode } = useRatingDisplayMode();
+  const { startDay, orderedDays, isHydrated: isWeekStartHydrated } = useWeekStartController();
   const dateControlsEnabled = useFeatureFlag(
     "weekDashboardDateControlsEnabled"
   );
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
   const [isPreviewVisible, setPreviewVisible] = useState(false);
   const [isTodayPlanMealVisible, setTodayPlanMealVisible] = useState(false);
+  const [changePlanDay, setChangePlanDay] = useState<WeekPlanDay | null>(null);
   const [isBrowseMealsVisible, setBrowseMealsVisible] = useState(false);
+  const [selectedDashboardDay, setSelectedDashboardDay] =
+    useState<WeekPlanDay | null>(null);
   const [pendingReplacement, setPendingReplacement] = useState<{
     meal: Meal;
     sides: string[];
@@ -150,25 +155,6 @@ export default function WeekDashboardScreen() {
   const [isStreakModalOpen, setStreakModalOpen] = useState(false);
   const dashboardAnim = useRef(new Animated.Value(0)).current;
   const scrollViewRef = useRef<ScrollView>(null);
-  const scrollEnabledRef = useRef(true);
-
-  const handleWeekListDragStateChange = useCallback((isDragging: boolean) => {
-    const nextEnabled = !isDragging;
-    if (scrollEnabledRef.current === nextEnabled) {
-      return;
-    }
-    scrollEnabledRef.current = nextEnabled;
-    scrollViewRef.current?.setNativeProps({ scrollEnabled: nextEnabled });
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (!scrollEnabledRef.current) {
-        scrollEnabledRef.current = true;
-        scrollViewRef.current?.setNativeProps({ scrollEnabled: true });
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!dateControlsEnabled) {
@@ -252,13 +238,14 @@ export default function WeekDashboardScreen() {
       ),
     [nextWeekPlan, orderedDays]
   );
-  const plannedNextWeekDays = useMemo(
-    () => nextWeekDays.filter((day) => typeof day.mealId === "string"),
-    [nextWeekDays]
-  );
+  const showGroceryDayBanner =
+    isWeekStartHydrated &&
+    todayPlanDay === startDay &&
+    plan?.weekedPlanned === true;
   const {
     entries: servedEntries,
     logServedMeal,
+    undoServedMeal,
     refresh: refreshServedMeals,
   } = useServedMeals();
   const refreshStreak = useCallback(async () => {
@@ -280,46 +267,29 @@ export default function WeekDashboardScreen() {
     ])
   );
 
-  const handleFamilyRatingChange = useCallback(
-    (mealId: string, memberId: string, rating: FamilyRatingValue) => {
-      const meal = meals.find((m) => m.id === mealId);
-      if (!meal) {
-        return;
-      }
-      const nextRatings = setFamilyRatingValue(
-        meal.familyRatings,
-        memberId,
-        rating
-      );
-      updateMeal({
-        id: mealId,
-        familyRatings: nextRatings,
-      });
-    },
-    [meals, updateMeal]
-  );
-
-  const servedWeek = useMemo<ServedWeek>(
-    () =>
-      servedEntries.slice(0, 7).map((entry) => ({
-        id: entry.id,
-        dayLabel: PLANNED_WEEK_LABELS[entry.dayKey],
-        mealId: entry.mealId,
-        outcome: entry.outcome,
-        labelOverride: entry.servedTitle,
-      })),
-    [servedEntries]
-  );
-
   const upcomingDays = useMemo(
     () => days.filter((day) => day.status === "upcoming"),
     [days]
   );
 
+  const activeChangePlanDay = useMemo(() => {
+    if (!changePlanDay) return today ?? null;
+    return days.find(
+      (day) =>
+        day.key === changePlanDay.key &&
+        day.plannedDateISO === changePlanDay.plannedDateISO,
+    ) ?? changePlanDay;
+  }, [changePlanDay, days, today]);
+  const changePlanDayKey = activeChangePlanDay?.key ?? todayPlanDay;
+
   const swapDinnerOptions = useMemo(
     () =>
-      upcomingDays.filter((day) => {
-        if (!day.meal) {
+      days.filter((day) => {
+        if (
+          !day.meal ||
+          day.status === "past" ||
+          day.key === activeChangePlanDay?.key
+        ) {
           return false;
         }
         const plannedDate = startOfDay(day.plannedDate).getTime();
@@ -330,7 +300,7 @@ export default function WeekDashboardScreen() {
             startOfDay(new Date(entry.servedAtISO)).getTime() === plannedDate
         );
       }),
-    [servedEntries, upcomingDays]
+    [activeChangePlanDay?.key, days, servedEntries]
   );
 
   const todayServedEntry = useMemo(() => {
@@ -346,9 +316,32 @@ export default function WeekDashboardScreen() {
       return entryDate === todayDate;
     });
   }, [servedEntries, today]);
+  const resolvedSelectedDashboardDay = useMemo(() => {
+    if (!selectedDashboardDay) return null;
+    return (
+      days.find(
+        (day) =>
+          day.key === selectedDashboardDay.key &&
+          day.plannedDateISO === selectedDashboardDay.plannedDateISO,
+      ) ?? selectedDashboardDay
+    );
+  }, [days, selectedDashboardDay]);
+  const selectedDashboardServedEntry = useMemo(() => {
+    if (!resolvedSelectedDashboardDay) return undefined;
+    const plannedTime = startOfDay(resolvedSelectedDashboardDay.plannedDate).getTime();
+    return servedEntries.find(
+      (entry) =>
+        entry.dayKey === resolvedSelectedDashboardDay.key &&
+        startOfDay(new Date(entry.servedAtISO)).getTime() === plannedTime,
+    );
+  }, [resolvedSelectedDashboardDay, servedEntries]);
+  const tomorrow = useMemo(() => {
+    const todayIndex = days.findIndex((day) => day.status === "today");
+    return todayIndex >= 0 ? days[todayIndex + 1] : undefined;
+  }, [days]);
   const todayPlanPins = useMemo(
-    () => normalizeDayPinsState(dayPinsMap[todayPlanDay]),
-    [dayPinsMap, todayPlanDay]
+    () => normalizeDayPinsState(dayPinsMap[changePlanDayKey]),
+    [changePlanDayKey, dayPinsMap]
   );
   const sortedMeals = useMemo(
     () =>
@@ -374,12 +367,12 @@ export default function WeekDashboardScreen() {
     if (!todaySuggestionPool.length) {
       return undefined;
     }
-    const index = todaySuggestionIndexMap[todayPlanDay] ?? 0;
+    const index = todaySuggestionIndexMap[changePlanDayKey] ?? 0;
     const normalizedIndex =
       ((index % todaySuggestionPool.length) + todaySuggestionPool.length) %
       todaySuggestionPool.length;
     return todaySuggestionPool[normalizedIndex];
-  }, [todayPlanDay, todaySuggestionIndexMap, todaySuggestionPool]);
+  }, [changePlanDayKey, todaySuggestionIndexMap, todaySuggestionPool]);
   const pendingResolutionDay = pendingResolution?.dayKey ?? todayPlanDay;
   const pendingResolutionPins = useMemo(
     () => normalizeDayPinsState(dayPinsMap[pendingResolutionDay]),
@@ -492,6 +485,72 @@ export default function WeekDashboardScreen() {
     [logTodayOutcome]
   );
 
+  const handleTodayFamilyRatingChange = useCallback(
+    (memberId: string, rating: FamilyRatingValue) => {
+      if (!today?.mealId) return;
+      const currentMeal = meals.find((item) => item.id === today.mealId);
+      if (!currentMeal) return;
+      updateMeal({
+        id: currentMeal.id,
+        familyRatings: setFamilyRatingValue(currentMeal.familyRatings, memberId, rating),
+        updatedAt: new Date().toISOString(),
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    },
+    [meals, today?.mealId, updateMeal],
+  );
+
+  const handleTodayMealRatingChange = useCallback((rating: number) => {
+    if (!today?.mealId) return;
+    updateMeal({ id: today.mealId, rating, updatedAt: new Date().toISOString() });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  }, [today?.mealId, updateMeal]);
+
+  const todayIsGalaxyMeal = useMemo(() => {
+    if (!today?.mealId || members.length <= 1) return false;
+    const memberIds = members.map((member) => member.id);
+    const highestServedCount = meals.reduce(
+      (highest, item) => Math.max(highest, item.servedCount ?? 0),
+      0,
+    );
+    const currentMeal = meals.find((item) => item.id === today.mealId);
+    return Boolean(
+      currentMeal &&
+      highestServedCount > 0 &&
+      currentMeal.servedCount === highestServedCount &&
+      getFamilyRatingSummary(currentMeal.familyRatings, memberIds)?.isUnanimousHeart,
+    );
+  }, [meals, members, today?.mealId]);
+
+  const handleTodaySaveFreezer = useCallback(
+    (amount: string, unit: string, addedAt: string) => {
+      if (!today?.mealId) return;
+      updateMeal({
+        id: today.mealId,
+        isFavorite: true,
+        freezerAmount: amount,
+        freezerUnit: unit,
+        freezerAddedAt: addedAt,
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    [today?.mealId, updateMeal],
+  );
+
+  const handleTodayRemoveFreezer = useCallback(() => {
+    if (!today?.mealId) return;
+    updateMeal({ id: today.mealId, isFavorite: false, updatedAt: new Date().toISOString() });
+  }, [today?.mealId, updateMeal]);
+
+  const handleTodaySavePrepNotes = useCallback(
+    (prepNotes: string) => {
+      if (!today?.mealId) return;
+      updateMeal({ id: today.mealId, prepNotes, updatedAt: new Date().toISOString() });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    },
+    [today?.mealId, updateMeal],
+  );
+
   const handleTodayAlternateOutcome = useCallback(
     async (outcome: ServedOutcome) => {
       await logTodayOutcome(outcome);
@@ -499,21 +558,23 @@ export default function WeekDashboardScreen() {
     [logTodayOutcome]
   );
 
-  const handleTodayChangePlans = useCallback(() => {
-    if (!today?.meal) {
+  const handleTodayChangePlans = useCallback((day: WeekPlanDay | null = today ?? null) => {
+    if (!day?.meal) {
       return;
     }
+    setChangePlanDay(day);
     setTodaySwapSides([]);
     setSelectedSwapDay(null);
     setSwapMessage(null);
     setTodayPlanMealVisible(true);
-  }, [today?.meal]);
+  }, [today]);
 
   const handleDismissTodayPlanMeal = useCallback(() => {
     if (isSwapSaving) {
       return;
     }
     setTodayPlanMealVisible(false);
+    setChangePlanDay(null);
     setSelectedSwapDay(null);
     setSwapMessage(null);
     setTodaySwapSides([]);
@@ -572,15 +633,15 @@ export default function WeekDashboardScreen() {
     if (
       isSwapSaving ||
       !pendingReplacement ||
-      !today?.key ||
-      !today.mealId ||
-      !today.meal
+      !activeChangePlanDay?.key ||
+      !activeChangePlanDay.mealId ||
+      !activeChangePlanDay.meal
     ) {
       return;
     }
     setSwapSaving(true);
-    const todayKey = today.key;
-    const originalMealId = today.mealId;
+    const todayKey = activeChangePlanDay.key;
+    const originalMealId = activeChangePlanDay.mealId;
     try {
       const [latestPlan, latestSides] = await Promise.all([
         getCurrentWeekPlan(weekStartISO),
@@ -591,7 +652,7 @@ export default function WeekDashboardScreen() {
           entry.outcome === "served" &&
           entry.dayKey === todayKey &&
           startOfDay(new Date(entry.servedAtISO)).getTime() ===
-            startOfDay(today.plannedDate).getTime()
+            startOfDay(activeChangePlanDay.plannedDate).getTime()
       );
       const replacementStillExists =
         pendingReplacement.meal.id === EAT_OUT_MEAL_ID ||
@@ -668,8 +729,8 @@ export default function WeekDashboardScreen() {
                   ...(latestNextPlan.carryOverIdeas ?? []),
                   {
                     mealId: originalMealId,
-                    title: today.meal.title,
-                    emoji: today.meal.emoji,
+                    title: activeChangePlanDay.meal.title,
+                    emoji: activeChangePlanDay.meal.emoji,
                     suggestedAt: new Date().toISOString(),
                   },
                 ],
@@ -699,6 +760,7 @@ export default function WeekDashboardScreen() {
       setPendingReplacement(null);
       setDisplacedMealStep(null);
       setTodaySwapSides([]);
+      setChangePlanDay(null);
       await Promise.all([refreshWeekPlan(), refreshNextWeekPlan()]);
       if (destination === "next") {
         Haptics.notificationAsync(
@@ -726,7 +788,7 @@ export default function WeekDashboardScreen() {
     servedEntries,
     setPlanState,
     setSidesState,
-    today,
+    activeChangePlanDay,
     weekStartISO,
   ]);
 
@@ -764,17 +826,17 @@ export default function WeekDashboardScreen() {
   const handleConfirmDinnerSwap = useCallback(async () => {
     if (
       isSwapSaving ||
-      !today?.key ||
-      !today.mealId ||
-      !today.meal ||
+      !activeChangePlanDay?.key ||
+      !activeChangePlanDay.mealId ||
+      !activeChangePlanDay.meal ||
       !selectedSwapOption?.mealId ||
       !selectedSwapOption.meal
     ) {
       return;
     }
     setSwapSaving(true);
-    const todayKey = today.key;
-    const todayMealId = today.mealId;
+    const todayKey = activeChangePlanDay.key;
+    const todayMealId = activeChangePlanDay.mealId;
     const selectedDayKey = selectedSwapOption.key;
     const selectedMealId = selectedSwapOption.mealId;
     try {
@@ -787,7 +849,7 @@ export default function WeekDashboardScreen() {
           entry.outcome === "served" &&
           entry.dayKey === todayKey &&
           startOfDay(new Date(entry.servedAtISO)).getTime() ===
-            startOfDay(today.plannedDate).getTime()
+            startOfDay(activeChangePlanDay.plannedDate).getTime()
       );
       const mealStillExists = (mealId: string) =>
         mealId === EAT_OUT_MEAL_ID ||
@@ -844,6 +906,7 @@ export default function WeekDashboardScreen() {
       ]);
       setSelectedSwapDay(null);
       setTodayPlanMealVisible(false);
+      setChangePlanDay(null);
       setSwapMessage(null);
       await refreshWeekPlan();
     } catch {
@@ -861,13 +924,13 @@ export default function WeekDashboardScreen() {
     servedEntries,
     setPlanState,
     setSidesState,
-    today,
+    activeChangePlanDay,
     weekStartISO,
   ]);
 
   const handleSaveTodayPlanMeal = useCallback(
     async (meal: Meal, side?: string) => {
-      if (!today?.key || !plan) {
+      if (!activeChangePlanDay?.key || !plan) {
         return;
       }
       const sideToAdd = side?.trim();
@@ -878,13 +941,13 @@ export default function WeekDashboardScreen() {
         ...(plan.specialMealTitles ?? {}),
       };
       if (meal.id === EAT_OUT_MEAL_ID && meal.title !== EAT_OUT_MEAL.title) {
-        nextSpecialMealTitles[today.key] = meal.title;
+        nextSpecialMealTitles[activeChangePlanDay.key] = meal.title;
       } else {
-        delete nextSpecialMealTitles[today.key];
+        delete nextSpecialMealTitles[activeChangePlanDay.key];
       }
       const nextPlan: CurrentPlannedWeek = {
         ...plan,
-        [today.key]: meal.id,
+        [activeChangePlanDay.key]: meal.id,
         weekStartISO,
         specialMealTitles: Object.keys(nextSpecialMealTitles).length
           ? nextSpecialMealTitles
@@ -892,11 +955,12 @@ export default function WeekDashboardScreen() {
       };
       const nextSides: CurrentWeekSides = {
         ...sides,
-        [today.key]: nextTodaySides,
+        [activeChangePlanDay.key]: nextTodaySides,
       };
       setPlanState(nextPlan);
       setSidesState(nextSides);
       setTodayPlanMealVisible(false);
+      setChangePlanDay(null);
       setTodaySwapSides([]);
       await Promise.all([
         setCurrentWeekPlan(weekStartISO, nextPlan),
@@ -908,7 +972,7 @@ export default function WeekDashboardScreen() {
       setPlanState,
       setSidesState,
       sides,
-      today?.key,
+      activeChangePlanDay,
       todaySwapSides,
       weekStartISO,
     ]
@@ -922,25 +986,49 @@ export default function WeekDashboardScreen() {
     handleSaveTodayPlanMeal(FLEX_NIGHT_MEAL);
   }, [handleSaveTodayPlanMeal]);
 
+  const handleDashboardEatOut = useCallback(
+    async (day: WeekPlanDay) => {
+      const nextSpecialMealTitles = { ...(plan.specialMealTitles ?? {}) };
+      delete nextSpecialMealTitles[day.key];
+      const nextPlan: CurrentPlannedWeek = {
+        ...plan,
+        [day.key]: EAT_OUT_MEAL_ID,
+        weekStartISO,
+        specialMealTitles: Object.keys(nextSpecialMealTitles).length
+          ? nextSpecialMealTitles
+          : undefined,
+      };
+      const nextSides: CurrentWeekSides = { ...sides, [day.key]: [] };
+      setPlanState(nextPlan);
+      setSidesState(nextSides);
+      await Promise.all([
+        setCurrentWeekPlan(weekStartISO, nextPlan),
+        setCurrentWeekSides(weekStartISO, nextSides),
+      ]);
+      Haptics.selectionAsync().catch(() => {});
+    },
+    [plan, setPlanState, setSidesState, sides, weekStartISO],
+  );
+
   const handleSuggestAnotherTodayMeal = useCallback(() => {
     if (!todaySuggestionPool.length) {
       return;
     }
     setTodaySuggestionIndexMap((prev) => ({
       ...prev,
-      [todayPlanDay]: (prev[todayPlanDay] ?? 0) + 1,
+      [changePlanDayKey]: (prev[changePlanDayKey] ?? 0) + 1,
     }));
-  }, [todayPlanDay, todaySuggestionPool.length]);
+  }, [changePlanDayKey, todaySuggestionPool.length]);
 
   const handleTodayPlanPinsChange = useCallback(
     (next: DayPinsState) => {
-      handleDayPinsChange(todayPlanDay, next);
+      handleDayPinsChange(changePlanDayKey, next);
       setTodaySuggestionIndexMap((prev) => ({
         ...prev,
-        [todayPlanDay]: 0,
+        [changePlanDayKey]: 0,
       }));
     },
-    [handleDayPinsChange, todayPlanDay]
+    [changePlanDayKey, handleDayPinsChange]
   );
 
   const handleAddTodaySwapSide = useCallback((side: string) => {
@@ -1474,11 +1562,19 @@ export default function WeekDashboardScreen() {
         <TodayCard
           meal={today.meal}
           dateLabel={formatWeekdayDate(today.plannedDate)}
+          dateKey={today.plannedDateISO}
           servedEntry={todayServedEntry}
           sides={today.sides}
           onMarkServed={handleMarkServed}
+          onChangeFamilyRating={handleTodayFamilyRatingChange}
+          isGalaxyMeal={ratingDisplayMode === "family" && todayIsGalaxyMeal}
+          ratingMode={ratingDisplayMode}
+          onChangeMealRating={handleTodayMealRatingChange}
+          onSaveFreezer={handleTodaySaveFreezer}
+          onRemoveFreezer={handleTodayRemoveFreezer}
+          onSavePrepNotes={handleTodaySavePrepNotes}
           onSelectOutcome={handleTodayAlternateOutcome}
-          onChangePlans={handleTodayChangePlans}
+          onChangePlans={() => handleTodayChangePlans(today)}
         />
       );
     }
@@ -1494,6 +1590,11 @@ export default function WeekDashboardScreen() {
   }, [
     formattedDate,
     handleMarkServed,
+    handleTodayFamilyRatingChange,
+    handleTodayMealRatingChange,
+    handleTodayRemoveFreezer,
+    handleTodaySaveFreezer,
+    handleTodaySavePrepNotes,
     handleTodayChangePlans,
     handleTodayAlternateOutcome,
     isLoading,
@@ -1501,26 +1602,9 @@ export default function WeekDashboardScreen() {
     theme.color.accent,
     today,
     todayServedEntry,
+    todayIsGalaxyMeal,
+    ratingDisplayMode,
   ]);
-
-  const unmarkedCards = unmarkedDays.map((day) => (
-    <UnmarkedCard
-      key={day.key}
-      meal={day.meal!}
-      dateLabel={formatWeekdayDate(day.plannedDate)}
-      onMarkServed={() =>
-        handleUnmarkedOutcome(day.key, day.mealId!, day.plannedDate, "served")
-      }
-      onHadSomethingDifferent={() =>
-        handleOpenPendingResolution(
-          day.key,
-          day.mealId!,
-          day.plannedDate,
-          day.meal!
-        )
-      }
-    />
-  ));
 
   const screenMotionStyle = useMemo(
     () => ({
@@ -1562,91 +1646,112 @@ export default function WeekDashboardScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {showTopPlanButton ? (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.planButton,
-                  pressed && styles.planButtonPressed,
-                ]}
-                onPress={() => router.push("/modals/plan-week")}
-                accessibilityRole="button"
-                accessibilityLabel="Plan upcoming week"
-              >
-                <View style={styles.planIconWrap}>
-                  <MaterialCommunityIcons
-                    name="calendar-week"
-                    size={22}
-                    color={theme.color.accent}
-                  />
-                </View>
-                <View style={styles.planTextStack}>
-                  <Text style={styles.planButtonTitle}>Plan Next Week</Text>
-                  <Text style={styles.planButtonSubtitle}>
-                    Pick dinners for the week in minutes.
-                  </Text>
-                </View>
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={26}
-                  color={theme.color.subtleInk}
-                />
-              </Pressable>
-            ) : null}
-
             {setupCard}
 
             <View style={styles.stack}>
               {showWeekPlanDetails ? (
                 <>
-                  {todayCard}
-                  {unmarkedCards}
-                  {upcomingDays.length > 0 ? (
-                    <CurrentWeekList
-                      days={upcomingDays}
-                      title="Current Week Plan"
-                      onDragStateChange={handleWeekListDragStateChange}
-                      onReorder={async (reordered) => {
-                        if (!plan) {
-                          return;
-                        }
-                        const nextPlan = { ...plan };
-                        upcomingDays.forEach((day, index) => {
-                          const nextSlot = reordered[index];
-                          if (!day || !nextSlot) {
-                            return;
-                          }
-                          nextPlan[day.key] = nextSlot.mealId ?? null;
-                        });
-                        setPlanState(nextPlan);
-                        await Promise.all([
-                          setCurrentWeekPlan(weekStartISO, nextPlan),
-                          setCurrentWeekSides(weekStartISO, sides),
-                        ]);
-                      }}
+                  {showTopPlanButton ? (
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.planButton,
+                        pressed && styles.planButtonPressed,
+                      ]}
+                      onPress={() => router.push("/modals/plan-week")}
+                      accessibilityRole="button"
+                      accessibilityLabel="Plan upcoming week"
+                    >
+                      <View style={styles.planIconWrap}>
+                        <MaterialCommunityIcons
+                          name="calendar-week"
+                          size={22}
+                          color={theme.color.accent}
+                        />
+                      </View>
+                      <View style={styles.planTextStack}>
+                        <Text style={styles.planButtonTitle}>Ready for next week?</Text>
+                        <Text style={styles.planButtonSubtitle}>Plan Next Week</Text>
+                      </View>
+                      <MaterialCommunityIcons
+                        name="chevron-right"
+                        size={26}
+                        color={theme.color.subtleInk}
+                      />
+                    </Pressable>
+                  ) : null}
+                  {showGroceryDayBanner ? (
+                    <GroceryDayBanner
+                      weekId={weekStartISO}
+                      days={days}
+                      dinnerCount={plannedDayCount}
+                      onPress={() => router.push("/grocery-list")}
                     />
                   ) : null}
+                  {todayCard}
+                  <TomorrowPreview day={tomorrow} />
+                  <ThisWeekList
+                    days={days}
+                    servedEntries={servedEntries}
+                    onDayPress={(day) => {
+                      setSelectedDashboardDay(day);
+                    }}
+                  />
                   {nextWeekPlannedDayCount > 0 ? (
-                    <CurrentWeekList
-                      days={plannedNextWeekDays}
-                      title="Next Week Plan"
+                    <ThisWeekList
+                      title="Next Week"
+                      days={nextWeekDays}
+                      servedEntries={servedEntries}
+                      showProgress={false}
+                      collapsible
+                      onCollapsedChange={(isCollapsed) => {
+                        if (isCollapsed) return;
+                        setTimeout(() => {
+                          scrollViewRef.current?.scrollToEnd({ animated: true });
+                        }, 150);
+                      }}
+                      onDayPress={(day) => {
+                        setSelectedDashboardDay(day);
+                      }}
                     />
                   ) : null}
                 </>
               ) : plannedDayCount > 0 ? (
                 renderPlanningCTA("resume", handleResumePlanning)
               ) : null}
-              {servedWeek.length > 0 ? (
-                <ServedList
-                  servedWeek={servedWeek}
-                  meals={meals}
-                  title="Served Meals"
-                  onFamilyRatingChange={handleFamilyRatingChange}
-                />
-              ) : null}
             </View>
           </ScrollView>
         </TabParent>
       </Animated.View>
+      <MealRowDetailsSheet
+        day={resolvedSelectedDashboardDay}
+        servedEntry={selectedDashboardServedEntry}
+        onClose={() => setSelectedDashboardDay(null)}
+        onMarkServed={(day) => {
+          if (!day.mealId) return;
+          void handleUnmarkedOutcome(day.key, day.mealId, day.plannedDate, "served");
+        }}
+        onChangeMeal={(day) => {
+          handleTodayChangePlans(day);
+        }}
+        onEatOut={(day) => void handleDashboardEatOut(day)}
+        onViewMeal={(day) => {
+          if (day.mealId) router.push(`/meals?mealId=${encodeURIComponent(day.mealId)}`);
+        }}
+        onUndoServed={async (day, entry) => {
+          await undoServedMeal(entry.id);
+          if (day.mealId) {
+            const meal = meals.find((candidate) => candidate.id === day.mealId);
+            if (meal) {
+              updateMeal({
+                id: meal.id,
+                servedCount: Math.max(0, (meal.servedCount ?? 0) - 1),
+                updatedAt: new Date().toISOString(),
+              });
+            }
+          }
+          Haptics.selectionAsync().catch(() => {});
+        }}
+      />
       <Modal
         animationType="none"
         visible={moveToNextWeekToastVisible}
@@ -1693,16 +1798,18 @@ export default function WeekDashboardScreen() {
                 />
               </Pressable>
             </View>
-            {selectedSwapOption && today?.meal ? (
+            {selectedSwapOption && activeChangePlanDay?.meal ? (
               <>
                 <View style={styles.swapConfirmationMeals}>
                   <View style={styles.swapConfirmationMeal}>
-                    <Text style={styles.swapConfirmationDay}>Today</Text>
+                    <Text style={styles.swapConfirmationDay}>
+                      {activeChangePlanDay.displayName}
+                    </Text>
                     <Text style={styles.swapConfirmationEmoji}>
-                      {today.meal.emoji}
+                      {activeChangePlanDay.meal.emoji}
                     </Text>
                     <Text style={styles.swapConfirmationTitle}>
-                      {today.meal.title}
+                      {activeChangePlanDay.meal.title}
                     </Text>
                   </View>
                   <MaterialCommunityIcons
@@ -1835,9 +1942,9 @@ export default function WeekDashboardScreen() {
       </Modal>
       <SuggestMealModal
         visible={isBrowseMealsVisible}
-        dayName={PLANNED_WEEK_DISPLAY_NAMES[todayPlanDay]}
+        dayName={PLANNED_WEEK_DISPLAY_NAMES[changePlanDayKey]}
         mode="changeDinner"
-        currentMeal={today?.meal ?? null}
+        currentMeal={activeChangePlanDay?.meal ?? null}
         suggestion={todaySuggestionEntry}
         canSuggestAnother={todaySuggestionPool.length > 1}
         onDismiss={handleDismissBrowseMeals}

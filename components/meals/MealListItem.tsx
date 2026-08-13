@@ -21,7 +21,6 @@ import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
 import { FlexGrid } from "../../styles/flex-grid";
 import RatingStars from "./RatingStars";
-import { MealBadge } from "./MealBadge";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 import { getFamilyRatingSummary } from "../../utils/familyRatings";
 
@@ -242,7 +241,9 @@ const MealListItem = memo(function MealListItem({
   }, [familySummary, meal, members.length]);
 
   const shouldUseFamilyStarStyle = isFamilyStar && !isGalaxyMeal;
-  const cardVariant: MealCardVariant = isGalaxyMeal
+  const cardVariant: MealCardVariant = ratingMode !== "family"
+    ? "standard"
+    : isGalaxyMeal
     ? "galaxy"
     : shouldUseFamilyStarStyle
     ? "familyStar"
@@ -325,10 +326,14 @@ const MealListItem = memo(function MealListItem({
                     {showRatings ? (
                       ratingMode === "family" && members.length > 1 ? (
                         isFamilyStar ? (
-                          <MealBadge
-                            variant={isGalaxyMeal ? "galaxy" : "family"}
-                            style={styles.badge}
-                          />
+                          isGalaxyMeal ? (
+                            <View style={styles.galaxyMealLabelRow}>
+                              <MaterialCommunityIcons name="creation" size={16} color="#8B5CF6" />
+                              <Text style={styles.galaxyMealLabel}>Galaxy Meal</Text>
+                            </View>
+                          ) : (
+                            <Text style={styles.familyStarLabel}>⭐ Family Star</Text>
+                          )
                         ) : familySummary ? (
                           <Text style={styles.familySummary}>
                             ⭐ {familySummary.average.toFixed(1)}
@@ -456,7 +461,7 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     familyStarBorder: {
       borderRadius: theme.radius.lg,
-      padding: 2,
+      padding: 1,
       overflow: "hidden",
       shadowColor: "#D6A900",
       shadowOpacity: 0.18,
@@ -513,7 +518,7 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     galaxyBorder: {
       borderRadius: theme.radius.lg,
-      padding: 2,
+      padding: 1,
       overflow: "hidden",
     },
     galaxyCard: {
@@ -575,10 +580,8 @@ const createStyles = (theme: WeeklyTheme) =>
     details: {
       flex: 1,
     },
-    badge: {
-      alignSelf: "flex-start",
-      marginTop: theme.space.xs,
-    },
+    galaxyMealLabelRow: { flexDirection: "row", alignItems: "center", gap: theme.space.xs, marginTop: theme.space.xs },
+    galaxyMealLabel: { color: "#8B5CF6", fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
     title: {
       color: theme.color.ink,
       fontSize: 18,
@@ -594,6 +597,12 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,
+      marginTop: theme.space.xs,
+    },
+    familyStarLabel: {
+      color: "#FEC107",
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
       marginTop: theme.space.xs,
     },
     servedCount: {

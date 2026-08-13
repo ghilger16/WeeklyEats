@@ -30,7 +30,8 @@ import { useFeatureFlag } from "../../hooks/useFeatureFlags";
 import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
 import { supportsRecipeAutoFill } from "../../utils/recipeAutoFillCapability";
 import RatingStars from "./RatingStars";
-import FamilyRatingIcons from "./FamilyRatingIcons";
+import FamilyRatingRow from "./FamilyRatingRow";
+import FamilyRatingAchievements from "./FamilyRatingAchievements";
 import EmojiPickerModal from "../emoji/EmojiPickerModal";
 import {
   DEFAULT_MEAL_EMOJI,
@@ -272,19 +273,13 @@ export default function MealCard({
   const isAutoFillEnabled = autoFillFeatureFlag && isAutoFillSupported;
   const { members } = useFamilyMembers();
   const hasFamilyMembers = members.length > 1;
-  const { familyAverageStars, familyCount } = useMemo(() => {
-    const summary = getFamilyRatingSummary(
+  const familyRatingSummary = useMemo(
+    () => getFamilyRatingSummary(
       form.familyRatings,
       members.map((member) => member.id)
-    );
-    if (!summary) {
-      return { familyAverageStars: null, familyCount: 0 };
-    }
-    return {
-      familyAverageStars: summary.average,
-      familyCount: summary.ratedCount,
-    };
-  }, [form.familyRatings, members]);
+    ),
+    [form.familyRatings, members]
+  );
   const {
     isLoading: isAutoFillLoading,
     error: autoFillError,
@@ -1146,13 +1141,8 @@ export default function MealCard({
       form.expense && form.expense >= 4 ? 3 : form.expense && form.expense <= 2 ? 1 : 2
     );
     const freezerValue = form.freezerAmount || form.freezerQuantity;
-    const ratingStatus = isGalaxyMeal
-      ? "🌌 Galaxy Meal"
-      : familyAverageStars === 5
-      ? "⭐ Family Star"
-      : familyAverageStars !== null
-      ? `⭐ ${familyAverageStars.toFixed(1)}`
-      : "Not yet rated";
+    const isFamilyStar =
+      hasFamilyMembers && familyRatingSummary?.isUnanimousHeart === true;
     const visibleKeyIngredients =
       isDetailIngredientsExpanded || isDetailIngredientsEditing
         ? keyIngredientEntries
@@ -1258,15 +1248,24 @@ export default function MealCard({
                   Meal Title is required.
                 </Text>
               ) : null}
-              {hasFamilyMembers ? (
-                <Text style={styles.detailRatingText}>{ratingStatus}</Text>
-              ) : isGalaxyMeal ? (
-                <Text style={styles.detailRatingText}>🌌 Galaxy Meal</Text>
-              ) : (form.rating ?? 0) > 0 ? (
-                <RatingStars value={form.rating} size={18} gap={2} />
-              ) : (
+              {isGalaxyMeal ? (
+                <View style={styles.galaxyMealTitleRow}>
+                  <MaterialCommunityIcons name="creation" size={18} color="#8B5CF6" />
+                  <Text style={styles.galaxyMealTitle}>Galaxy Meal</Text>
+                </View>
+              ) : isFamilyStar ? (
+                <Text style={styles.familyStarTitle}>⭐ Family Star</Text>
+              ) : hasFamilyMembers && familyRatingSummary ? (
+                <Text style={styles.detailRatingText}>
+                  ⭐ {familyRatingSummary.average.toFixed(1)}
+                </Text>
+              ) : hasFamilyMembers ? (
                 <Text style={styles.detailMutedText}>Not yet rated</Text>
-              )}
+              ) : !hasFamilyMembers && (form.rating ?? 0) > 0 ? (
+                <RatingStars value={form.rating} size={18} gap={2} />
+              ) : !hasFamilyMembers ? (
+                <Text style={styles.detailMutedText}>Not yet rated</Text>
+              ) : null}
               <Text style={styles.detailMutedText}>
                 Served {form.servedCount ?? 0} {(form.servedCount ?? 0) === 1 ? "time" : "times"}
               </Text>
@@ -1439,9 +1438,13 @@ export default function MealCard({
             <Text style={styles.detailSectionLabel}>
               {hasFamilyMembers ? "Family Rating" : "Ratings"}
             </Text>
+            <FamilyRatingAchievements
+              isFamilyStar={isFamilyStar}
+              isGalaxyMeal={Boolean(isGalaxyMeal)}
+            />
             <View style={styles.familyDetailIcons}>
               {hasFamilyMembers ? (
-                <FamilyRatingIcons
+                <FamilyRatingRow
                   ratings={form.familyRatings}
                   onChange={handleDetailFamilyRatingChange}
                 />
@@ -2024,7 +2027,7 @@ export default function MealCard({
             <Text style={styles.sectionLabel}>Rating</Text>
             <FlexGrid.Row justifyContent="center">
               {hasFamilyMembers ? (
-                <FamilyRatingIcons
+                <FamilyRatingRow
                   ratings={form.familyRatings}
                   onChange={handleFamilyRatingChange}
                 />
@@ -2037,12 +2040,6 @@ export default function MealCard({
                 />
               )}
             </FlexGrid.Row>
-            {hasFamilyMembers && familyAverageStars !== null ? (
-              <Text style={styles.familyScore}>
-                ⭐ {familyAverageStars.toFixed(1)} — rated by {familyCount}{" "}
-                family {familyCount === 1 ? "member" : "members"}
-              </Text>
-            ) : null}
           </View>
 
           <View style={styles.section}>
@@ -2652,6 +2649,9 @@ const createStyles = (theme: WeeklyTheme) =>
     detailTitle: { color: theme.color.ink, fontSize: theme.type.size.h1, fontWeight: theme.type.weight.bold },
     detailTitleInput: { color: theme.color.ink, fontSize: theme.type.size.h1, fontWeight: theme.type.weight.bold, padding: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.accent },
     detailRatingText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
+    familyStarTitle: { color: "#FEC107", fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+    galaxyMealTitleRow: { flexDirection: "row", alignItems: "center", gap: theme.space.xs },
+    galaxyMealTitle: { color: "#8B5CF6", fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
     detailMutedText: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
     recipeAction: { flexDirection: "row", alignItems: "center", gap: theme.space.sm, padding: theme.space.md, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt },
     recipeActionText: { flex: 1, color: theme.color.accent, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
@@ -2682,7 +2682,7 @@ const createStyles = (theme: WeeklyTheme) =>
     detailNotesText: { color: theme.color.ink, fontSize: theme.type.size.base, lineHeight: 23 },
     detailNotesInput: { minHeight: 104, padding: theme.space.lg, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, color: theme.color.ink, fontSize: theme.type.size.base, lineHeight: 23, textAlignVertical: "top", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.cardOutline },
     familyDetailCard: { borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, paddingHorizontal: theme.space.lg },
-    familyDetailIcons: { alignItems: "center", paddingVertical: theme.space.sm },
+    familyDetailIcons: { alignItems: "stretch", paddingVertical: theme.space.sm },
     familyDetailRow: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.border },
     familyDetailName: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
     familyDetailReaction: { color: theme.color.subtleInk, fontSize: theme.type.size.title },
@@ -3295,11 +3295,5 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     autoFillModalButtonTextDisabled: {
       color: theme.color.subtleInk,
-    },
-    familyScore: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      textAlign: "center",
-      marginTop: theme.space.sm,
     },
   });

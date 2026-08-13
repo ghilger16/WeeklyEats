@@ -1,5 +1,6 @@
 import {
   getSideOptionsForMeal,
+  promoteSavedSides,
   replaceSideWithCustomOption,
   SideOption,
 } from "../components/plan-week/inline/sideOptions";
@@ -15,6 +16,14 @@ const meal: Meal = {
   plannedCostTier: 1,
   locked: false,
   isFavorite: false,
+  suggestedSides: [
+    "Rice",
+    "Salad",
+    "Corn",
+    "Green Beans",
+    "Fruit",
+    "Garlic Bread",
+  ],
 };
 
 describe("inline side options", () => {
@@ -23,8 +32,8 @@ describe("inline side options", () => {
 
     expect(options).toHaveLength(6);
     expect(options.slice(0, 2).map((option) => option.name)).toEqual([
-      "Broccoli",
       "Rice",
+      "Broccoli",
     ]);
     expect(new Set(options.map((option) => option.name.toLowerCase())).size).toBe(6);
   });
@@ -78,7 +87,7 @@ describe("inline side options", () => {
     expect(result?.options).toHaveLength(6);
   });
 
-  it("loads saved custom sides before standard suggestions", () => {
+  it("loads selected sides before the meal's suggested sides", () => {
     const options = getSideOptionsForMeal(meal, [
       "Rice",
       "Corn",
@@ -87,12 +96,31 @@ describe("inline side options", () => {
     ]);
 
     expect(options.slice(0, 4).map((option) => option.name)).toEqual([
+      "Rice",
       "Corn",
       "Mac and Cheese",
-      "Rice",
       "Salad",
     ]);
     expect(options).toHaveLength(6);
+  });
+
+  it("does not add hard-coded fallbacks when a meal has no suggestions", () => {
+    expect(getSideOptionsForMeal({ ...meal, suggestedSides: undefined })).toEqual(
+      [],
+    );
+  });
+
+  it("moves saved sides to the front and pushes old suggestions off the end", () => {
+    expect(
+      promoteSavedSides(["Broccoli", " rice "], meal.suggestedSides),
+    ).toEqual([
+      "Broccoli",
+      "rice",
+      "Salad",
+      "Corn",
+      "Green Beans",
+      "Fruit",
+    ]);
   });
 
 });

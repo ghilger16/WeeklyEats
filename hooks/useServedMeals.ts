@@ -4,6 +4,7 @@ import {
   ServedMealEntry,
   addServedMeal,
   getServedMeals,
+  removeServedMeal,
 } from "../stores/servedMealsStorage";
 
 export type UseServedMealsResult = {
@@ -11,6 +12,7 @@ export type UseServedMealsResult = {
   isLoading: boolean;
   refresh: () => Promise<void>;
   logServedMeal: (input: AddServedMealInput) => Promise<void>;
+  undoServedMeal: (id: ServedMealEntry["id"]) => Promise<void>;
 };
 
 export const useServedMeals = (): UseServedMealsResult => {
@@ -36,10 +38,16 @@ export const useServedMeals = (): UseServedMealsResult => {
     []
   );
 
+  const undoServedMeal = useCallback(async (id: ServedMealEntry["id"]) => {
+    const next = await removeServedMeal(id);
+    setEntries(next);
+  }, []);
+
   return {
     entries,
     isLoading,
     refresh: load,
     logServedMeal,
+    undoServedMeal,
   };
 };

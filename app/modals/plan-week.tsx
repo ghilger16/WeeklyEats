@@ -87,8 +87,10 @@ import PinInventory, {
   isInventoryPinActive,
 } from "../../components/plan-week/pins/PinInventory";
 import CalendarEventLines from "../../components/plan-week/CalendarEventLines";
+import { useRatingDisplayMode } from "../../hooks/useRatingDisplayMode";
 import InlineDaySearch from "../../components/plan-week/inline/InlineDaySearch";
 import InlineSideEditor from "../../components/plan-week/inline/InlineSideEditor";
+import { promoteSavedSides } from "../../components/plan-week/inline/sideOptions";
 import CompactSidesSummary from "../../components/plan-week/inline/CompactSidesSummary";
 import InlineEatOutEditor from "../../components/plan-week/inline/InlineEatOutEditor";
 import {
@@ -155,6 +157,8 @@ const isFamilyStarMeal = (meal: Meal) => {
   return (meal.rating ?? 0) >= 4.5;
 };
 
+const isFiveStarMeal = (meal: Meal) => (meal.rating ?? 0) === 5;
+
 const isPlannedWeekDayKey = (value: unknown): value is PlannedWeekDayKey =>
   typeof value === "string" &&
   PLANNED_WEEK_ORDER.includes(value as PlannedWeekDayKey);
@@ -189,6 +193,7 @@ export default function PlanWeekModal() {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals, updateMeal } = useMeals();
+  const { mode: ratingDisplayMode } = useRatingDisplayMode();
   const { orderedDays, startDay } = useWeekStartController();
   const isRemainingMode = params.mode === "remaining";
   const isCurrentWeekMode = params.mode === "current";
@@ -727,13 +732,16 @@ export default function PlanWeekModal() {
         ),
       },
       {
-        id: "familyStars",
-        title: "Family Star",
+        id: ratingDisplayMode === "summary" ? "fiveStars" : "familyStars",
+        title: ratingDisplayMode === "summary" ? "Five Stars" : "Family Star",
         subtitle: "Your highest-rated meals.",
         nextIcon: "❄️",
         chipIcon: "⭐",
-        emptyText: "Meals loved by everyone will appear here.",
-        meals: getFamilyStarMeals(availableMeals, isFamilyStarMeal),
+        emptyText: ratingDisplayMode === "summary" ? "Five-star meals will appear here." : "Meals loved by everyone will appear here.",
+        meals: getFamilyStarMeals(
+          availableMeals,
+          ratingDisplayMode === "summary" ? isFiveStarMeal : isFamilyStarMeal,
+        ),
       },
       {
         id: "freezerMeals",
@@ -766,7 +774,7 @@ export default function PlanWeekModal() {
       },
     ];
     return pools.filter((pool) => pool.meals.length > 0);
-  }, [hasServedMealData, meals, plannedMealIds, servedEntries]);
+  }, [hasServedMealData, meals, plannedMealIds, ratingDisplayMode, servedEntries]);
 
   const resolvedActiveInspirationPoolId =
     activeInspirationPoolId &&
@@ -2559,12 +2567,6 @@ export default function PlanWeekModal() {
                                 ? daySidesMap[day] ?? []
                                 : []
                             }
-                            suggestedSides={sessionDays.flatMap((otherDay) =>
-                              otherDay !== day &&
-                              plannedWeek[otherDay] === temporaryMeal.id
-                                ? daySidesMap[otherDay] ?? []
-                                : [],
-                            )}
                             completionLabel={
                               inspirationTargetDay === day
                                 ? `Save ${PLANNED_WEEK_DISPLAY_NAMES[day]}`
@@ -2575,12 +2577,20 @@ export default function PlanWeekModal() {
                                 ? `Save ${temporaryMeal.title} and selected sides for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`
                                 : undefined
                             }
-                            onDone={() => {
+                            onDone={(selectedSides) => {
+                              updateMeal({
+                                id: temporaryMeal.id,
+                                suggestedSides: promoteSavedSides(
+                                  selectedSides,
+                                  temporaryMeal.suggestedSides,
+                                ),
+                                updatedAt: new Date().toISOString(),
+                              });
                               if (inspirationTargetDay === day) {
                                 commitInspirationAssignment(
                                   day,
                                   temporaryMeal,
-                                  pendingInlineMeal?.sides ?? [],
+                                  selectedSides,
                                 );
                                 return;
                               }

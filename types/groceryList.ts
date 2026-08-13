@@ -27,6 +27,7 @@ export type GroceryList = {
   items: GroceryListItem[];
   manualItems: GroceryListItem[];
   checkedItems: string[];
+  promotedPantryItems: string[];
   createdAtISO: string;
   updatedAtISO: string;
 };

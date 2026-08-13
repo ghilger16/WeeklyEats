@@ -22,7 +22,6 @@ type Props = {
   day: PlannedWeekDayKey;
   meal: Meal;
   initialSides: string[];
-  suggestedSides?: string[];
   onDone: (sides: string[]) => void;
   completionLabel?: string;
   completionAccessibilityLabel?: string;
@@ -37,7 +36,6 @@ export default function InlineSideEditor({
   day,
   meal,
   initialSides,
-  suggestedSides = [],
   onDone,
   completionLabel = "Done",
   completionAccessibilityLabel,
@@ -48,8 +46,8 @@ export default function InlineSideEditor({
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const initialOptions = useMemo(
-    () => getSideOptionsForMeal(meal, [...initialSides, ...suggestedSides]),
-    [initialSides, meal, suggestedSides],
+    () => getSideOptionsForMeal(meal, initialSides),
+    [initialSides, meal],
   );
   const [options, setOptions] = useState(initialOptions);
   const [selectedSides, setSelectedSides] = useState(() => {

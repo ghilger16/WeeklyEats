@@ -136,6 +136,15 @@ export const addServedMeal = async (
   return next;
 };
 
+export const removeServedMeal = async (
+  id: ServedMealEntry["id"]
+): Promise<ServedMealEntry[]> => {
+  const existing = await getServedMeals();
+  const next = existing.filter((entry) => entry.id !== id);
+  await setServedMeals(next);
+  return next;
+};
+
 export const clearServedMeals = async (): Promise<void> => {
   try {
     await AsyncStorage.removeItem(STORAGE_KEY);

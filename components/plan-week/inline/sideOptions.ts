@@ -5,42 +5,43 @@ export type SideOption = {
   isCustom: boolean;
 };
 
-export const DEFAULT_SIDE_OPTIONS = [
-  "Salad",
-  "Rice",
-  "Roasted Vegetables",
-  "Bread",
-  "Potatoes",
-  "Fresh Fruit",
-];
-
 const normalize = (value: string) => value.trim().toLowerCase();
-const defaultSideKeys = new Set(DEFAULT_SIDE_OPTIONS.map(normalize));
+
+export const promoteSavedSides = (
+  savedSides: string[],
+  suggestedSides: string[] = [],
+): string[] => {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  [...savedSides, ...suggestedSides].forEach((name) => {
+    if (typeof name !== "string" || next.length >= 6) return;
+    const trimmed = name.trim();
+    const key = normalize(trimmed);
+    if (!trimmed || seen.has(key)) return;
+    seen.add(key);
+    next.push(trimmed);
+  });
+  return next;
+};
 
 export const getSideOptionsForMeal = (
-  _meal: Meal,
+  meal: Meal,
   existingSides: string[] = [],
 ): SideOption[] => {
   const seen = new Set<string>();
   const options: SideOption[] = [];
+  const suggestedSides = Array.isArray(meal.suggestedSides)
+    ? meal.suggestedSides
+    : [];
+  const suggestedSideKeys = new Set(suggestedSides.map(normalize));
 
-  const uniqueExistingSides = existingSides.filter((name, index, values) => {
-    const key = normalize(name);
-    return Boolean(key) && values.findIndex((value) => normalize(value) === key) === index;
-  });
-  const customSides = uniqueExistingSides.filter(
-    (name) => !defaultSideKeys.has(normalize(name)),
-  );
-  const standardSides = uniqueExistingSides.filter((name) =>
-    defaultSideKeys.has(normalize(name)),
-  );
-
-  [...customSides, ...standardSides, ...DEFAULT_SIDE_OPTIONS].forEach((name) => {
+  [...existingSides, ...suggestedSides].forEach((name) => {
+    if (typeof name !== "string") return;
     const trimmed = name.trim();
     const key = normalize(trimmed);
     if (!trimmed || seen.has(key) || options.length >= 6) return;
     seen.add(key);
-    options.push({ name: trimmed, isCustom: !defaultSideKeys.has(key) });
+    options.push({ name: trimmed, isCustom: !suggestedSideKeys.has(key) });
   });
 
   return options;

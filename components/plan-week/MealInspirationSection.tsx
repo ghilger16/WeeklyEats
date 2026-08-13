@@ -25,6 +25,7 @@ export type MealPoolId =
   | "beenAwhile"
   | "recentlyAdded"
   | "familyStars"
+  | "fiveStars"
   | "freezerMeals"
   | "easy"
   | "budget";
@@ -127,6 +128,7 @@ export default function MealInspirationSection({
         "beenAwhile",
         "recentlyAdded",
         "familyStars",
+        "fiveStars",
         "freezerMeals",
         "easy",
         "budget",
@@ -742,19 +744,19 @@ export default function MealInspirationSection({
                     style={({ pressed }) => [
                       styles.carouselCard,
                       { width: mealCardWidth },
-                      activePool.id === "familyStars" &&
+                      (activePool.id === "familyStars" || activePool.id === "fiveStars") &&
                         styles.carouselCardFamilyStar,
                       isSelected && styles.carouselCardSelected,
                       pressed && styles.pressed,
                     ]}
                   >
-                    {isFamilyStarMeal(meal) ||
+                    {activePool.id === "familyStars" || activePool.id === "fiveStars" ||
                     activePool.id === "freezerMeals" ? (
                       <View style={styles.carouselIndicators}>
-                        {isFamilyStarMeal(meal) ? (
+                        {activePool.id === "familyStars" || activePool.id === "fiveStars" ? (
                           <Text
                             style={styles.carouselFamilyStar}
-                            accessibilityLabel="Family Star meal"
+                            accessibilityLabel={activePool.id === "fiveStars" ? "Five-star meal" : "Family Star meal"}
                           >
                             ⭐
                           </Text>
@@ -846,6 +848,7 @@ const getPoolIcon = (poolId: MealPoolId) => {
   if (poolId === "beenAwhile") return "🕒";
   if (poolId === "recentlyAdded") return "🕐";
   if (poolId === "familyStars") return "⭐";
+  if (poolId === "fiveStars") return "⭐";
   return "";
 };
 
@@ -861,6 +864,7 @@ const getPoolTabLabel = (
   if (poolId === "beenAwhile") return "Been Awhile";
   if (poolId === "recentlyAdded") return "Recently Added";
   if (poolId === "familyStars") return "Family Star";
+  if (poolId === "fiveStars") return "Five Stars";
   if (poolId === "freezerMeals") return "Freezer";
   if (poolId === "easy") return getDifficultyModeLabel(difficultyMode);
   return "Expense";
@@ -987,6 +991,7 @@ const getPoolEmptyText = (poolId: MealPoolId, fallback: string) => {
   if (poolId === "familyStars") {
     return "Meals loved by everyone will appear here.";
   }
+  if (poolId === "fiveStars") return "Five-star meals will appear here.";
   if (poolId === "easy") return fallback;
   if (poolId === "budget") return fallback;
   return fallback;

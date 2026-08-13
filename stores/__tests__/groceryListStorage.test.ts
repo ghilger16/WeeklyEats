@@ -77,4 +77,20 @@ describe("reconcileGroceryList", () => {
 
     expect(reconciled.checkedItems).toEqual([movedItem.id]);
   });
+
+  it("preserves a pantry promotion when its meal moves to another day", () => {
+    const originalItem: GroceryListItem = {
+      ...plannedItem("tue-meal-1-0"),
+      name: "Olive Oil",
+      mealId: "meal-1",
+      ingredientType: "pantryStaple",
+    };
+    const movedItem = { ...originalItem, id: "thu-meal-1-0" };
+    const stored = createGroceryList("2026-07-12", [originalItem]);
+    stored.promotedPantryItems = [originalItem.id];
+
+    const reconciled = reconcileGroceryList("2026-07-12", [movedItem], stored);
+
+    expect(reconciled.promotedPantryItems).toEqual([movedItem.id]);
+  });
 });

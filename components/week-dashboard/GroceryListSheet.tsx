@@ -153,7 +153,7 @@ const normalizeIngredient = (
   };
 };
 
-const buildItemsFromPlan = (days: WeekPlanDay[]): GroceryListItem[] => {
+export const buildItemsFromPlan = (days: WeekPlanDay[]): GroceryListItem[] => {
   const items: GroceryListItem[] = [];
   days.forEach((day, dayIndex) => {
     const meal = day.meal;
@@ -268,6 +268,8 @@ export function GroceryListContent({
   const [collapsedCategoryGroups, setCollapsedCategoryGroups] = useState<
     Record<string, boolean>
   >({});
+  const [expandedPantryGroups, setExpandedPantryGroups] = useState<Record<string, boolean>>({});
+  const [isCategoryPantryExpanded, setCategoryPantryExpanded] = useState(false);
   const [tabLayouts, setTabLayouts] = useState<
     Record<GroceryListViewMode, GroceryTabLayout>
   >({
@@ -356,9 +358,22 @@ export function GroceryListContent({
     };
   }, [days, isActive, weekId]);
 
-  const allItems = useMemo(
-    () => [...(list?.items ?? []), ...(list?.manualItems ?? [])],
-    [list],
+  const promotedPantrySet = useMemo(
+    () => new Set(list?.promotedPantryItems ?? []),
+    [list?.promotedPantryItems],
+  );
+  const pantryItems = useMemo(
+    () => (list?.items ?? []).filter((item) => item.ingredientType === "pantryStaple"),
+    [list?.items],
+  );
+  const shoppingItems = useMemo(
+    () => [
+      ...(list?.items ?? []).filter(
+        (item) => item.ingredientType !== "pantryStaple" || promotedPantrySet.has(item.id),
+      ),
+      ...(list?.manualItems ?? []),
+    ],
+    [list?.items, list?.manualItems, promotedPantrySet],
   );
   const checkedSet = useMemo(
     () => new Set(list?.checkedItems ?? []),
@@ -369,7 +384,7 @@ export function GroceryListContent({
       string,
       { itemIds: string[]; meals: Map<string, string> }
     >();
-    allItems.forEach((item) => {
+    shoppingItems.forEach((item) => {
       const key = item.name.trim().toLocaleLowerCase();
       const entry = usage.get(key) ?? {
         itemIds: [] as string[],
@@ -382,7 +397,7 @@ export function GroceryListContent({
       usage.set(key, entry);
     });
     return usage;
-  }, [allItems]);
+  }, [shoppingItems]);
 
   const persistList = useCallback(
     async (nextList: GroceryList) => {
@@ -418,6 +433,22 @@ export function GroceryListContent({
       ? list.checkedItems.filter((id) => !itemIdSet.has(id))
       : Array.from(new Set([...list.checkedItems, ...itemIds]));
     persistList({ ...list, checkedItems: nextChecked });
+  };
+
+  const togglePantryPromotion = (itemIds: string[]) => {
+    if (!list) return;
+    const allPromoted = itemIds.every((id) => promotedPantrySet.has(id));
+    const ids = new Set(itemIds);
+    const promotedPantryItems = allPromoted
+      ? list.promotedPantryItems.filter((id) => !ids.has(id))
+      : Array.from(new Set([...list.promotedPantryItems, ...itemIds]));
+    persistList({
+      ...list,
+      promotedPantryItems,
+      checkedItems: allPromoted
+        ? list.checkedItems.filter((id) => !ids.has(id))
+        : list.checkedItems,
+    });
   };
 
   const handleAddManualItem = (keepAdding = false) => {
@@ -571,9 +602,10 @@ export function GroceryListContent({
         mealTitle: string;
         mealEmoji: string;
         items: GroceryListItem[];
+        pantryItems: GroceryListItem[];
       }
     >();
-    allItems.forEach((item) => {
+    [...(list?.items ?? []), ...(list?.manualItems ?? [])].forEach((item) => {
       const key =
         item.source === "manual" ? "manual" : `${item.dayKey}-${item.mealId}`;
       const group =
@@ -584,14 +616,17 @@ export function GroceryListContent({
               mealTitle: "Your List",
               mealEmoji: "",
               items: [],
+              pantryItems: [],
             }
           : {
               dayTitle: item.dayLabel ?? item.dayName ?? "",
               mealTitle: item.mealTitle ?? "",
               mealEmoji: item.mealEmoji ?? "",
               items: [],
+              pantryItems: [],
             });
-      group.items.push(item);
+      if (item.ingredientType === "pantryStaple") group.pantryItems.push(item);
+      if (item.ingredientType !== "pantryStaple" || promotedPantrySet.has(item.id)) group.items.push(item);
       groups.set(key, group);
     });
     if (!groups.has("manual")) {
@@ -600,10 +635,11 @@ export function GroceryListContent({
         mealTitle: "Your List",
         mealEmoji: "",
         items: [],
+        pantryItems: [],
       });
     }
     return Array.from(groups.values());
-  }, [allItems]);
+  }, [list?.items, list?.manualItems, promotedPantrySet]);
 
   const itemsByCategory = useMemo(() => {
     const categoryRank = new Map(
@@ -619,7 +655,7 @@ export function GroceryListContent({
       }
     >();
 
-    [...allItems]
+    [...shoppingItems]
       .sort(
         (a, b) =>
           (categoryRank.get(a.category) ?? categoryOrder.length) -
@@ -667,7 +703,7 @@ export function GroceryListContent({
           ),
       }))
       .filter((group) => group.items.length > 0);
-  }, [allItems]);
+  }, [shoppingItems]);
 
   const renderCategoryItem = (
     entry: (typeof itemsByCategory)[number]["items"][number],
@@ -677,6 +713,7 @@ export function GroceryListContent({
     const isShared = mealNames.length > 1;
     const row = (
       <Pressable
+        key={`${entry.item.category}-${entry.item.name.toLocaleLowerCase()}`}
         onPress={() => toggleItems(entry.itemIds)}
         accessibilityRole="checkbox"
         accessibilityState={{ checked }}
@@ -726,6 +763,46 @@ export function GroceryListContent({
       `${entry.item.category}-${entry.item.name.toLocaleLowerCase()}`,
       entry.manualItemIds,
       row,
+    );
+  };
+
+  const pantryEntries = useMemo(() => {
+    const entries = new Map<string, { item: GroceryListItem; itemIds: string[]; meals: Map<string, string> }>();
+    pantryItems.forEach((item) => {
+      const key = item.name.trim().toLocaleLowerCase();
+      const entry = entries.get(key) ?? { item, itemIds: [], meals: new Map<string, string>() };
+      entry.itemIds.push(item.id);
+      if (item.mealId) entry.meals.set(item.mealId, item.mealTitle ?? "Planned meal");
+      entries.set(key, entry);
+    });
+    return entries;
+  }, [pantryItems]);
+
+  const renderPantryReminder = (item: GroceryListItem, showSources = false) => {
+    const entry = pantryEntries.get(item.name.trim().toLocaleLowerCase());
+    if (!entry) return null;
+    const added = entry.itemIds.every((id) => promotedPantrySet.has(id));
+    const mealNames = Array.from(entry.meals.values());
+    return (
+      <Pressable
+        key={`pantry-${item.id}`}
+        onPress={() => togglePantryPromotion(entry.itemIds)}
+        accessibilityRole="button"
+        accessibilityLabel={`${added ? "Remove" : "Add"} ${item.name} ${added ? "from" : "to"} grocery list`}
+        style={({ pressed }) => [styles.pantryRow, pressed && styles.itemRowPressed]}
+      >
+        <View style={styles.itemTextStack}>
+          <Text style={[styles.pantryItemText, added && styles.pantryItemAdded]} numberOfLines={1}>
+            {formatIngredientName(item.name)}
+            {entry.itemIds.length > 1 ? <Text style={styles.sharedMealCount}>   ×{entry.itemIds.length}</Text> : null}
+          </Text>
+          {showSources && mealNames.length > 1 ? <Text style={styles.sharedMealNames} numberOfLines={1}>{mealNames.join(" • ")}</Text> : null}
+        </View>
+        <View style={styles.pantryAction}>
+          {added ? <MaterialCommunityIcons name="check" size={15} color={theme.color.success} /> : <MaterialCommunityIcons name="plus" size={15} color={theme.color.accent} />}
+          <Text style={[styles.pantryActionText, added && styles.pantryActionAdded]}>{added ? "Added" : "Add"}</Text>
+        </View>
+      </Pressable>
     );
   };
 
@@ -861,7 +938,24 @@ export function GroceryListContent({
                 </Pressable>
                 {!collapsed ? (
                   <View style={styles.group}>
+                    {group.dayTitle && group.items.length > 0 ? (
+                      <Text style={styles.shoppingSectionLabel}>NEED TO BUY · {group.items.length}</Text>
+                    ) : null}
                     {group.items.map(renderItem)}
+                    {group.dayTitle && group.pantryItems.length > 0 ? (
+                      <View style={styles.pantrySection}>
+                        <Pressable
+                          onPress={() => setExpandedPantryGroups((current) => ({ ...current, [groupKey]: !current[groupKey] }))}
+                          accessibilityRole="button"
+                          accessibilityState={{ expanded: Boolean(expandedPantryGroups[groupKey]) }}
+                          style={({ pressed }) => [styles.pantryHeader, pressed && styles.categoryHeaderPressed]}
+                        >
+                          <Text style={styles.pantryTitle}>CHECK YOUR PANTRY · {group.pantryItems.length}</Text>
+                          <MaterialCommunityIcons name={expandedPantryGroups[groupKey] ? "chevron-down" : "chevron-right"} size={20} color={theme.color.subtleInk} />
+                        </Pressable>
+                        {expandedPantryGroups[groupKey] ? group.pantryItems.map((item) => renderPantryReminder(item)) : null}
+                      </View>
+                    ) : null}
                     {!group.dayTitle ? (
                       isAddingManualItem ? (
                         <View style={styles.inlineAddEditor}>
@@ -955,7 +1049,8 @@ export function GroceryListContent({
             );
           })
         ) : (
-          itemsByCategory.map((group) => {
+          <>
+          {itemsByCategory.map((group) => {
             const collapsed = collapsedCategoryGroups[group.category] ?? false;
             const checkedCount = group.items.filter((entry) =>
               entry.itemIds.every((id) => checkedSet.has(id)),
@@ -993,7 +1088,17 @@ export function GroceryListContent({
                 {!collapsed ? group.items.map(renderCategoryItem) : null}
               </View>
             );
-          })
+          })}
+          {pantryEntries.size > 0 ? (
+            <View style={styles.pantrySection}>
+              <Pressable onPress={() => setCategoryPantryExpanded((current) => !current)} accessibilityRole="button" accessibilityState={{ expanded: isCategoryPantryExpanded }} style={({ pressed }) => [styles.pantryHeader, pressed && styles.categoryHeaderPressed]}>
+                <Text style={styles.pantryTitle}>CHECK YOUR PANTRY · {pantryEntries.size}</Text>
+                <MaterialCommunityIcons name={isCategoryPantryExpanded ? "chevron-down" : "chevron-right"} size={20} color={theme.color.subtleInk} />
+              </Pressable>
+              {isCategoryPantryExpanded ? Array.from(pantryEntries.values()).map((entry) => renderPantryReminder(entry.item, true)) : null}
+            </View>
+          ) : null}
+          </>
         )}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -1281,6 +1386,47 @@ const createStyles = (theme: WeeklyTheme) =>
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.cardOutline,
     },
+    shoppingSectionLabel: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
+      letterSpacing: 0.8,
+    },
+    pantrySection: {
+      gap: theme.space.xs,
+      marginTop: theme.space.xs,
+      paddingTop: theme.space.sm,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.color.border,
+    },
+    pantryHeader: {
+      minHeight: 34,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: theme.space.sm,
+      borderRadius: theme.radius.sm,
+    },
+    pantryTitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
+      letterSpacing: 0.8,
+    },
+    pantryRow: {
+      minHeight: 38,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.sm,
+      paddingVertical: theme.space.xs,
+    },
+    pantryItemText: { color: theme.color.ink, fontSize: theme.type.size.sm },
+    pantryItemAdded: { color: theme.color.subtleInk },
+    pantryAction: { flexDirection: "row", alignItems: "center", gap: 2 },
+    pantryActionText: { color: theme.color.accent, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold },
+    pantryActionAdded: { color: theme.color.success },
     categoryTitle: {
       flex: 1,
       color: theme.color.accent,

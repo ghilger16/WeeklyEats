@@ -1,702 +1,512 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Animated,
-  Easing,
-  LayoutAnimation,
+  Keyboard,
   Linking,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import * as Haptics from "expo-haptics";
-import { FamilyRatingValue, Meal } from "../../types/meals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
+import { Meal } from "../../types/meals";
+import { EAT_OUT_MEAL_ID, FLEX_NIGHT_MEAL_ID } from "../../types/specialMeals";
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
 import { type ServedOutcome } from "./servedActions";
-import {
-  EatOutCompletionMessage,
-  getEatOutCompletionMessage,
-  getRandomCelebrationMessage,
-  getRandomEatOutCelebrationMessage,
-} from "./celebrations";
-import RatingStars from "../meals/RatingStars";
-import FreezerAmountModal from "../meals/FreezerAmountModal";
-import FamilyRatingIcons from "../meals/FamilyRatingIcons";
-import { useMeals } from "../../hooks/useMeals";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
-import { EAT_OUT_MEAL_ID } from "../../types/specialMeals";
-import { setFamilyRatingValue } from "../../utils/familyRatings";
+import { FamilyRatingValue } from "../../types/meals";
+import { getFamilyRatingSummary } from "../../utils/familyRatings";
+import FamilyRatingRow from "../meals/FamilyRatingRow";
+import FreezerAmountModal from "../meals/FreezerAmountModal";
+import RatingStars from "../meals/RatingStars";
+import { RatingDisplayMode } from "../../hooks/useRatingDisplayMode";
+
+const EAT_OUT_MESSAGES = [
+  "No cooking tonight! 🎉",
+  "Dinner’s someone else’s job tonight. 😌",
+  "Kitchen’s closed tonight! 🙌",
+  "Enjoy the night off from cooking. ✨",
+  "No dishes tonight! 🎉",
+] as const;
 
 type TodayCardProps = {
   meal: Meal;
   dateLabel: string;
+  dateKey?: string;
   notes?: string;
   servedEntry?: ServedMealEntry;
   sides?: string[];
   onMarkServed?: (message: string) => Promise<void> | void;
   onSelectOutcome?: (outcome: ServedOutcome) => Promise<void> | void;
   onChangePlans?: () => void;
+  onChangeFamilyRating?: (memberId: string, rating: FamilyRatingValue) => void;
+  isGalaxyMeal?: boolean;
+  onSaveFreezer?: (amount: string, unit: string, addedAt: string) => void;
+  onRemoveFreezer?: () => void;
+  onSavePrepNotes?: (notes: string) => void;
+  ratingMode?: RatingDisplayMode;
+  onChangeMealRating?: (rating: number) => void;
 };
+
+type CelebrationPhase = "idle" | "burst" | "complete" | "carousel";
+type CarouselPage = "ratings" | "served" | "freezer" | "notes";
+
+const SPARKLES = [
+  { x: -72, y: -34, color: "#FF4D8D" }, { x: -48, y: -66, color: "#FEC107" },
+  { x: -18, y: -76, color: "#FF8AB5" }, { x: 26, y: -70, color: "#FEC107" },
+  { x: 65, y: -42, color: "#FF4D8D" }, { x: 72, y: 2, color: "#FEC107" },
+  { x: -70, y: 8, color: "#FF8AB5" }, { x: 42, y: 22, color: "#FF4D8D" },
+] as const;
 
 export default function TodayCard({
   meal,
   dateLabel,
+  dateKey,
   notes,
   servedEntry,
   sides = [],
   onMarkServed,
-  onSelectOutcome,
   onChangePlans,
+  onChangeFamilyRating,
+  isGalaxyMeal = false,
+  onSaveFreezer,
+  onRemoveFreezer,
+  onSavePrepNotes,
+  ratingMode = "family",
+  onChangeMealRating,
 }: TodayCardProps) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { updateMeal } = useMeals();
-  const { members } = useFamilyMembers();
-  const [isExpanded, setExpanded] = useState(false);
   const servedFromEntry = servedEntry?.outcome === "served";
   const [isLocallyServed, setLocallyServed] = useState(servedFromEntry);
-  const [isConfettiVisible, setConfettiVisible] = useState(false);
-  const [showServedActions, setShowServedActions] = useState(false);
-  const [celebrationMessage, setCelebrationMessage] = useState<string | null>(
-    servedEntry?.celebrationMessage ?? null
-  );
-  const isEatOut = meal.id === EAT_OUT_MEAL_ID;
-  const eatOutMessageRef = useRef<string | null>(null);
-  const eatOutCompletionRef = useRef<EatOutCompletionMessage | null>(null);
-  const autoOpenedRatingMealRef = useRef<string | null>(null);
-  const [isServedDrawerOpen, setServedDrawerOpen] = useState(false);
-  const [servedExpanded, setServedExpanded] = useState<
-    "rating" | "freezer" | "notes" | null
-  >(null);
-  const [rating, setRating] = useState(meal.rating ?? 0);
-  const [inFreezer, setInFreezer] = useState(Boolean(meal.isFavorite));
-  const [notesValue, setNotesValue] = useState(meal.prepNotes ?? "");
+  const [isSaving, setSaving] = useState(false);
+  const [phase, setPhase] = useState<CelebrationPhase>("idle");
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const [carouselOrder, setCarouselOrder] = useState<CarouselPage[] | null>(null);
+  const [ratingsWereNeeded, setRatingsWereNeeded] = useState<boolean | null>(null);
+  const [activePage, setActivePage] = useState(0);
+  const [carouselWidth, setCarouselWidth] = useState(0);
   const [isFreezerModalVisible, setFreezerModalVisible] = useState(false);
-
-  const isServed = isLocallyServed || servedFromEntry;
-  const hasFamilyMembers = members.length > 1;
-  const isFamilyStar = useMemo(() => {
-    if ((meal as Meal & { isFamilyStar?: boolean }).isFamilyStar === true) {
-      return true;
-    }
-    if (!hasFamilyMembers || !meal.familyRatings) {
-      return false;
-    }
-    const ratings = Object.values(meal.familyRatings).filter(
-      (value) => value > 0
+  const [notesDraft, setNotesDraft] = useState(meal.prepNotes ?? "");
+  const [isNotesFocused, setNotesFocused] = useState(false);
+  const savingRef = useRef(false);
+  const carouselRef = useRef<ScrollView | null>(null);
+  const notesInputRef = useRef<TextInput | null>(null);
+  const experienceKeyRef = useRef(`${meal.id}:${dateKey ?? dateLabel}`);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const { members } = useFamilyMembers();
+  const checkScale = useRef(new Animated.Value(servedFromEntry ? 1 : 0.8)).current;
+  const successOpacity = useRef(new Animated.Value(servedFromEntry ? 1 : 0)).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
+  const contentOpacity = useRef(new Animated.Value(1)).current;
+  const sparkleProgress = useRef(new Animated.Value(0)).current;
+  const completionProgress = useRef(new Animated.Value(0)).current;
+  const ratingProgress = useRef(new Animated.Value(0)).current;
+  const isServed = servedFromEntry || isLocallyServed;
+  const isEatOut = meal.id === EAT_OUT_MEAL_ID;
+  const isFlexNight = meal.id === FLEX_NIGHT_MEAL_ID;
+  const sidesLabel = sides.join(" · ");
+  const prepNotes = notes ?? meal.prepNotes?.trim();
+  const eatOutNote = isEatOut
+    ? notes?.trim() || (meal.title !== "Eat Out" ? meal.title.trim() : "") || meal.prepNotes?.trim()
+    : undefined;
+  const eatOutMessage = useMemo(() => {
+    const stableKey = dateKey ?? dateLabel;
+    const hash = [...stableKey].reduce(
+      (total, character) => total + character.charCodeAt(0),
+      0,
     );
-    return ratings.length > 0 && ratings.every((value) => value === 3);
-  }, [hasFamilyMembers, meal]);
-  const prepNotesToShow = notes ?? meal.prepNotes ?? "";
-  const sidesLabel = sides.length ? sides.join(" • ") : "";
-  const eatOutMessage = eatOutMessageRef.current;
-  if (isEatOut && isServed && !eatOutCompletionRef.current) {
-    eatOutCompletionRef.current = getEatOutCompletionMessage();
-  }
-  const eatOutCompletionMessage = eatOutCompletionRef.current;
-  const servedButtonLabel = "Mark as Served";
-  const confettiPieces = useRef(
-    Array.from({ length: 24 }, () => ({
-      translateY: new Animated.Value(0),
-      translateX: new Animated.Value(0),
-      rotate: new Animated.Value(0),
-      opacity: new Animated.Value(1),
-      left: Math.random() * 100,
-      size: 6 + Math.random() * 6,
-      color: ["#5BC0EB", "#FDE74C", "#9BC53D", "#E55934", "#FA7921"][
-        Math.floor(Math.random() * 5)
-      ],
-      delay: Math.random() * 120,
-    }))
-  ).current;
+    return EAT_OUT_MESSAGES[hash % EAT_OUT_MESSAGES.length];
+  }, [dateKey, dateLabel]);
+
+  const memberIds = useMemo(() => members.map((member) => member.id), [members]);
+  const useRatingStars = ratingMode === "summary" || members.length <= 1;
+  const ratingsNeeded = useRatingStars
+    ? (meal.rating ?? 0) === 0
+    : members.length > 1 && memberIds.some(
+        (memberId) => (meal.familyRatings?.[memberId] ?? 0) === 0,
+      );
+  const familySummary = useMemo(
+    () => getFamilyRatingSummary(meal.familyRatings, memberIds),
+    [meal.familyRatings, memberIds],
+  );
+  const isFamilyStar = !useRatingStars && Boolean(familySummary?.isUnanimousHeart);
+
+  const initializeCarousel = useCallback(() => {
+    if (carouselOrder) return;
+    const order: CarouselPage[] = ratingsNeeded
+      ? ["served", "ratings", "freezer", "notes"]
+      : ["served", "freezer", "notes", "ratings"];
+    setRatingsWereNeeded(ratingsNeeded);
+    setCarouselOrder(order);
+    setActivePage(0);
+  }, [carouselOrder, ratingsNeeded]);
+
+  const clearTimers = useCallback(() => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+  }, []);
 
   useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) setReduceMotion(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => () => clearTimers(), [clearTimers]);
+
+  useEffect(() => {
+    setNotesDraft(meal.prepNotes ?? "");
+  }, [meal.id, meal.prepNotes]);
+
+  useEffect(() => {
+    const nextKey = `${meal.id}:${dateKey ?? dateLabel}`;
+    if (experienceKeyRef.current === nextKey) return;
+    experienceKeyRef.current = nextKey;
+    clearTimers();
+    setCarouselOrder(null);
+    setRatingsWereNeeded(null);
+    setActivePage(0);
+    setPhase("idle");
+    contentOpacity.setValue(1);
+    sparkleProgress.setValue(0);
+    completionProgress.setValue(0);
+    ratingProgress.setValue(0);
+  }, [clearTimers, completionProgress, contentOpacity, dateKey, dateLabel, meal.id, ratingProgress, sparkleProgress]);
+
+  useEffect(() => {
+    if (isServed && phase === "idle") initializeCarousel();
+  }, [initializeCarousel, isServed, phase]);
+
+  useEffect(() => {
+    if (phase !== "idle") return;
     setLocallyServed(servedFromEntry);
-    setCelebrationMessage(servedEntry?.celebrationMessage ?? null);
-  }, [servedFromEntry, servedEntry?.celebrationMessage]);
+    checkScale.setValue(servedFromEntry ? 1 : 0.8);
+    successOpacity.setValue(servedFromEntry ? 1 : 0);
+  }, [checkScale, phase, servedFromEntry, successOpacity]);
 
-  useEffect(() => {
-    setRating(meal.rating ?? 0);
-    setInFreezer(Boolean(meal.isFavorite));
-    setNotesValue(meal.prepNotes ?? "");
-  }, [meal]);
-
-  useEffect(() => {
-    if (servedExpanded === null) {
-      setServedDrawerOpen(false);
-    }
-  }, [servedExpanded]);
-
-  useEffect(() => {
-    if (!isServed) {
-      setShowServedActions(false);
-      autoOpenedRatingMealRef.current = null;
-    }
-  }, [isServed]);
-
-  useEffect(() => {
-    if (isServed && !isConfettiVisible) {
-      setShowServedActions(true);
-    }
-  }, [isConfettiVisible, isServed]);
-
-  useEffect(() => {
-    if (!isServed || isEatOut) {
-      autoOpenedRatingMealRef.current = null;
-      return;
-    }
-    if (
-      showServedActions &&
-      autoOpenedRatingMealRef.current !== meal.id
-    ) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setServedDrawerOpen(true);
-      setServedExpanded("rating");
-      autoOpenedRatingMealRef.current = meal.id;
-    }
-  }, [isEatOut, isServed, meal.id, showServedActions]);
-
-  useEffect(() => {
-    if (isEatOut) {
-      const messages = [
-        "You’re dining out tonight. Enjoy the break!",
-        "Enjoy a night out!",
-        "No cooking tonight — treat yourself!",
-        "Chef’s night off!",
-      ];
-      if (!eatOutMessageRef.current) {
-        eatOutMessageRef.current =
-          messages[Math.floor(Math.random() * messages.length)];
-      }
-    } else {
-      eatOutMessageRef.current = null;
-    }
-  }, [isEatOut]);
-
-  useEffect(() => {
-    if (!isEatOut || !isServed) {
-      eatOutCompletionRef.current = null;
-    }
-  }, [isEatOut, isServed]);
-
-  const triggerConfetti = useCallback(() => {
-    setConfettiVisible(true);
-    setShowServedActions(false);
-    const animations = confettiPieces.map((piece) => {
-      piece.translateY.setValue(0);
-      piece.translateX.setValue(0);
-      piece.rotate.setValue(0);
-      piece.opacity.setValue(1);
-      const yTarget = 140 + Math.random() * 80;
-      const xTarget = (Math.random() * 2 - 1) * 40;
-      const rotateTarget = (Math.random() * 2 - 1) * Math.PI;
-
-      return Animated.parallel([
-        Animated.timing(piece.translateY, {
-          toValue: yTarget,
-          duration: 1200,
-          easing: Easing.out(Easing.quad),
-          delay: piece.delay,
-          useNativeDriver: true,
-        }),
-        Animated.timing(piece.translateX, {
-          toValue: xTarget,
-          duration: 1200,
-          easing: Easing.out(Easing.quad),
-          delay: piece.delay,
-          useNativeDriver: true,
-        }),
-        Animated.timing(piece.rotate, {
-          toValue: rotateTarget,
-          duration: 1200,
-          easing: Easing.linear,
-          delay: piece.delay,
-          useNativeDriver: true,
-        }),
-        Animated.timing(piece.opacity, {
-          toValue: 0,
-          duration: 1200,
-          easing: Easing.linear,
-          delay: piece.delay,
-          useNativeDriver: true,
-        }),
-      ]);
-    });
-
-    Animated.stagger(40, animations).start(() => {
-      setConfettiVisible(false);
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setShowServedActions(true);
-    });
-
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-      () => {}
-    );
-  }, [confettiPieces]);
-
-  const handleCardPress = () => {
-    if (isExpanded) {
-      return;
-    }
-
-    if (meal.recipeUrl) {
-      Linking.openURL(meal.recipeUrl).catch(() => {
-        // Silently ignore for now; could surface toast later.
-      });
-    }
-  };
-
-  const handleToggleServed = () => {
-    if (isServed) {
-      return;
-    }
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded((prev) => !prev);
-  };
-
-  const handleSelectAction = async (action: ServedOutcome) => {
-    if (action !== "served") {
-      setLocallyServed(false);
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setExpanded(false);
-      try {
-        await onSelectOutcome?.(action);
-      } catch (error) {
-        console.warn("[TodayCard] Failed to log outcome", error);
-      }
-      return;
-    }
-
-    const eatOutCompletion = isEatOut ? getEatOutCompletionMessage() : null;
-    if (eatOutCompletion) {
-      eatOutCompletionRef.current = eatOutCompletion;
-    }
-    const message =
-      celebrationMessage ??
-      eatOutCompletion?.subtitle ??
-      (isEatOut
-        ? getRandomEatOutCelebrationMessage()
-        : getRandomCelebrationMessage());
-    setCelebrationMessage(message);
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded(false);
+  const handleServed = async () => {
+    if (isServed || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     setLocallyServed(true);
-    triggerConfetti();
+    const shouldCelebrate = !isEatOut && !isFlexNight;
+    setPhase(shouldCelebrate ? "burst" : "idle");
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    if (!shouldCelebrate) {
+      Animated.parallel([
+        Animated.spring(checkScale, { toValue: 1, speed: 18, bounciness: 8, useNativeDriver: true }),
+        Animated.timing(successOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+      ]).start();
+    }
+    if (shouldCelebrate) {
+    Animated.sequence([
+      Animated.timing(buttonScale, { toValue: 0.94, duration: reduceMotion ? 0 : 90, useNativeDriver: true }),
+      Animated.spring(buttonScale, { toValue: 1, speed: 24, bounciness: reduceMotion ? 0 : 10, useNativeDriver: true }),
+    ]).start();
+    Animated.parallel([
+      Animated.timing(contentOpacity, { toValue: 0, duration: reduceMotion ? 120 : 360, delay: reduceMotion ? 0 : 260, useNativeDriver: true }),
+      Animated.timing(sparkleProgress, { toValue: 1, duration: reduceMotion ? 1 : 520, useNativeDriver: true }),
+    ]).start();
+    const completionTimer = setTimeout(() => {
+      setPhase("complete");
+      Animated.spring(completionProgress, { toValue: 1, speed: 18, bounciness: reduceMotion ? 0 : 9, useNativeDriver: true }).start();
+    }, reduceMotion ? 120 : 480);
+    const ratingTimer = setTimeout(() => {
+      initializeCarousel();
+      setPhase("carousel");
+      Animated.timing(ratingProgress, { toValue: 1, duration: reduceMotion ? 160 : 360, useNativeDriver: true }).start();
+    }, reduceMotion ? 650 : 1200);
+    timersRef.current.push(completionTimer, ratingTimer);
+    }
     try {
-      await onMarkServed?.(message);
+      await onMarkServed?.("Dinner served");
     } catch (error) {
+      clearTimers();
       setLocallyServed(false);
+      setPhase("idle");
+      contentOpacity.setValue(1);
+      sparkleProgress.setValue(0);
+      completionProgress.setValue(0);
+      ratingProgress.setValue(0);
       console.warn("[TodayCard] Failed to mark served", error);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
-  const handleChangePlans = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded(false);
-    onChangePlans?.();
-  };
-  const toggleServedPanel = (panel: Exclude<typeof servedExpanded, null>) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setServedDrawerOpen(true);
-    setServedExpanded((prev) => (prev === panel ? null : panel));
+  const openRecipe = () => {
+    const url = meal.recipeUrl?.trim();
+    if (url) Linking.openURL(url).catch(() => {});
   };
 
-  const handleToggleFreezer = () => {
-    if (!meal) {
-      return;
+  const scrollToPage = (index: number) => {
+    if (!carouselWidth) return;
+    notesInputRef.current?.blur();
+    setNotesFocused(false);
+    Keyboard.dismiss();
+    carouselRef.current?.scrollTo({ x: index * carouselWidth, animated: !reduceMotion });
+    setActivePage(index);
+  };
+
+  const handleCarouselMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (!carouselWidth) return;
+    setActivePage(Math.round(event.nativeEvent.contentOffset.x / carouselWidth));
+  };
+
+  const renderCarouselPage = (page: CarouselPage) => {
+    if (page === "ratings") {
+      return (
+        <View style={[styles.carouselPageContent, styles.ratingsPageContent]}>
+          <Text style={styles.carouselPrompt}>{ratingsWereNeeded ? "How was the meal?" : "Still the same ratings?"}</Text>
+          <Text style={styles.ratingLabel}>{useRatingStars ? "RATING" : "FAMILY RATING"}</Text>
+          <View style={styles.ratingMembers}>
+            {useRatingStars ? (
+              <RatingStars value={meal.rating ?? 0} size={32} gap={theme.space.sm} onChange={onChangeMealRating} />
+            ) : (
+              <FamilyRatingRow compact ratings={meal.familyRatings} onChange={(memberId, rating) => onChangeFamilyRating?.(memberId, rating)} />
+            )}
+          </View>
+        </View>
+      );
     }
-    if (!inFreezer) {
-      setFreezerModalVisible(true);
-      return;
+    if (page === "served") {
+      return (
+        <View style={styles.carouselPageContent}>
+          <MaterialCommunityIcons name="check-circle" size={62} color={theme.color.accent} />
+          <Text style={styles.carouselPrompt}>Served!</Text>
+          <Text style={styles.carouselMealTitle}>{meal.title}</Text>
+          {sidesLabel ? <Text style={styles.carouselSubtext}>{sidesLabel}</Text> : null}
+        </View>
+      );
     }
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setInFreezer(false);
-    updateMeal({
-      id: meal.id,
-      isFavorite: false,
-    });
-  };
-
-  const handleRatingChange = (value: number) => {
-    setRating(value);
-    updateMeal({
-      id: meal.id,
-      rating: value,
-    });
-  };
-
-  const handleFamilyRatingChange = (
-    memberId: string,
-    value: FamilyRatingValue
-  ) => {
-    updateMeal({
-      id: meal.id,
-      familyRatings: setFamilyRatingValue(
-        meal.familyRatings,
-        memberId,
-        value
-      ),
-    });
-  };
-
-  const handleFreezerModalClose = () => {
-    setFreezerModalVisible(false);
-  };
-
-  const handleFreezerModalSave = (
-    targetMeal: Meal,
-    amount: string,
-    unit: string,
-    addedAt: string
-  ) => {
-    if (!targetMeal) {
-      return;
+    if (page === "freezer") {
+      const inFreezer = Boolean(meal.isFavorite);
+      return (
+        <View style={[styles.carouselPageContent, styles.freezerPageContent]}>
+          <MaterialCommunityIcons name="snowflake" size={48} color={theme.color.accent} />
+          <Text style={styles.carouselPrompt}>{inFreezer ? "Saved for later" : "Save some for later?"}</Text>
+          <Text style={styles.carouselSubtext}>{inFreezer ? `${meal.title} is in your freezer.` : `Add ${meal.title} to your freezer.`}</Text>
+          <Pressable onPress={() => inFreezer ? onRemoveFreezer?.() : setFreezerModalVisible(true)} style={({ pressed }) => [styles.carouselButton, styles.freezerButton, pressed && styles.pressed]} accessibilityRole="button">
+            <Text style={styles.carouselButtonText}>{inFreezer ? "Remove from Freezer" : "Add to Freezer"}</Text>
+          </Pressable>
+        </View>
+      );
     }
-    updateMeal({
-      id: targetMeal.id,
-      isFavorite: true,
-      freezerAmount: amount,
-      freezerUnit: unit,
-      freezerAddedAt: addedAt,
-    });
-    setInFreezer(true);
-    setFreezerModalVisible(false);
+    return (
+      <View style={[styles.carouselPageContent, styles.notesPageContent]}>
+        {!isNotesFocused ? <MaterialCommunityIcons name="note-edit-outline" size={34} color={theme.color.accent} /> : null}
+        <View style={styles.notesHeadingRow}>
+          {isNotesFocused ? <MaterialCommunityIcons name="note-edit-outline" size={21} color={theme.color.accent} /> : null}
+          <Text style={styles.carouselPrompt}>Anything to remember?</Text>
+        </View>
+        <TextInput ref={notesInputRef} value={notesDraft} onChangeText={setNotesDraft} onFocus={() => setNotesFocused(true)} placeholder="Add a note for next time" placeholderTextColor={theme.color.subtleInk} multiline style={[styles.notesInput, isNotesFocused && styles.notesInputFocused]} />
+        {isNotesFocused ? (
+          <View style={styles.notesActions}>
+            <Pressable
+              onPress={() => {
+                setNotesDraft(meal.prepNotes ?? "");
+                setNotesFocused(false);
+                Keyboard.dismiss();
+              }}
+              style={({ pressed }) => [styles.notesAction, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.notesCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                onSavePrepNotes?.(notesDraft.trim());
+                setNotesFocused(false);
+                Keyboard.dismiss();
+              }}
+              style={({ pressed }) => [styles.notesAction, styles.notesDoneAction, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.notesDoneText}>Done</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+    );
   };
-  const toggleIconName: keyof typeof MaterialCommunityIcons.glyphMap =
-    isExpanded ? "chevron-up" : "chevron-down";
 
-  const mealDetails = (
-    <Pressable
-      style={[styles.touchArea, isFamilyStar && styles.familyStarTouchArea]}
-      accessibilityRole={meal.recipeUrl ? "button" : "text"}
-      accessibilityLabel={
-        meal.recipeUrl
-          ? `Open recipe for ${meal.title}`
-          : `Meal details for ${meal.title}`
-      }
-      onPress={meal.recipeUrl ? handleCardPress : undefined}
-    >
-      <View style={styles.topRow}>
-        <Text style={styles.date}>{dateLabel}</Text>
-        <View style={styles.topRowMeta}>
+  const isCelebrating = phase !== "idle" && phase !== "carousel" && !isEatOut && !isFlexNight;
+  const showCarousel = isServed && !isEatOut && !isFlexNight && (phase === "carousel" || phase === "idle") && Boolean(carouselOrder);
+
+  return (
+    <View style={[
+      styles.card,
+      !isEatOut && !isFlexNight && styles.fixedMealCard,
+      isServed && !isEatOut && styles.cardServed,
+      isFamilyStar && !isGalaxyMeal && styles.familyStarCard,
+      isGalaxyMeal && styles.galaxyCard,
+    ]}>
+      {isFamilyStar ? (
+        <View pointerEvents="none" style={styles.cardAchievementIcon}>
+          <MaterialCommunityIcons
+            name={isGalaxyMeal ? "creation" : "star"}
+            size={22}
+            color={isGalaxyMeal ? "#8B5CF6" : "#F2D15B"}
+            accessibilityLabel={isGalaxyMeal ? "Galaxy Meal" : "Family Star"}
+          />
+        </View>
+      ) : null}
+      {showCarousel ? (
+        <Animated.View
+          style={[styles.carouselShell, { opacity: phase === "carousel" ? ratingProgress : 1, transform: [{ translateX: phase === "carousel" ? ratingProgress.interpolate({ inputRange: [0, 1], outputRange: [reduceMotion ? 0 : 34, 0] }) : 0 }] }]}
+          onLayout={(event) => setCarouselWidth(event.nativeEvent.layout.width)}
+        >
+          {carouselWidth > 0 ? (
+            <ScrollView ref={carouselRef} horizontal pagingEnabled showsHorizontalScrollIndicator={false} bounces={false} onScrollBeginDrag={() => { notesInputRef.current?.blur(); setNotesFocused(false); Keyboard.dismiss(); }} onMomentumScrollEnd={handleCarouselMomentumEnd} keyboardShouldPersistTaps="handled">
+              {carouselOrder?.map((page) => <View key={page} style={[styles.carouselPage, { width: carouselWidth }]}>{renderCarouselPage(page)}</View>)}
+            </ScrollView>
+          ) : null}
+          <View style={styles.pageIndicators}>
+            {carouselOrder?.map((page, index) => (
+              <Pressable key={page} onPress={() => scrollToPage(index)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Show ${page} card`}>
+                <View style={[styles.pageDot, index === activePage && styles.pageDotActive]} />
+              </Pressable>
+            ))}
+          </View>
+        </Animated.View>
+      ) : isCelebrating && phase !== "burst" ? (
+        <View style={styles.celebrationContent} accessibilityLiveRegion="polite">
+          <Animated.View style={[styles.completionMark, {
+            opacity: completionProgress,
+            transform: [
+              { translateY: 0 },
+              { scale: completionProgress.interpolate({ inputRange: [0, 1], outputRange: [reduceMotion ? 1 : 0.65, 1] }) },
+            ],
+          }]}>
+            <MaterialCommunityIcons name="check-circle" size={76} color={theme.color.accent} />
+            <Text style={styles.servedCelebrationText}>Served!</Text>
+          </Animated.View>
+        </View>
+      ) : (
+      <Animated.View style={[styles.normalContent, { opacity: phase === "idle" ? 1 : contentOpacity }]}>
+      <View style={[styles.headerRow, isFamilyStar && styles.headerRowWithAchievement]}>
+        <Text style={styles.eyebrow}>{dateLabel.toUpperCase()}</Text>
+        <View style={styles.badges}>
           {meal.isFavorite ? (
-            <View style={styles.freezerBadge}>
-              <MaterialCommunityIcons
-                name="snowflake"
-                size={14}
-                color={theme.color.accent}
-              />
-              <Text style={styles.freezerBadgeText}>Freezer</Text>
-            </View>
-          ) : meal.recipeUrl ? (
-            <View style={styles.recipeTag}>
-              <Text style={styles.recipeTagText}>Recipe</Text>
-            </View>
+            <MaterialCommunityIcons name="snowflake" size={17} color={theme.color.accent} />
+          ) : null}
+          {isServed && phase !== "burst" && !isEatOut ? (
+            <Animated.View style={{ opacity: successOpacity, transform: [{ scale: checkScale }] }}>
+              <MaterialCommunityIcons name="check-circle" size={24} color={theme.color.accent} />
+            </Animated.View>
           ) : null}
         </View>
       </View>
 
-      <Text
-        style={[styles.emoji, isFamilyStar && styles.familyStarEmoji]}
-        accessibilityLabel={`${meal.title} meal`}
-      >
-        {meal.emoji}
-      </Text>
-
-      <Text style={styles.title}>{meal.title}</Text>
-      {sidesLabel ? (
-        <Text style={styles.sides}>{`w/ ${sidesLabel}`}</Text>
-      ) : null}
-      {isEatOut && eatOutMessage ? (
-        <Text style={styles.eatOutMessage}>{eatOutMessage}</Text>
-      ) : null}
-      {prepNotesToShow ? (
-        <Text style={styles.notes}>{prepNotesToShow}</Text>
-      ) : null}
-    </Pressable>
-  );
-
-  const renderServedActionButton = (
-    icon: string,
-    label: string,
-    panel: Exclude<typeof servedExpanded, null>
-  ) => (
-    <Pressable
-      key={label}
-      onPress={() => toggleServedPanel(panel)}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={({ pressed }) => [
-        styles.servedActionButton,
-        servedExpanded === panel && styles.servedActionButtonActive,
-        pressed && styles.servedActionButtonPressed,
-      ]}
-    >
-      <MaterialCommunityIcons
-        name={icon as any}
-        size={20}
-        color={
-          servedExpanded === panel ? theme.color.ink : theme.color.subtleInk
-        }
-      />
-    </Pressable>
-  );
-
-  return (
-    <View style={[styles.card, isFamilyStar && styles.familyStarCard]}>
-      {isFamilyStar ? (
-        <View pointerEvents="none" style={styles.familyStarDecorations}>
-          <Text style={styles.familyStarWatermark}>★</Text>
-          <Text style={[styles.familySparkle, styles.familySparkleOne]}>✦</Text>
-          <Text style={[styles.familySparkle, styles.familySparkleTwo]}>✧</Text>
-          <Text style={[styles.familySparkle, styles.familySparkleThree]}>✦</Text>
-        </View>
-      ) : null}
-      {isConfettiVisible ? (
-        <View pointerEvents="none" style={styles.confettiLayer}>
-          {confettiPieces.map((piece, index) => (
-            <Animated.View
-              key={index}
-              style={[
-                styles.confettiPiece,
-                {
-                  backgroundColor: piece.color,
-                  width: piece.size,
-                  height: piece.size * 2,
-                  left: `${piece.left}%`,
-                  transform: [
-                    { translateX: piece.translateX },
-                    { translateY: piece.translateY },
-                    {
-                      rotate: piece.rotate.interpolate({
-                        inputRange: [-Math.PI, Math.PI],
-                        outputRange: ["-180deg", "180deg"],
-                      }),
-                    },
-                  ],
-                  opacity: piece.opacity,
-                },
-              ]}
+      {isEatOut ? (
+        <View style={styles.eatOutContent}>
+          <View style={styles.eatOutIcon}>
+            <MaterialCommunityIcons
+              name="silverware-fork-knife"
+              size={30}
+              color={theme.color.accent}
             />
-          ))}
-        </View>
-      ) : null}
-      {isServed ? (
-        <>
-          <View style={styles.completionGraphic}>
-            {isEatOut && eatOutCompletionMessage ? (
-              <Text style={styles.completionEatOutIcon}>
-                {eatOutCompletionMessage.icon}
-              </Text>
-            ) : (
-              <MaterialCommunityIcons
-                name="check-circle-outline"
-                size={96}
-                color={isFamilyStar ? "#F2C94C" : theme.color.accent}
-              />
-            )}
           </View>
-          {isEatOut && eatOutCompletionMessage ? (
-            <>
-              <Text style={styles.completionLabel}>
-                {eatOutCompletionMessage.title}
-              </Text>
-              <Text style={styles.completionMessage}>
-                {eatOutCompletionMessage.subtitle}
-              </Text>
-            </>
-          ) : (
-            <>
-              <View style={styles.completionLabelRow}>
-                <Text
-                  style={styles.completionEmoji}
-                  accessibilityLabel={`${meal.title} meal`}
-                >
-                  {meal.emoji}
-                </Text>
-                <Text
-                  style={[
-                    styles.completionLabel,
-                    isFamilyStar && styles.familyCompletionLabel,
-                  ]}
-                >
-                  DINNER SERVED
-                </Text>
-              </View>
-              {celebrationMessage ? (
-                <Text style={styles.completionMessage}>
-                  {celebrationMessage}
-                </Text>
-              ) : null}
-            </>
-          )}
-          {showServedActions ? (
-            <View style={styles.servedActionRow}>
-              {isEatOut ? (
-                renderServedActionButton("pencil", "Add Note", "notes")
-              ) : (
-                <>
-                  {renderServedActionButton("star", "Rate meal", "rating")}
-                  {renderServedActionButton(
-                    inFreezer ? "check-circle" : "snowflake",
-                    inFreezer ? "Added to freezer" : "Add to freezer",
-                    "freezer"
-                  )}
-                  {renderServedActionButton("pencil", "Edit notes", "notes")}
-                </>
-              )}
-            </View>
-          ) : null}
-          {isServedDrawerOpen && showServedActions ? (
-            <View style={styles.servedDrawer}>
-              {!isEatOut && servedExpanded === "rating" ? (
-                <View style={styles.servedSection}>
-                  <Text style={styles.servedSectionLabel}>Rate this meal</Text>
-                  {hasFamilyMembers ? (
-                    <FamilyRatingIcons
-                      ratings={meal.familyRatings}
-                      onChange={handleFamilyRatingChange}
-                      size={44}
-                      gap={theme.space.md}
-                      singleRow
-                    />
-                  ) : (
-                    <RatingStars
-                      value={rating}
-                      size={28}
-                      gap={theme.space.sm}
-                      onChange={handleRatingChange}
-                    />
-                  )}
-                </View>
-              ) : null}
-              {!isEatOut && servedExpanded === "freezer" ? (
-                <View style={styles.servedSection}>
-                  <Text style={styles.servedSectionLabel}>Freezer</Text>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.servedToggleButton,
-                      inFreezer && styles.servedToggleButtonActive,
-                      pressed && styles.servedToggleButtonPressed,
-                    ]}
-                    onPress={handleToggleFreezer}
-                    accessibilityRole="button"
-                    accessibilityLabel="Toggle freezer favorite"
-                  >
-                    <MaterialCommunityIcons
-                      name={inFreezer ? "check" : "plus"}
-                      size={18}
-                      color={theme.color.ink}
-                    />
-                    <Text style={styles.servedToggleButtonText}>
-                      {inFreezer ? "Added to freezer" : "Add to freezer"}
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : null}
-              {servedExpanded === "notes" ? (
-                <View style={styles.servedSection}>
-                  <Text style={styles.servedSectionLabel}>
-                    {isEatOut ? "Add note" : "Prep notes"}
-                  </Text>
-                  <TextInput
-                    style={styles.servedNotesInput}
-                    placeholder="Add notes for next time"
-                    placeholderTextColor={theme.color.subtleInk}
-                    multiline
-                    value={notesValue}
-                    onChangeText={setNotesValue}
-                  />
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-        </>
+          <View style={styles.eatOutTitleGroup}>
+            <Text style={styles.title}>Eat Out</Text>
+            {eatOutNote ? <Text style={styles.eatOutNote}>{eatOutNote}</Text> : null}
+          </View>
+          <View style={styles.eatOutDivider}>
+            <View style={styles.eatOutDividerLine} />
+            <MaterialCommunityIcons name="heart" size={10} color={theme.color.accent} />
+            <View style={styles.eatOutDividerLine} />
+          </View>
+          <Text style={styles.eatOutMessage} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+            {eatOutMessage}
+          </Text>
+          <Pressable
+            onPress={onChangePlans}
+            accessibilityRole="button"
+            accessibilityLabel="Change Eat Out plan"
+            style={({ pressed }) => [styles.eatOutChange, pressed && styles.pressed]}
+          >
+            <MaterialCommunityIcons name="swap-horizontal" size={17} color={theme.color.accent} />
+            <Text style={styles.eatOutChangeText}>Change</Text>
+          </Pressable>
+        </View>
       ) : (
         <>
-          {mealDetails}
-          <Pressable
-            style={({ pressed }) => [
-              styles.servedButton,
-              isFamilyStar && styles.familyStarServedButton,
-              pressed && styles.servedButtonPressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={servedButtonLabel}
-            onPress={handleToggleServed}
-          >
-            {isFamilyStar ? (
-              <MaterialCommunityIcons
-                name="star"
-                size={20}
-                color="#A97800"
-              />
-            ) : null}
-            <Text
-              style={[
-                styles.servedButtonText,
-                isFamilyStar && styles.familyStarServedButtonText,
-              ]}
-            >
-              {servedButtonLabel}
-            </Text>
-            <MaterialCommunityIcons
-              name={toggleIconName as any}
-              size={18}
-              color={isFamilyStar ? "#A97800" : "#FFFFFF"}
-            />
-          </Pressable>
-
-          {isExpanded ? (
-            <View style={styles.drawer}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.drawerButton,
-                  pressed && styles.drawerButtonPressed,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Served"
-                onPress={() => handleSelectAction("served")}
-              >
-                <MaterialCommunityIcons
-                  name="check-circle"
-                  size={18}
-                  color={theme.color.ink}
-                />
-                <Text style={styles.drawerButtonText}>Served</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.drawerButton,
-                  pressed && styles.drawerButtonPressed,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel="Swap dinner"
-                onPress={handleChangePlans}
-              >
-                <MaterialCommunityIcons
-                  name="swap-horizontal"
-                  size={18}
-                  color={theme.color.ink}
-                />
-                <Text style={styles.drawerButtonText}>Swap Dinner</Text>
-              </Pressable>
+          <View style={styles.mealRow}>
+            <Text style={styles.emoji}>{meal.emoji || "🍽️"}</Text>
+            <View style={styles.mealText}>
+              <Text style={styles.title}>{meal.title}</Text>
+              {isFlexNight ? <Text style={styles.meta}>Keep tonight flexible</Text> : null}
+              {sidesLabel ? <Text style={styles.sides}>w/ {sidesLabel}</Text> : null}
+              {prepNotes ? <Text style={styles.notes}>{prepNotes}</Text> : null}
             </View>
-          ) : null}
+          </View>
+          {isServed && phase !== "burst" ? (
+            <Animated.View style={[styles.completedRow, { opacity: successOpacity }]}>
+              <MaterialCommunityIcons name="check" size={18} color={theme.color.accent} />
+              <Text style={styles.completedText}>Served</Text>
+            </Animated.View>
+          ) : (
+            <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+              <Pressable
+                onPress={handleServed}
+                disabled={isSaving}
+                accessibilityRole="button"
+                accessibilityLabel={`Mark ${meal.title} as served`}
+                style={({ pressed }) => [styles.servedButton, pressed && styles.pressed]}
+              >
+                <View style={styles.servedButtonInner}>
+                <MaterialCommunityIcons name="check" size={21} color="#FFFFFF" />
+                <Text style={styles.servedButtonText}>Mark as Served</Text>
+                </View>
+              </Pressable>
+            </Animated.View>
+          )}
+          <View style={styles.secondaryActions}>
+            {meal.recipeUrl?.trim() ? (
+              <Pressable onPress={openRecipe} accessibilityRole="link" style={styles.textButton}>
+                <MaterialCommunityIcons name="link-variant" size={19} color={theme.color.accent} />
+                <Text style={styles.textButtonLabel}>Recipe</Text>
+              </Pressable>
+            ) : null}
+            <Pressable onPress={onChangePlans} accessibilityRole="button" style={styles.textButton}>
+              <MaterialCommunityIcons name="swap-horizontal" size={19} color={theme.color.subtleInk} />
+              <Text style={[styles.textButtonLabel, styles.changeLabel]}>Change</Text>
+            </Pressable>
+          </View>
         </>
       )}
+      </Animated.View>
+      )}
+      {!reduceMotion && phase === "burst" && !isFlexNight ? SPARKLES.map((sparkle, index) => (
+        <Animated.View key={`button-sparkle-${index}`} pointerEvents="none" style={[styles.sparkle, { backgroundColor: sparkle.color, opacity: sparkleProgress.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 1, 0] }), transform: [{ translateX: sparkleProgress.interpolate({ inputRange: [0, 1], outputRange: [0, sparkle.x] }) }, { translateY: sparkleProgress.interpolate({ inputRange: [0, 1], outputRange: [35, sparkle.y + 35] }) }, { scale: sparkleProgress.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.4, 1, 0.3] }) }] }]} />
+      )) : null}
       <FreezerAmountModal
         visible={isFreezerModalVisible}
         initialMeal={meal}
-        initialAmount={meal?.freezerAmount ?? meal?.freezerQuantity ?? ""}
-        initialUnit={meal?.freezerUnit}
-        initialAddedAt={meal?.freezerAddedAt}
-        onDismiss={handleFreezerModalClose}
-        onComplete={handleFreezerModalSave}
+        initialAmount={meal.freezerAmount ?? meal.freezerQuantity ?? ""}
+        initialUnit={meal.freezerUnit}
+        initialAddedAt={meal.freezerAddedAt}
+        onDismiss={() => setFreezerModalVisible(false)}
+        onComplete={(_meal, amount, unit, addedAt) => {
+          onSaveFreezer?.(amount, unit, addedAt);
+          setFreezerModalVisible(false);
+        }}
       />
     </View>
   );
@@ -704,289 +514,70 @@ export default function TodayCard({
 
 const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
-    card: {
-      backgroundColor: theme.color.surface,
-      borderRadius: theme.radius.lg,
-      paddingHorizontal: theme.space.xl,
-      paddingTop: theme.space.lg,
-      paddingBottom: theme.space.lg,
-      gap: theme.space.lg,
-      borderWidth: 1,
-      borderColor: theme.color.cardOutline,
-      overflow: "hidden",
-      position: "relative",
-    },
-    familyStarCard: {
-      paddingTop: theme.space.sm,
-      paddingBottom: theme.space.sm,
-      gap: theme.space.sm,
-      backgroundColor: theme.mode === "dark" ? "#3A2A12" : "#FFF4CF",
-      borderColor: "#F2C94C",
-      borderWidth: 2,
-      shadowColor: "#D6A900",
-      shadowOpacity: 0.22,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 3,
-    },
-    familyStarDecorations: {
-      ...StyleSheet.absoluteFillObject,
-    },
-    familyStarWatermark: {
-      position: "absolute",
-      right: -8,
-      top: 30,
-      color: "#F2D15B",
-      fontSize: 116,
-      opacity: theme.mode === "dark" ? 0.08 : 0.12,
-    },
-    familySparkle: {
-      position: "absolute",
-      color: "#F2D15B",
-      opacity: 0.65,
-    },
-    familySparkleOne: { top: 18, left: 20, fontSize: 18 },
-    familySparkleTwo: { top: 28, right: 24, fontSize: 16 },
-    familySparkleThree: { bottom: 62, left: 18, fontSize: 14 },
-    confettiLayer: {
-      position: "absolute",
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      overflow: "hidden",
-    },
-    confettiPiece: {
-      position: "absolute",
-      borderRadius: 2,
-    },
-    touchArea: {
-      alignItems: "center",
-      gap: theme.space.sm,
-    },
-    familyStarTouchArea: {
-      gap: theme.space.xs,
-    },
-    topRow: {
-      width: "100%",
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-    },
-    date: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
-    },
-    recipeTag: {
-      paddingHorizontal: theme.space.sm,
-      paddingVertical: theme.space.xs,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    recipeTagText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.xs,
-      fontWeight: theme.type.weight.medium,
-      textTransform: "uppercase",
-      letterSpacing: 1,
-    },
-    topRowMeta: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.xs,
-    },
-    freezerBadge: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      paddingHorizontal: theme.space.xs,
-      paddingVertical: 2,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    freezerBadgeText: {
-      color: theme.color.accent,
-      fontSize: theme.type.size.xs,
-      fontWeight: theme.type.weight.medium,
-      textTransform: "uppercase",
-      letterSpacing: 0.8,
-    },
-    emoji: {
-      fontSize: 48,
-    },
-    familyStarEmoji: {
-      fontSize: 42,
-    },
-    title: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.bold,
-    },
-    sides: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      textAlign: "center",
-    },
-    eatOutMessage: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.base,
-      textAlign: "center",
-    },
-    notes: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      textAlign: "center",
-    },
-    completionGraphic: {
-      alignItems: "center",
-      justifyContent: "center",
-      paddingVertical: theme.space.lg,
-    },
-    completionLabelRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: theme.space.sm,
-    },
-    completionEmoji: {
-      fontSize: 20,
-    },
-    completionEatOutIcon: {
-      fontSize: 72,
-      textAlign: "center",
-    },
-    completionLabel: {
-      textAlign: "center",
-      color: theme.color.accent,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.bold,
-      letterSpacing: 0.5,
-    },
-    familyCompletionLabel: {
-      color: "#F2C94C",
-    },
-    completionMessage: {
-      textAlign: "center",
-      color: theme.color.ink,
-      fontSize: theme.type.size.sm + 4,
-    },
-    servedActionRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: theme.space.lg,
-      alignSelf: "center",
-      width: "100%",
-    },
-    servedActionButton: {
-      width: 40,
-      height: 40,
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.surfaceAlt,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    servedActionButtonActive: {
-      backgroundColor: theme.color.accent,
-      borderColor: theme.color.accent,
-    },
-    servedActionButtonPressed: {
-      opacity: 0.9,
-    },
-    servedDrawer: {
-      paddingVertical: theme.space.md,
-      paddingHorizontal: theme.space.xs,
-      gap: theme.space.md,
-    },
-    servedSection: {
-      gap: theme.space.sm,
-    },
-    servedSectionLabel: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
-      textTransform: "uppercase",
-      letterSpacing: 0.6,
-    },
-    servedToggleButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.sm,
-      paddingVertical: theme.space.sm,
-      paddingHorizontal: theme.space.md,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    servedToggleButtonActive: {
-      backgroundColor: theme.color.success,
-    },
-    servedToggleButtonPressed: {
-      opacity: 0.9,
-    },
-    servedToggleButtonText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
-    },
-    servedNotesInput: {
-      minHeight: 80,
-      borderRadius: theme.radius.md,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-      backgroundColor: theme.color.surfaceAlt,
-      padding: theme.space.md,
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      textAlignVertical: "top",
-    },
-    servedButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: theme.space.sm,
-      backgroundColor: theme.color.accent,
-      borderRadius: theme.radius.xl,
-      paddingVertical: theme.space.md,
-    },
-    familyStarServedButton: {
-      backgroundColor: theme.mode === "dark" ? "#4A3414" : "#FFF3C4",
-      borderWidth: 1,
-      borderColor: "#F2D15B",
-    },
-    servedButtonPressed: {
-      opacity: 0.85,
-    },
-    servedButtonText: {
-      color: "#FFFFFF",
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.bold,
-    },
-    familyStarServedButtonText: {
-      color: "#A97800",
-    },
-    drawer: {
-      gap: theme.space.sm,
-    },
-    drawerButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.sm,
-      paddingVertical: theme.space.sm,
-      paddingHorizontal: theme.space.md,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    drawerButtonPressed: {
-      opacity: 0.9,
-    },
-    drawerButtonText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
-    },
+    card: { backgroundColor: theme.color.surface, borderRadius: theme.radius.lg, borderWidth: 1, borderColor: theme.color.cardOutline, padding: theme.space.lg, gap: theme.space.lg },
+    normalContent: { gap: theme.space.lg },
+    cardServed: { backgroundColor: theme.color.surfaceAlt, borderColor: theme.color.border },
+    familyStarCard: { borderColor: "#F2D15B" },
+    galaxyCard: { borderColor: "#7C4DFF" },
+    cardAchievementIcon: { position: "absolute", top: 12, right: 14, zIndex: 5 },
+    fixedMealCard: { height: 255, padding: theme.space.lg * 0.85 },
+    headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    headerRowWithAchievement: { paddingRight: 28 },
+    eyebrow: { color: theme.color.accent, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
+    badges: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+    mealRow: { flexDirection: "row", alignItems: "center", gap: theme.space.md, marginTop: 6 },
+    emoji: { fontSize: 42 },
+    mealText: { flex: 1, gap: theme.space.xs },
+    title: { color: theme.color.ink, fontSize: theme.type.size.h2, fontWeight: theme.type.weight.bold },
+    meta: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
+    sides: { color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
+    notes: { color: theme.color.subtleInk, fontSize: theme.type.size.xs },
+    eatOutContent: { alignItems: "center", gap: theme.space.md },
+    eatOutIcon: { alignItems: "center", justifyContent: "center" },
+    eatOutTitleGroup: { alignItems: "center", gap: 2 },
+    eatOutDivider: { width: "100%", flexDirection: "row", alignItems: "center", gap: theme.space.xs },
+    eatOutDividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: theme.color.accent, opacity: 0.55 },
+    eatOutMessage: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium, textAlign: "center" },
+    eatOutNote: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, textAlign: "center" },
+    eatOutChange: { minHeight: 30, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.xs, paddingHorizontal: theme.space.sm },
+    eatOutChangeText: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
+    servedButton: { minHeight: 50, borderRadius: theme.radius.xl, backgroundColor: theme.color.accent, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm },
+    servedButtonInner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm },
+    servedButtonText: { color: "#FFFFFF", fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+    completedRow: { minHeight: 46, borderRadius: theme.radius.xl, backgroundColor: theme.mode === "dark" ? "rgba(255,75,145,0.10)" : "rgba(255,75,145,0.07)", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.xs },
+    completedText: { color: theme.color.accent, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+    secondaryActions: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.xl, marginTop: 5 },
+    textButton: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: theme.space.xs, paddingHorizontal: 9 },
+    textButtonLabel: { color: theme.color.accent, fontSize: theme.type.size.sm * 1.1, fontWeight: theme.type.weight.medium },
+    changeLabel: { color: theme.color.subtleInk },
+    pressed: { opacity: 0.75 },
+    celebrationContent: { minHeight: 220, alignItems: "center", justifyContent: "center", gap: theme.space.md, overflow: "visible" },
+    completionMark: { alignItems: "center", justifyContent: "center", gap: theme.space.xs },
+    servedCelebrationText: { color: theme.color.accent, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
+    sparkle: { position: "absolute", left: "50%", top: "50%", width: 8, height: 8, borderRadius: 4, marginLeft: -4, marginTop: -4 },
+    ratingLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
+    ratingMembers: { width: "100%", marginTop: theme.space.lg },
+    carouselShell: { flex: 1, width: "100%", overflow: "hidden" },
+    carouselPage: { height: 191, justifyContent: "center", paddingHorizontal: theme.space.xs },
+    carouselPageContent: { flex: 1, alignItems: "center", justifyContent: "center", gap: theme.space.sm, paddingVertical: theme.space.xs },
+    ratingsPageContent: { paddingVertical: 0 },
+    freezerPageContent: { gap: theme.space.md },
+    notesPageContent: { gap: 10, paddingVertical: 0 },
+    notesHeadingRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm },
+    carouselPrompt: { color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold, textAlign: "center" },
+    carouselMealTitle: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold, textAlign: "center" },
+    carouselSubtext: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, textAlign: "center", paddingHorizontal: theme.space.lg },
+    carouselButton: { minHeight: 44, borderRadius: theme.radius.xl, backgroundColor: theme.color.accent, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.space.xl },
+    freezerButton: { marginTop: 5 },
+    carouselButtonText: { color: "#FFFFFF", fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
+    notesInput: { width: "100%", height: 90, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.color.border, backgroundColor: theme.color.surface, color: theme.color.ink, fontSize: theme.type.size.sm, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, textAlignVertical: "top" },
+    notesInputFocused: { height: 110 },
+    notesActions: { width: "100%", minHeight: 28, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: theme.space.sm },
+    notesAction: { minHeight: 28, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.full, paddingHorizontal: theme.space.md },
+    notesDoneAction: { backgroundColor: theme.color.accent },
+    notesCancelText: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.medium },
+    notesDoneText: { color: "#FFFFFF", fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold },
+    pageIndicators: { height: 24, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm },
+    pageDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.color.border },
+    pageDotActive: { backgroundColor: theme.color.accent, width: 9, height: 9, borderRadius: 5 },
   });

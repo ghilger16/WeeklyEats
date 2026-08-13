@@ -52,6 +52,7 @@ import {
   mergeConfirmedIngredients,
 } from "../../../utils/mealCompletion";
 import { getFamilyRatingSummary } from "../../../utils/familyRatings";
+import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
 
 const getMealRatingValue = (meal: Meal) =>
   typeof meal.rating === "number" ? meal.rating : 0;
@@ -222,11 +223,16 @@ const normalizeRecipeUrl = (recipeUrl?: string | null) => {
 };
 
 export default function MealsScreen() {
-  const { url: sharedRecipeUrlParam } = useLocalSearchParams<{
+  const { url: sharedRecipeUrlParam, mealId: requestedMealIdParam } = useLocalSearchParams<{
     url?: string | string[];
+    mealId?: string | string[];
   }>();
+  const requestedMealId = Array.isArray(requestedMealIdParam)
+    ? requestedMealIdParam[0]
+    : requestedMealIdParam;
   const { theme } = useThemeController();
   const { members } = useFamilyMembers();
+  const { mode: ratingDisplayMode, setMode: setRatingDisplayMode } = useRatingDisplayMode();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { startDay } = useWeekStartController();
   const {
@@ -242,6 +248,7 @@ export default function MealsScreen() {
   } = useMeals();
   const [activeTab, setActiveTab] = useState<MealTabKey>("all");
   const [selectedMealId, setSelectedMealId] = useState<string | undefined>();
+  const openedRequestedMealRef = useRef<string | null>(null);
   const [isModalVisible, setModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [pendingSharedRecipeUrl, setPendingSharedRecipeUrl] = useState<
@@ -271,7 +278,7 @@ export default function MealsScreen() {
   const [displayOptions, setDisplayOptions] = useState({
     showDifficulty: true,
     showExpense: true,
-    ratingMode: (members.length > 1 ? "family" : "summary") as
+    ratingMode: ratingDisplayMode as
       | "family"
       | "summary"
       | "off",
@@ -327,8 +334,8 @@ export default function MealsScreen() {
   );
 
   const filteredFavorites = useMemo(
-    () => filterMealsForSearch(favorites),
-    [favorites, filterMealsForSearch]
+    () => favorites,
+    [favorites]
   );
 
   const sortMealsList = useCallback(
@@ -499,7 +506,7 @@ export default function MealsScreen() {
   const ingredientSearchScope = activeTab === "favorites" ? favorites : meals;
   const ingredientSearchResults = useMemo(
     () =>
-      activeTab === "complete" || activeIngredientFilter
+      activeTab !== "all" || activeIngredientFilter
         ? []
         : getIngredientSearchResults(ingredientSearchScope, searchQuery),
     [activeIngredientFilter, activeTab, ingredientSearchScope, searchQuery]
@@ -574,10 +581,27 @@ export default function MealsScreen() {
 
   const onOpenMeal = useCallback((meal: Meal) => {
     Keyboard.dismiss();
+    console.log("[Weekly Eats] Meal list item selected", meal);
     setModalMode("edit");
     setSelectedMealId(meal.id);
     setModalVisible(true);
   }, []);
+
+  useEffect(() => {
+    if (!requestedMealId) {
+      openedRequestedMealRef.current = null;
+      return;
+    }
+    if (
+      isModalVisible ||
+      openedRequestedMealRef.current === requestedMealId
+    ) return;
+    const requestedMeal = meals.find((meal) => meal.id === requestedMealId);
+    if (requestedMeal) {
+      openedRequestedMealRef.current = requestedMealId;
+      onOpenMeal(requestedMeal);
+    }
+  }, [isModalVisible, meals, onOpenMeal, requestedMealId]);
 
   const handleAddMeal = useCallback(() => {
     setModalMode("create");
@@ -836,8 +860,7 @@ export default function MealsScreen() {
       return null;
     }
     if (
-      (activeTab === "all" || activeTab === "favorites") &&
-      searchQuery.trim()
+      activeTab === "all" && searchQuery.trim()
     ) {
       if (ingredientSearchResults.length > 0) return null;
       return (
@@ -1072,19 +1095,24 @@ export default function MealsScreen() {
           : prev.ratingMode === "off"
           ? "summary"
           : "off";
+      setRatingDisplayMode(next);
       return { ...prev, ratingMode: next };
     });
-  }, [members.length]);
+  }, [members.length, setRatingDisplayMode]);
+
+  useEffect(() => {
+    setDisplayOptions((prev) => ({ ...prev, ratingMode: ratingDisplayMode }));
+  }, [ratingDisplayMode]);
 
   useEffect(() => {
     if (members.length <= 1) {
       setDisplayOptions((prev) =>
         prev.ratingMode === "family"
-          ? { ...prev, ratingMode: "summary" }
+          ? (() => { setRatingDisplayMode("summary"); return { ...prev, ratingMode: "summary" as const }; })()
           : prev
       );
     }
-  }, [members.length]);
+  }, [members.length, setRatingDisplayMode]);
 
   const displayOptionList = useMemo(
     () => [
@@ -1198,7 +1226,7 @@ export default function MealsScreen() {
               />
             }
             ListHeaderComponent={
-              activeTab !== "complete" ? (
+              activeTab === "all" ? (
                 <View style={styles.searchHeader}>
                   <MealSearchInput
                     value={searchQuery}

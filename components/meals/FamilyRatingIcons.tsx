@@ -27,7 +27,7 @@ const ratingIcons: Record<
   1: { icon: "thumb-down", colorKey: "ink" },
 };
 
-const memberColorPalette = [
+export const memberColorPalette = [
   "#0F766E",
   "#1D4ED8",
   "#9333EA",
