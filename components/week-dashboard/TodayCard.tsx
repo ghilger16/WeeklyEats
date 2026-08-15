@@ -18,7 +18,11 @@ import {
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
-import { EAT_OUT_MEAL_ID, FLEX_NIGHT_MEAL_ID } from "../../types/specialMeals";
+import {
+  EAT_OUT_MEAL,
+  EAT_OUT_MEAL_ID,
+  FLEX_NIGHT_MEAL_ID,
+} from "../../types/specialMeals";
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
 import { type ServedOutcome } from "./servedActions";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
@@ -116,7 +120,9 @@ export default function TodayCard({
   const sidesLabel = sides.join(" · ");
   const prepNotes = notes ?? meal.prepNotes?.trim();
   const eatOutNote = isEatOut
-    ? notes?.trim() || (meal.title !== "Eat Out" ? meal.title.trim() : "") || meal.prepNotes?.trim()
+    ? notes?.trim() ||
+      (meal.title !== EAT_OUT_MEAL.title ? meal.title.trim() : "") ||
+      meal.prepNotes?.trim()
     : undefined;
   const eatOutMessage = useMemo(() => {
     const stableKey = dateKey ?? dateLabel;
@@ -266,7 +272,13 @@ export default function TodayCard({
 
   const handleCarouselMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (!carouselWidth) return;
-    setActivePage(Math.round(event.nativeEvent.contentOffset.x / carouselWidth));
+    const nextPage = Math.round(event.nativeEvent.contentOffset.x / carouselWidth);
+    if (nextPage !== activePage) {
+      notesInputRef.current?.blur();
+      setNotesFocused(false);
+      Keyboard.dismiss();
+    }
+    setActivePage(nextPage);
   };
 
   const renderCarouselPage = (page: CarouselPage) => {
@@ -373,7 +385,18 @@ export default function TodayCard({
           onLayout={(event) => setCarouselWidth(event.nativeEvent.layout.width)}
         >
           {carouselWidth > 0 ? (
-            <ScrollView ref={carouselRef} horizontal pagingEnabled showsHorizontalScrollIndicator={false} bounces={false} onScrollBeginDrag={() => { notesInputRef.current?.blur(); setNotesFocused(false); Keyboard.dismiss(); }} onMomentumScrollEnd={handleCarouselMomentumEnd} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              ref={carouselRef}
+              horizontal
+              pagingEnabled
+              directionalLockEnabled
+              alwaysBounceVertical={false}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              onMomentumScrollEnd={handleCarouselMomentumEnd}
+              keyboardShouldPersistTaps="handled"
+            >
               {carouselOrder?.map((page) => <View key={page} style={[styles.carouselPage, { width: carouselWidth }]}>{renderCarouselPage(page)}</View>)}
             </ScrollView>
           ) : null}

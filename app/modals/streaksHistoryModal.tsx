@@ -94,7 +94,7 @@ export default function StreaksHistoryModal() {
         if (meal?.title) {
           return meal.title;
         }
-        return id;
+        return entry.mealTitles?.[id] ?? id;
       });
     const isExpanded = expandedWeekStartISO === entry.weekStartISO;
     const handleToggle = () => {

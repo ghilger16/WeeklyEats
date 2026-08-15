@@ -6,7 +6,7 @@ import { WeeklyTheme } from "../../styles/theme";
 import { WeekPlanDay } from "../../hooks/useCurrentWeekPlan";
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
 import { startOfDay } from "../../utils/weekDays";
-import { EAT_OUT_MEAL_ID } from "../../types/specialMeals";
+import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
 
 type Props = {
   days: WeekPlanDay[];
@@ -16,6 +16,8 @@ type Props = {
   collapsible?: boolean;
   showProgress?: boolean;
   onCollapsedChange?: (isCollapsed: boolean) => void;
+  dateRange?: string;
+  preview?: boolean;
 };
 
 const entryForDay = (day: WeekPlanDay, entries: ServedMealEntry[]) => {
@@ -42,11 +44,16 @@ export default function ThisWeekList({
   collapsible = false,
   showProgress = true,
   onCollapsedChange,
+  dateRange,
+  preview = false,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [isCollapsed, setCollapsed] = useState(false);
-  const visibleDays = useMemo(() => days.filter((day) => Boolean(day.meal)), [days]);
+  const visibleDays = useMemo(
+    () => (preview ? days : days.filter((day) => Boolean(day.meal))),
+    [days, preview],
+  );
   const servedCount = countServedDays(visibleDays, servedEntries);
   return (
     <View style={styles.section}>
@@ -61,7 +68,10 @@ export default function ThisWeekList({
         accessibilityLabel={collapsible ? `${isCollapsed ? "Expand" : "Collapse"} ${title}` : undefined}
         style={({ pressed }) => [styles.header, collapsible && pressed && styles.pressed]}
       >
-        <Text style={styles.heading}>{title}</Text>
+        <View style={styles.headingCopy}>
+          <Text style={styles.heading}>{title}</Text>
+          {dateRange ? <Text style={styles.dateRange}>{dateRange}</Text> : null}
+        </View>
         <View style={styles.headerMeta}>
           {showProgress ? <Text style={styles.progress}>{servedCount} of {visibleDays.length} dinners down</Text> : null}
           {collapsible ? <MaterialCommunityIcons name={isCollapsed ? "chevron-down" : "chevron-up"} size={22} color={theme.color.subtleInk} /> : null}
@@ -69,15 +79,15 @@ export default function ThisWeekList({
       </Pressable>
       {!isCollapsed ? <View style={styles.list}>
         {visibleDays.map((day) => {
-          const entry = entryForDay(day, servedEntries);
+          const entry = preview ? undefined : entryForDay(day, servedEntries);
           const isServed = entry?.outcome === "served";
           const isEatOut = day.mealId === EAT_OUT_MEAL_ID;
-          const isPastEatOut = isEatOut && day.status === "past";
+          const isPastEatOut = !preview && isEatOut && day.status === "past";
           const isCompleted = isPastEatOut || Boolean(entry && entry.outcome !== "skipped");
           const isSkipped = entry?.outcome === "skipped";
-          const isPending = day.status === "past" && Boolean(day.meal) && !entry && !isPastEatOut;
-          const isToday = day.status === "today";
-          const eatOutNote = isEatOut && day.meal?.title !== "Eat Out"
+          const isPending = !preview && day.status === "past" && Boolean(day.meal) && !entry && !isPastEatOut;
+          const isToday = !preview && day.status === "today";
+          const eatOutNote = isEatOut && day.meal?.title !== EAT_OUT_MEAL.title
             ? day.meal?.title.trim()
             : day.meal?.prepNotes?.trim();
           return (
@@ -128,13 +138,14 @@ export default function ThisWeekList({
                 ) : !isEatOut && day.sides.length ? (
                   <Text style={styles.sides} numberOfLines={1}>{day.sides.join(" · ")}</Text>
                 ) : null}
-                {isPending ? <Text style={styles.pending}>Pending</Text> : null}
               </View>
               <View style={styles.statusColumn}>
                 {isServed ? (
                   <Text style={styles.servedLabel}>Served</Text>
                 ) : isToday ? (
                   <Text style={styles.tonight}>Tonight</Text>
+                ) : isPending ? (
+                  <Text style={styles.pending}>Pending</Text>
                 ) : null}
               </View>
               <MaterialCommunityIcons name="chevron-right" size={21} color={theme.color.subtleInk} />
@@ -149,8 +160,10 @@ export default function ThisWeekList({
 const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   section: { gap: theme.space.md },
   header: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: theme.space.md },
+  headingCopy: { flex: 1, gap: 2 },
   headerMeta: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
   heading: { color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
+  dateRange: { color: theme.color.subtleInk, fontSize: theme.type.size.xs },
   progress: { color: theme.color.subtleInk, fontSize: theme.type.size.xs },
   list: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.color.border },
   row: { minHeight: 66, flexDirection: "row", alignItems: "center", gap: theme.space.sm, paddingHorizontal: theme.space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.border },

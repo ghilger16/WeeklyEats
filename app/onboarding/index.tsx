@@ -2,7 +2,6 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { memberColorPalette } from "../../components/meals/FamilyRatingIcons";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
@@ -22,24 +22,19 @@ import {
   PLANNED_WEEK_ORDER,
   PlannedWeekDayKey,
 } from "../../types/weekPlan";
-import {
-  setOnboardingAccount,
-  setOnboardingCompleted,
-} from "../../stores/onboardingStorage";
+import { setOnboardingCompleted } from "../../stores/onboardingStorage";
 import { deriveFamilyInitials } from "../../utils/familyInitials";
 
 type OnboardingStep =
   | "welcome"
-  | "account"
-  | "trust"
+  | "benefits"
   | "shoppingDay"
   | "family"
   | "paywall";
 
 const STEPS: OnboardingStep[] = [
   "welcome",
-  "account",
-  "trust",
+  "benefits",
   "shoppingDay",
   "family",
   "paywall",
@@ -52,15 +47,12 @@ export default function OnboardingScreen() {
   const { setStartDay, startDay } = useWeekStartController();
   const { addMember } = useFamilyMembers();
   const [stepIndex, setStepIndex] = useState(0);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [shoppingDay, setShoppingDay] =
     useState<PlannedWeekDayKey>(startDay);
   const [familyMembers, setFamilyMembers] = useState<
     Array<{ id: string; name: string }>
   >([]);
   const [familyMemberInput, setFamilyMemberInput] = useState("");
-  const [isFamilyDeleteMode, setFamilyDeleteMode] = useState(false);
   const [isFinishing, setFinishing] = useState(false);
   const familyMemberInputRef = useRef<TextInput | null>(null);
 
@@ -81,10 +73,6 @@ export default function OnboardingScreen() {
     }
 
     setFinishing(true);
-    await setOnboardingAccount({
-      email: email.trim(),
-      password,
-    });
     await setStartDay(shoppingDay);
 
     for (const member of familyMembers) {
@@ -98,27 +86,12 @@ export default function OnboardingScreen() {
     router.replace("/week-dashboard");
   }, [
     addMember,
-    email,
     familyMembers,
     isFinishing,
-    password,
     router,
     setStartDay,
     shoppingDay,
   ]);
-
-  const handleAccountContinue = useCallback(async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert("Account setup", "Add an email and password to continue.");
-      return;
-    }
-
-    await setOnboardingAccount({
-      email: email.trim(),
-      password,
-    });
-    goNext();
-  }, [email, goNext, password]);
 
   const familyInitialsMap = useMemo(
     () => deriveFamilyInitials(familyMembers),
@@ -150,22 +123,11 @@ export default function OnboardingScreen() {
       },
     ]);
     setFamilyMemberInput("");
-    setFamilyDeleteMode(false);
-    requestAnimationFrame(() => {
-      familyMemberInputRef.current?.focus();
-    });
   }, [familyMemberInput, familyMembers]);
 
   const handleRemoveFamilyMember = useCallback((id: string) => {
     setFamilyMembers((prev) => prev.filter((member) => member.id !== id));
   }, []);
-
-  const toggleFamilyDeleteMode = useCallback(() => {
-    if (familyMembers.length === 0) {
-      return;
-    }
-    setFamilyDeleteMode((prev) => !prev);
-  }, [familyMembers.length]);
 
   const renderStep = () => {
     switch (step) {
@@ -188,51 +150,28 @@ export default function OnboardingScreen() {
             </Pressable>
           </View>
         );
-      case "account":
+      case "benefits":
         return (
           <View style={styles.step}>
-            <Text style={styles.title}>Create your account</Text>
-            <Text style={styles.subtitle}>
-              We will save this locally for now and use it for sync later.
+            <Text style={styles.title}>
+              Make dinner one less thing to think about.
             </Text>
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Email"
-              placeholderTextColor={theme.color.subtleInk}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              style={styles.input}
-            />
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Password"
-              placeholderTextColor={theme.color.subtleInk}
-              secureTextEntry
-              style={styles.input}
-            />
-            <View style={styles.socialRow}>
-              <View style={styles.socialButton}>
-                <Text style={styles.socialButtonText}>Apple</Text>
-              </View>
-              <View style={styles.socialButton}>
-                <Text style={styles.socialButtonText}>Google</Text>
-              </View>
-            </View>
-            <Pressable style={styles.primaryButton} onPress={handleAccountContinue}>
-              <Text style={styles.primaryButtonText}>Continue</Text>
-            </Pressable>
-          </View>
-        );
-      case "trust":
-        return (
-          <View style={styles.step}>
-            <Text style={styles.title}>Built for calmer weeks</Text>
-            <View style={styles.badgeList}>
-              <TrustBadge icon="star" text="Rated 4.8 stars" />
-              <TrustBadge icon="lightbulb-on-outline" text="Saves families 2 hours a week" />
-              <TrustBadge icon="cash-multiple" text="Helps cut grocery waste" />
+            <View style={styles.benefitList}>
+              <BenefitCard
+                icon="calendar-check-outline"
+                title="Plan your week once"
+                text="Know what’s for dinner before the week gets busy."
+              />
+              <BenefitCard
+                icon="cart-outline"
+                title="Shop with a ready-made list"
+                text="Your planned meals automatically build your grocery list."
+              />
+              <BenefitCard
+                icon="heart-outline"
+                title="Remember what everyone loves"
+                text="Family ratings help bring the favorites back."
+              />
             </View>
             <Pressable style={styles.primaryButton} onPress={goNext}>
               <Text style={styles.primaryButtonText}>Continue</Text>
@@ -242,11 +181,9 @@ export default function OnboardingScreen() {
       case "shoppingDay":
         return (
           <View style={styles.step}>
-            <Text style={styles.title}>Pick your grocery reset day</Text>
+            <Text style={styles.title}>When do you usually grocery shop?</Text>
             <Text style={styles.subtitle}>
-              Choosing one shopping day each week gives your meal plan a clear
-              rhythm: plan before you shop, restock once, and start fresh on the
-              same day.
+              We’ll use this to know when it’s time to plan your next week.
             </Text>
             <Text style={styles.sectionLabel}>Grocery shopping day</Text>
             <View style={styles.dayGrid}>
@@ -280,56 +217,58 @@ export default function OnboardingScreen() {
         );
       case "family":
         return (
-          <View style={styles.step}>
-            <View style={styles.familyTable}>
-              <View style={styles.familyHandle} />
-              <View style={styles.familyHeader}>
-                <Text style={styles.familyEmoji}>🧑‍🍳</Text>
-                <Text style={styles.familyTitle}>Family Table</Text>
-                <Text style={styles.familySubtitle}>
-                  Add the people you cook for. We’ll keep their initials handy.
-                </Text>
-              </View>
+          <View style={styles.familyStep}>
+            <View style={styles.familyHeader}>
+              <Text style={styles.familyEmoji}>👩‍🍳</Text>
+              <Text style={styles.familyTitle}>Who are you cooking for?</Text>
+              <Text style={styles.familySubtitle}>
+                Add your family so everyone can rate meals.
+              </Text>
+            </View>
+            <View style={styles.familyManagement}>
+              <Text style={styles.familySectionLabel}>Your family</Text>
               {familyMembers.length > 0 ? (
-                <View style={styles.familyChipGrid}>
-                  {familyMembers.map((member) => (
-                    <Pressable
+                <View style={styles.familyList}>
+                  {familyMembers.map((member, index) => (
+                    <View
                       key={member.id}
-                      onPress={() => {
-                        if (isFamilyDeleteMode) {
-                          handleRemoveFamilyMember(member.id);
-                        }
-                      }}
-                      accessibilityRole={
-                        isFamilyDeleteMode ? "button" : undefined
-                      }
-                      accessibilityLabel={
-                        isFamilyDeleteMode
-                          ? `Remove ${member.name}`
-                          : `Family member ${member.name}`
-                      }
-                      style={({ pressed }) => [
-                        styles.familyChip,
-                        pressed && styles.familyChipPressed,
-                        isFamilyDeleteMode && styles.familyChipDeleteMode,
-                      ]}
+                      style={styles.familyRow}
                     >
-                      <View style={styles.familyChipInitial}>
-                        <Text style={styles.familyChipInitialText}>
+                      <View
+                        style={[
+                          styles.familyAvatar,
+                          {
+                            backgroundColor:
+                              memberColorPalette[
+                                index % memberColorPalette.length
+                              ],
+                          },
+                        ]}
+                      >
+                        <Text style={styles.familyAvatarText}>
                           {familyInitialsMap[member.id] ?? "?"}
                         </Text>
                       </View>
-                      <Text style={styles.familyChipName} numberOfLines={1}>
+                      <Text style={styles.familyMemberName} numberOfLines={1}>
                         {member.name}
                       </Text>
-                      {isFamilyDeleteMode ? (
+                      <Pressable
+                        onPress={() => handleRemoveFamilyMember(member.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${member.name}`}
+                        hitSlop={10}
+                        style={({ pressed }) => [
+                          styles.familyRemoveButton,
+                          pressed && styles.familyControlPressed,
+                        ]}
+                      >
                         <MaterialCommunityIcons
                           name="close"
-                          size={16}
+                          size={19}
                           color={theme.color.subtleInk}
                         />
-                      ) : null}
-                    </Pressable>
+                      </Pressable>
+                    </View>
                   ))}
                 </View>
               ) : null}
@@ -343,31 +282,21 @@ export default function OnboardingScreen() {
                   style={styles.familyTextInput}
                   autoCapitalize="words"
                   returnKeyType="done"
-                  blurOnSubmit={false}
                   onSubmitEditing={handleAddFamilyMember}
                 />
                 <Pressable
-                  onPress={toggleFamilyDeleteMode}
-                  disabled={familyMembers.length === 0}
+                  onPress={handleAddFamilyMember}
                   accessibilityRole="button"
-                  accessibilityLabel={
-                    isFamilyDeleteMode
-                      ? "Exit delete mode"
-                      : "Delete family members"
-                  }
+                  accessibilityLabel="Add family member"
                   style={({ pressed }) => [
-                    styles.familyTrashButton,
-                    pressed &&
-                      familyMembers.length > 0 &&
-                      styles.familyTrashPressed,
-                    isFamilyDeleteMode && styles.familyTrashActive,
-                    familyMembers.length === 0 && styles.familyTrashDisabled,
+                    styles.familyAddButton,
+                    pressed && styles.familyControlPressed,
                   ]}
                 >
                   <MaterialCommunityIcons
-                    name={isFamilyDeleteMode ? "trash-can" : "trash-can-outline"}
-                    size={28}
-                    color={theme.color.ink}
+                    name="plus"
+                    size={22}
+                    color={theme.color.accent}
                   />
                 </Pressable>
               </View>
@@ -375,6 +304,7 @@ export default function OnboardingScreen() {
             <Pressable
               style={[
                 styles.primaryButton,
+                styles.familyContinueButton,
                 familyMembers.length === 0 && styles.primaryButtonDisabled,
               ]}
               onPress={goNext}
@@ -387,9 +317,7 @@ export default function OnboardingScreen() {
                     styles.primaryButtonTextDisabled,
                 ]}
               >
-                {familyMembers.length === 0
-                  ? "Add at least one member"
-                  : "Family Table Complete"}
+                Continue
               </Text>
             </Pressable>
           </View>
@@ -404,13 +332,21 @@ export default function OnboardingScreen() {
             <View style={styles.priceCard}>
               <Text style={styles.priceBadge}>Best value</Text>
               <Text style={styles.priceTitle}>$34.99 / year</Text>
-              <Text style={styles.priceSubtext}>Start with a free trial</Text>
+              <Text style={styles.priceSubtext}>
+                7 days free, then $34.99/year
+              </Text>
             </View>
             <View style={styles.secondaryPriceCard}>
               <Text style={styles.priceTitle}>$4.99 / month</Text>
             </View>
-            <Pressable style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>Start Free Trial</Text>
+            <Pressable
+              style={styles.primaryButton}
+              onPress={finishOnboarding}
+              disabled={isFinishing}
+            >
+              <Text style={styles.primaryButtonText}>
+                {isFinishing ? "Starting..." : "Start Free Trial"}
+              </Text>
             </Pressable>
             <Pressable
               style={styles.skipButton}
@@ -423,11 +359,11 @@ export default function OnboardingScreen() {
             </Pressable>
             <View style={styles.featureList}>
               {[
-                "Unlimited Meals",
-                "Grocery Staples",
-                "Family Ratings",
-                "Freezer Stash",
-                "Widgets",
+                "Plan your whole week in seconds",
+                "Build your grocery list automatically",
+                "Remember what your family actually likes",
+                "Keep track of freezer meals",
+                "Get smarter meal suggestions over time",
               ].map((feature) => (
                 <View style={styles.featureRow} key={feature}>
                   <MaterialCommunityIcons
@@ -443,7 +379,7 @@ export default function OnboardingScreen() {
               <Text style={styles.faqTitle}>Can I use it free?</Text>
               <Text style={styles.faqText}>
                 Yes. Free keeps the basics available with limits while Pro
-                unlocks the full weekly system.
+                unlocks the full weekly planning experience.
               </Text>
             </View>
           </View>
@@ -483,13 +419,30 @@ export default function OnboardingScreen() {
   );
 }
 
-function TrustBadge({ icon, text }: { icon: any; text: string }) {
+function BenefitCard({
+  icon,
+  title,
+  text,
+}: {
+  icon: any;
+  title: string;
+  text: string;
+}) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   return (
-    <View style={styles.trustBadge}>
-      <MaterialCommunityIcons name={icon} size={22} color={theme.color.accent} />
-      <Text style={styles.trustText}>{text}</Text>
+    <View style={styles.benefitCard}>
+      <View style={styles.benefitIcon}>
+        <MaterialCommunityIcons
+          name={icon}
+          size={24}
+          color={theme.color.accent}
+        />
+      </View>
+      <View style={styles.benefitCopy}>
+        <Text style={styles.benefitTitle}>{title}</Text>
+        <Text style={styles.benefitText}>{text}</Text>
+      </View>
     </View>
   );
 }
@@ -574,16 +527,6 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.base,
       lineHeight: theme.type.size.base * 1.4,
     },
-    input: {
-      backgroundColor: theme.color.surface,
-      borderRadius: theme.radius.md,
-      paddingHorizontal: theme.space.lg,
-      paddingVertical: theme.space.md,
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
     primaryButton: {
       minHeight: 52,
       borderRadius: theme.radius.xl,
@@ -603,29 +546,10 @@ const createStyles = (theme: WeeklyTheme) =>
     primaryButtonTextDisabled: {
       color: theme.color.subtleInk,
     },
-    socialRow: {
-      flexDirection: "row",
-      gap: theme.space.sm,
-    },
-    socialButton: {
-      flex: 1,
-      minHeight: 48,
-      borderRadius: theme.radius.md,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    socialButtonText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
-    },
-    badgeList: {
+    benefitList: {
       gap: theme.space.md,
     },
-    trustBadge: {
+    benefitCard: {
       flexDirection: "row",
       alignItems: "center",
       gap: theme.space.md,
@@ -635,11 +559,27 @@ const createStyles = (theme: WeeklyTheme) =>
       borderWidth: 1,
       borderColor: theme.color.cardOutline,
     },
-    trustText: {
+    benefitIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: theme.radius.md,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    benefitCopy: {
       flex: 1,
+      gap: theme.space.xs,
+    },
+    benefitTitle: {
       color: theme.color.ink,
       fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
+      fontWeight: theme.type.weight.bold,
+    },
+    benefitText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      lineHeight: theme.type.size.sm * 1.35,
     },
     sectionLabel: {
       color: theme.color.subtleInk,
@@ -675,30 +615,18 @@ const createStyles = (theme: WeeklyTheme) =>
     dayChipTextSelected: {
       color: theme.color.ink,
     },
-    familyTable: {
-      gap: theme.space.lg,
-      paddingHorizontal: theme.space.xl,
-      paddingTop: theme.space.lg,
-      paddingBottom: theme.space["2xl"],
-      marginHorizontal: -theme.space.xl,
-      borderTopLeftRadius: theme.radius.xl,
-      borderTopRightRadius: theme.radius.xl,
-      backgroundColor: theme.color.surface,
-    },
-    familyHandle: {
-      alignSelf: "center",
-      width: 52,
-      height: 5,
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.surfaceAlt,
-      opacity: 0.8,
+    familyStep: {
+      flex: 1,
+      gap: theme.space.xl,
     },
     familyHeader: {
       alignItems: "center",
-      gap: theme.space.sm,
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.sm,
+      marginBottom: theme.space.sm,
     },
     familyEmoji: {
-      fontSize: 36,
+      fontSize: 42,
     },
     familyTitle: {
       color: theme.color.ink,
@@ -712,82 +640,85 @@ const createStyles = (theme: WeeklyTheme) =>
       lineHeight: theme.type.size.base * 1.25,
       textAlign: "center",
     },
-    familyChipGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
+    familyManagement: {
       gap: theme.space.sm,
     },
-    familyChip: {
+    familySectionLabel: {
+      marginBottom: theme.space.xs,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
+      textTransform: "uppercase",
+      letterSpacing: 1,
+    },
+    familyList: {
+      gap: theme.space.xs,
+    },
+    familyRow: {
+      minHeight: 48,
       flexDirection: "row",
       alignItems: "center",
       gap: theme.space.sm,
-      maxWidth: "100%",
-      borderRadius: theme.radius.full,
-      paddingVertical: theme.space.xs,
-      paddingLeft: theme.space.xs,
-      paddingRight: theme.space.md,
+      borderRadius: theme.radius.md,
+      paddingHorizontal: theme.space.sm,
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
     },
-    familyChipPressed: {
-      opacity: 0.8,
-    },
-    familyChipDeleteMode: {
-      borderColor: theme.color.danger,
-    },
-    familyChipInitial: {
-      width: 34,
-      height: 34,
+    familyAvatar: {
+      width: 32,
+      height: 32,
       borderRadius: theme.radius.full,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: theme.color.accent,
     },
-    familyChipInitialText: {
-      color: theme.color.ink,
+    familyAvatarText: {
+      color: "#FFFFFF",
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.bold,
     },
-    familyChipName: {
+    familyMemberName: {
+      flex: 1,
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.medium,
-      maxWidth: 180,
     },
-    familyInputRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.md,
-    },
-    familyTextInput: {
-      flex: 1,
-      minHeight: 64,
-      borderRadius: theme.radius.lg,
-      backgroundColor: theme.color.surfaceAlt,
-      color: theme.color.ink,
-      fontSize: theme.type.size.h2,
-      paddingHorizontal: theme.space.lg,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    familyTrashButton: {
-      width: 72,
-      height: 72,
+    familyRemoveButton: {
+      width: 32,
+      height: 32,
       borderRadius: theme.radius.full,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: theme.color.accent,
     },
-    familyTrashPressed: {
-      opacity: 0.82,
+    familyInputRow: {
+      minHeight: 48,
+      flexDirection: "row",
+      alignItems: "center",
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
     },
-    familyTrashActive: {
-      borderWidth: 2,
-      borderColor: theme.color.ink,
+    familyTextInput: {
+      flex: 1,
+      minHeight: 48,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      paddingHorizontal: theme.space.md,
     },
-    familyTrashDisabled: {
-      opacity: 0.5,
+    familyAddButton: {
+      width: 44,
+      height: 44,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: theme.space.xs,
+    },
+    familyControlPressed: {
+      opacity: 0.65,
+    },
+    familyContinueButton: {
+      marginTop: "auto",
     },
     priceCard: {
       gap: theme.space.xs,

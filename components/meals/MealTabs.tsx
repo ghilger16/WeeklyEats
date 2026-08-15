@@ -37,11 +37,11 @@ const MealTabs = ({ activeTab, onChange, incompleteCount = 0 }: Props) => {
     () => [
       { key: "all" as const, label: "All" },
       { key: "favorites" as const, label: "Freezer" },
-      ...(incompleteCount > 0
+      ...(incompleteCount > 0 || activeTab === "complete"
         ? [{ key: "complete" as const, label: "Complete" }]
         : []),
     ],
-    [incompleteCount]
+    [activeTab, incompleteCount]
   );
   const indicatorX = useRef(new Animated.Value(0)).current;
   const indicatorWidth = useRef(new Animated.Value(0)).current;

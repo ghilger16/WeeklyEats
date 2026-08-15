@@ -20,6 +20,7 @@ import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 import { setFamilyRatingValue } from "../../utils/familyRatings";
 import FreezerAmountModal from "../meals/FreezerAmountModal";
 import FamilyRatingRow from "../meals/FamilyRatingRow";
+import { EAT_OUT_MEAL_ID } from "../../types/specialMeals";
 
 type Props = {
   day: WeekPlanDay | null;
@@ -82,6 +83,10 @@ export default function MealRowDetailsSheet({
   if (!day?.meal) return null;
   const meal = day.meal;
   const isServed = servedEntry?.outcome === "served";
+  const isPending =
+    day.status === "past" &&
+    !servedEntry &&
+    day.mealId !== EAT_OUT_MEAL_ID;
   const date = day.plannedDate.toLocaleDateString(undefined, {
     weekday: "long",
     month: "short",
@@ -185,7 +190,7 @@ export default function MealRowDetailsSheet({
                   {action("Add to Freezer", "snowflake", () => setFreezerVisible(true))}
                   {action("Add Prep Note", "note-edit-outline", () => act(onViewMeal))}
                 </>
-              ) : day.status === "today"
+              ) : isPending
                 ? action(
                     "Mark as Served",
                     "calendar-check",

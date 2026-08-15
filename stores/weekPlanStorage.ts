@@ -36,6 +36,7 @@ export type WeekPlanHistoryEntry = {
   weekStartISO: string;
   completedAtISO: string;
   plan: CurrentPlannedWeek;
+  mealTitles?: Record<string, string>;
 };
 
 const isValidISODateString = (value: unknown): value is string =>
@@ -588,6 +589,10 @@ const getWeekPlanHistoryInternal = async (): Promise<WeekPlanHistoryEntry[]> => 
           weekStartISO: maybe.weekStartISO.slice(0, 10),
           completedAtISO: maybe.completedAtISO,
           plan: normalizedPlan,
+          mealTitles:
+            maybe.mealTitles && typeof maybe.mealTitles === "object"
+              ? maybe.mealTitles
+              : undefined,
         } as WeekPlanHistoryEntry;
       })
       .filter(Boolean) as WeekPlanHistoryEntry[];
@@ -636,6 +641,26 @@ export const addWeekPlanHistory = async (
 
 export const getWeekPlanHistory = async (): Promise<WeekPlanHistoryEntry[]> => {
   return getWeekPlanHistoryInternal();
+};
+
+export const snapshotMealTitleInWeekPlanHistory = async (
+  mealId: Meal["id"],
+  mealTitle: string,
+): Promise<void> => {
+  const existing = await getWeekPlanHistoryInternal();
+  let changed = false;
+  const next = existing.map((entry) => {
+    const referencesMeal = PLANNED_WEEK_ORDER.some(
+      (day) => entry.plan[day] === mealId,
+    );
+    if (!referencesMeal || entry.mealTitles?.[mealId]) return entry;
+    changed = true;
+    return {
+      ...entry,
+      mealTitles: { ...(entry.mealTitles ?? {}), [mealId]: mealTitle },
+    };
+  });
+  if (changed) await saveWeekPlanHistoryInternal(next);
 };
 
 export const removeSampleWeekPlanHistory =

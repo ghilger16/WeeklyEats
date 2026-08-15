@@ -153,4 +153,18 @@ export const clearServedMeals = async (): Promise<void> => {
   }
 };
 
+export const snapshotServedMealTitle = async (
+  mealId: string,
+  mealTitle: string,
+): Promise<void> => {
+  const existing = await getServedMeals();
+  let changed = false;
+  const next = existing.map((entry) => {
+    if (entry.mealId !== mealId || entry.servedTitle) return entry;
+    changed = true;
+    return { ...entry, servedTitle: mealTitle };
+  });
+  if (changed) await setServedMeals(next);
+};
+
 export const servedMealsStorageKey = STORAGE_KEY;

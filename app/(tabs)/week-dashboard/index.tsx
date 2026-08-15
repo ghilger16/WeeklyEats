@@ -22,6 +22,8 @@ import TomorrowPreview from "../../../components/week-dashboard/TomorrowPreview"
 import ThisWeekList from "../../../components/week-dashboard/ThisWeekList";
 import MealRowDetailsSheet from "../../../components/week-dashboard/MealRowDetailsSheet";
 import GroceryDayBanner from "../../../components/week-dashboard/GroceryDayBanner";
+import UpcomingWeekReadyCard from "../../../components/week-dashboard/UpcomingWeekReadyCard";
+import ChangeMealIdentity from "../../../components/week-dashboard/ChangeMealIdentity";
 import DayPlannedToast from "../../../components/plan-week/planned-meals/DayPlannedToast";
 import DateControls from "../../../components/week-dashboard/DateControls";
 import SuggestMealModal from "../../../components/plan-week/suggestions/SuggestMealModal";
@@ -69,10 +71,7 @@ import {
 import { clearServedMeals } from "../../../stores/servedMealsStorage";
 import type { ServedOutcome } from "../../../components/week-dashboard/servedActions";
 import { getRandomCelebrationMessage } from "../../../components/week-dashboard/celebrations";
-import {
-  formatPlanningDayRange,
-  getRemainingPlanningDays,
-} from "../../../utils/remainingWeekPlanning";
+import { getRemainingPlanningDays } from "../../../utils/remainingWeekPlanning";
 import useDayPins from "../../../hooks/plan-week/useDayPins";
 import { DayPinsState, normalizeDayPinsState } from "../../../types/dayPins";
 import { Meal } from "../../../types/meals";
@@ -80,6 +79,7 @@ import { FamilyRatingValue } from "../../../types/meals";
 import { useFamilyMembers } from "../../../hooks/useFamilyMembers";
 import { getFamilyRatingSummary, setFamilyRatingValue } from "../../../utils/familyRatings";
 import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
+import { promoteSavedSides } from "../../../components/plan-week/inline/sideOptions";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>(
@@ -238,6 +238,25 @@ export default function WeekDashboardScreen() {
       ),
     [nextWeekPlan, orderedDays]
   );
+  const isUpcomingWeekReady =
+    nextWeekPlan?.weekedPlanned === true &&
+    nextWeekPlannedDayCount > 0 &&
+    startOfDay(effectiveDate).getTime() < nextWeekStart.getTime();
+  const upcomingWeekStartsLabel = useMemo(() => {
+    const tomorrow = startOfDay(addDays(effectiveDate, 1));
+    if (tomorrow.getTime() === nextWeekStart.getTime()) {
+      return "Your new week starts tomorrow";
+    }
+    const weekday = nextWeekStart.toLocaleDateString("en-US", {
+      weekday: "long",
+    });
+    return `Your new week starts ${weekday}`;
+  }, [effectiveDate, nextWeekStart]);
+  const upcomingWeekDateRange = useMemo(() => {
+    const format = (date: Date) =>
+      date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return `${format(nextWeekStart)} – ${format(addDays(nextWeekStart, 6))}`;
+  }, [nextWeekStart]);
   const showGroceryDayBanner =
     isWeekStartHydrated &&
     todayPlanDay === startDay &&
@@ -606,6 +625,22 @@ export default function WeekDashboardScreen() {
       setBrowseMealsVisible(false);
     },
     [todaySwapSides]
+  );
+
+  const handleSelectReplacementMealWithSides = useCallback(
+    (meal: Meal, selectedSides: string[]) => {
+      updateMeal({
+        id: meal.id,
+        suggestedSides: promoteSavedSides(
+          selectedSides,
+          meal.suggestedSides,
+        ),
+        updatedAt: new Date().toISOString(),
+      });
+      setPendingReplacement({ meal, sides: selectedSides });
+      setBrowseMealsVisible(false);
+    },
+    [updateMeal],
   );
 
   const handleSelectReplacementEatOut = useCallback(
@@ -1258,10 +1293,6 @@ export default function WeekDashboardScreen() {
     () => getRemainingPlanningDays(startDay, effectiveDate),
     [effectiveDate, startDay]
   );
-  const remainingPlanningRange = useMemo(
-    () => formatPlanningDayRange(remainingPlanningDays),
-    [remainingPlanningDays]
-  );
   const resetDayName = PLANNED_WEEK_DISPLAY_NAMES[startDay];
   const planningReminderDayName =
     PLANNED_WEEK_DISPLAY_NAMES[getDayBefore(startDay)];
@@ -1431,11 +1462,10 @@ export default function WeekDashboardScreen() {
               color={theme.color.accent}
             />
           </View>
-          <Text style={styles.setupTitle}>Add a few meals first</Text>
+          <Text style={styles.setupTitle}>Add your first meal</Text>
           <Text style={styles.setupSubtitle}>
-            Weekly Eats plans from your meal library. Add meals manually or
-            share recipe links from Safari, then come back here to build your
-            week.
+            Weekly Eats builds your plan from meals you love. Add one manually
+            or import a recipe to get started.
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -1463,20 +1493,38 @@ export default function WeekDashboardScreen() {
         </View>
         <Text style={styles.setupTitle}>Ready to plan?</Text>
         <Text style={styles.setupSubtitle}>
-          Your weekly shopping day is {resetDayName}, so your planning rhythm is
-          every {planningReminderDayName}. For today, choose what you want to
-          set up.
+          Your shopping day is {resetDayName}, so {planningReminderDayName} is
+          your weekly planning day.
         </Text>
-        {remainingPlanningDays.length > 0 ? (
-          <Text style={styles.setupHelper}>
-            Rest of this week covers {remainingPlanningRange}.
-          </Text>
+        {meals.length <= 2 ? (
+          <View style={styles.mealCollectionHint}>
+            <View style={styles.mealCollectionIcon}>
+              <MaterialCommunityIcons
+                name="silverware-fork-knife"
+                size={19}
+                color={theme.color.accent}
+              />
+            </View>
+            <View style={styles.mealCollectionCopy}>
+              <Text
+                style={styles.mealCollectionTitle}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+              >
+                {meals.length} {meals.length === 1 ? "meal" : "meals"} in your collection
+              </Text>
+              <Text style={styles.mealCollectionSubtitle}>
+                Add more anytime for better suggestions.
+              </Text>
+            </View>
+          </View>
         ) : null}
         <View style={styles.setupActions}>
-          {remainingPlanningDays.length > 0 ? (
+          {remainingPlanningDays.length >= 2 ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Plan the rest of the current week"
+              accessibilityLabel="Plan this week"
               onPress={handlePlanRemainingWeek}
               style={({ pressed }) => [
                 styles.setupPrimaryButton,
@@ -1484,35 +1532,49 @@ export default function WeekDashboardScreen() {
               ]}
             >
               <Text style={styles.setupPrimaryText}>
-                Plan rest of this week
+                Plan this week
               </Text>
             </Pressable>
           ) : null}
-          {canPlanNextWeek ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Plan next week"
-              onPress={handlePlanNextWeek}
-              style={({ pressed }) => [
-                styles.setupPrimaryButton,
-                pressed && styles.setupButtonPressed,
-              ]}
-            >
-              <Text style={styles.setupPrimaryText}>Plan next week</Text>
-            </Pressable>
-          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Plan next week"
+            onPress={handlePlanNextWeek}
+            style={({ pressed }) => [
+              styles.setupPrimaryButton,
+              pressed && styles.setupButtonPressed,
+            ]}
+          >
+            <Text style={styles.setupPrimaryText}>Plan next week</Text>
+          </Pressable>
         </View>
+        {meals.length <= 2 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add more meals"
+            onPress={handleGoToMeals}
+            style={({ pressed }) => [
+              styles.addMoreMealsAction,
+              pressed && styles.setupButtonPressed,
+            ]}
+          >
+            <MaterialCommunityIcons
+              name="plus"
+              size={18}
+              color={theme.color.accent}
+            />
+            <Text style={styles.addMoreMealsText}>Add more meals</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }, [
     handleGoToMeals,
     handlePlanNextWeek,
     handlePlanRemainingWeek,
-    canPlanNextWeek,
     meals.length,
     planningReminderDayName,
     remainingPlanningDays.length,
-    remainingPlanningRange,
     resetDayName,
     showSetupCard,
     styles,
@@ -1646,10 +1708,30 @@ export default function WeekDashboardScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {setupCard}
+            {isUpcomingWeekReady ? null : setupCard}
 
             <View style={styles.stack}>
-              {showWeekPlanDetails ? (
+              {isUpcomingWeekReady ? (
+                <>
+                  <UpcomingWeekReadyCard
+                    dateLabel={formattedDate}
+                    startsLabel={upcomingWeekStartsLabel}
+                    dinnerCount={nextWeekPlannedDayCount}
+                    onViewGroceryList={() => router.push("/grocery-list")}
+                  />
+                  <ThisWeekList
+                    title="Next Week"
+                    dateRange={upcomingWeekDateRange}
+                    days={nextWeekDays}
+                    servedEntries={[]}
+                    showProgress={false}
+                    preview
+                    onDayPress={(day) => {
+                      setSelectedDashboardDay(day);
+                    }}
+                  />
+                </>
+              ) : showWeekPlanDetails ? (
                 <>
                   {showTopPlanButton ? (
                     <Pressable
@@ -1805,12 +1887,7 @@ export default function WeekDashboardScreen() {
                     <Text style={styles.swapConfirmationDay}>
                       {activeChangePlanDay.displayName}
                     </Text>
-                    <Text style={styles.swapConfirmationEmoji}>
-                      {activeChangePlanDay.meal.emoji}
-                    </Text>
-                    <Text style={styles.swapConfirmationTitle}>
-                      {activeChangePlanDay.meal.title}
-                    </Text>
+                    <ChangeMealIdentity meal={activeChangePlanDay.meal} />
                   </View>
                   <MaterialCommunityIcons
                     name="swap-vertical"
@@ -1822,12 +1899,9 @@ export default function WeekDashboardScreen() {
                     <Text style={styles.swapConfirmationDay}>
                       {selectedSwapOption.displayName}
                     </Text>
-                    <Text style={styles.swapConfirmationEmoji}>
-                      {selectedSwapOption.meal?.emoji}
-                    </Text>
-                    <Text style={styles.swapConfirmationTitle}>
-                      {selectedSwapOption.meal?.title}
-                    </Text>
+                    {selectedSwapOption.meal ? (
+                      <ChangeMealIdentity meal={selectedSwapOption.meal} />
+                    ) : null}
                   </View>
                 </View>
                 <View style={styles.swapConfirmationActions}>
@@ -1889,12 +1963,9 @@ export default function WeekDashboardScreen() {
                         ]}
                       >
                         <Text style={styles.swapDayLabel}>{day.label}</Text>
-                        <Text style={styles.swapMealEmoji}>
-                          {day.meal?.emoji}
-                        </Text>
-                        <Text style={styles.swapMealTitle} numberOfLines={1}>
-                          {day.meal?.title}
-                        </Text>
+                        {day.meal ? (
+                          <ChangeMealIdentity meal={day.meal} />
+                        ) : null}
                         <MaterialCommunityIcons
                           name="chevron-right"
                           size={22}
@@ -1943,12 +2014,15 @@ export default function WeekDashboardScreen() {
       <SuggestMealModal
         visible={isBrowseMealsVisible}
         dayName={PLANNED_WEEK_DISPLAY_NAMES[changePlanDayKey]}
+        dayKey={changePlanDayKey}
+        history={servedEntries}
         mode="changeDinner"
         currentMeal={activeChangePlanDay?.meal ?? null}
         suggestion={todaySuggestionEntry}
         canSuggestAnother={todaySuggestionPool.length > 1}
         onDismiss={handleDismissBrowseMeals}
         onAddMeal={handleSelectReplacementMeal}
+        onAddMealWithSides={handleSelectReplacementMealWithSides}
         onSuggestAnother={handleSuggestAnotherTodayMeal}
         meals={sortedMeals}
         onSelectSearchMeal={handleSelectReplacementMeal}
@@ -1997,12 +2071,7 @@ export default function WeekDashboardScreen() {
                   <View>
                     <Text style={styles.swapReplaceSectionLabel}>Today</Text>
                     <View style={styles.swapConfirmationMeal}>
-                      <Text style={styles.swapConfirmationEmoji}>
-                        {today.meal.emoji}
-                      </Text>
-                      <Text style={styles.swapConfirmationTitle}>
-                        {today.meal.title}
-                      </Text>
+                      <ChangeMealIdentity meal={today.meal} />
                     </View>
                   </View>
                   <View>
@@ -2010,12 +2079,7 @@ export default function WeekDashboardScreen() {
                       Replace With
                     </Text>
                     <View style={styles.swapConfirmationMeal}>
-                      <Text style={styles.swapConfirmationEmoji}>
-                        {pendingReplacement.meal.emoji}
-                      </Text>
-                      <Text style={styles.swapConfirmationTitle}>
-                        {pendingReplacement.meal.title}
-                      </Text>
+                      <ChangeMealIdentity meal={pendingReplacement.meal} />
                     </View>
                   </View>
                 </View>
@@ -2095,12 +2159,7 @@ export default function WeekDashboardScreen() {
             {today?.meal && displacedMealStep === "decision" ? (
               <>
                 <View style={styles.displacedMealSummary}>
-                  <Text style={styles.swapConfirmationEmoji}>
-                    {today.meal.emoji}
-                  </Text>
-                  <Text style={styles.swapConfirmationTitle}>
-                    {today.meal.title}
-                  </Text>
+                  <ChangeMealIdentity meal={today.meal} />
                 </View>
                 <View style={styles.displacedIntro}>
                   <Text style={styles.displacedIntroTitle}>
@@ -2364,13 +2423,51 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.base,
       lineHeight: theme.type.size.base * 1.4,
     },
-    setupHelper: {
+    setupActions: {
+      gap: theme.space.sm,
+    },
+    mealCollectionHint: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      padding: theme.space.md,
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    mealCollectionIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.focus,
+    },
+    mealCollectionCopy: { flex: 1, gap: 3 },
+    mealCollectionTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    mealCollectionSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
+      lineHeight: theme.type.size.xs * 1.35,
+    },
+    addMoreMealsAction: {
+      minHeight: 36,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.xs,
+      alignSelf: "center",
+      paddingHorizontal: theme.space.md,
+    },
+    addMoreMealsText: {
       color: theme.color.accent,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,
-    },
-    setupActions: {
-      gap: theme.space.sm,
     },
     setupPrimaryButton: {
       minHeight: theme.component.button.height,
@@ -2593,17 +2690,6 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.bold,
     },
-    swapMealEmoji: {
-      width: 26,
-      textAlign: "center",
-      fontSize: 20,
-    },
-    swapMealTitle: {
-      flex: 1,
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
-    },
     swapRowPressed: {
       opacity: 0.72,
     },
@@ -2731,17 +2817,6 @@ const createStyles = (theme: WeeklyTheme) =>
       lineHeight: 17,
     },
     moveDayTitle: {
-      flex: 1,
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.bold,
-    },
-    swapConfirmationEmoji: {
-      width: 30,
-      textAlign: "center",
-      fontSize: 24,
-    },
-    swapConfirmationTitle: {
       flex: 1,
       color: theme.color.ink,
       fontSize: theme.type.size.base,

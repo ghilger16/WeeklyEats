@@ -1,5 +1,6 @@
 import {
   Alert,
+  AccessibilityInfo,
   Animated,
   AppState,
   Easing,
@@ -29,6 +30,7 @@ import MealSearchModal from "../../../components/meals/MealSearchModal";
 import MealTabs, { type MealTabKey } from "../../../components/meals/MealTabs";
 import MealModalOverlay from "../../../components/meals/MealModalOverlay";
 import MealCompletionCard from "../../../components/meals/MealCompletionCard";
+import PlannedMealDeletionModal from "../../../components/meals/PlannedMealDeletionModal";
 import MealSearchInput, {
   type MealSortSelection,
 } from "../../../components/meals/MealSearchInput";
@@ -40,8 +42,17 @@ import { useWeekStartController } from "../../../providers/week-start/WeekStartC
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 import { Ingredient, Meal, MealDraft, createMealId } from "../../../types/meals";
-import { addSavedMealIdeaToWeekPlan } from "../../../stores/weekPlanStorage";
+import {
+  addSavedMealIdeaToWeekPlan,
+  clearWeekPlanData,
+  snapshotMealTitleInWeekPlanHistory,
+} from "../../../stores/weekPlanStorage";
+import { snapshotServedMealTitle } from "../../../stores/servedMealsStorage";
 import { getNextWeekStartForDate } from "../../../utils/weekDays";
+import {
+  getActivePlannedMealOccurrences,
+  PlannedMealOccurrence,
+} from "../../../utils/plannedMealDeletion";
 import {
   getPendingRecipeImports,
   removePendingRecipeImport,
@@ -222,6 +233,65 @@ const normalizeRecipeUrl = (recipeUrl?: string | null) => {
   }
 };
 
+const AnimatedCount = ({ value, style }: { value: number; style: object }) => {
+  const [displayValue, setDisplayValue] = useState(value);
+  const progress = useRef(new Animated.Value(1)).current;
+  const reduceMotionRef = useRef(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      reduceMotionRef.current = enabled;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (value === displayValue) return;
+    if (reduceMotionRef.current) {
+      setDisplayValue(value);
+      return;
+    }
+    Animated.timing(progress, {
+      toValue: 0,
+      duration: 110,
+      useNativeDriver: true,
+    }).start(() => {
+      setDisplayValue(value);
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 170,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [displayValue, progress, value]);
+
+  return (
+    <Animated.Text
+      style={[
+        style,
+        {
+          opacity: progress,
+          transform: [
+            {
+              translateY: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [5, 0],
+              }),
+            },
+            {
+              scale: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.94, 1],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      {displayValue}
+    </Animated.Text>
+  );
+};
+
 export default function MealsScreen() {
   const { url: sharedRecipeUrlParam, mealId: requestedMealIdParam } = useLocalSearchParams<{
     url?: string | string[];
@@ -234,7 +304,7 @@ export default function MealsScreen() {
   const { members } = useFamilyMembers();
   const { mode: ratingDisplayMode, setMode: setRatingDisplayMode } = useRatingDisplayMode();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { startDay } = useWeekStartController();
+  const { startDay, orderedDays } = useWeekStartController();
   const {
     meals,
     favorites,
@@ -247,6 +317,7 @@ export default function MealsScreen() {
     deleteMeal,
   } = useMeals();
   const [activeTab, setActiveTab] = useState<MealTabKey>("all");
+  const mealsListRef = useRef<FlatList<Meal> | null>(null);
   const [selectedMealId, setSelectedMealId] = useState<string | undefined>();
   const openedRequestedMealRef = useRef<string | null>(null);
   const [isModalVisible, setModalVisible] = useState(false);
@@ -290,6 +361,10 @@ export default function MealsScreen() {
   const [pendingSuggestMeal, setPendingSuggestMeal] = useState<Meal | null>(
     null
   );
+  const [plannedMealDeletion, setPlannedMealDeletion] = useState<{
+    meal: Meal;
+    occurrences: PlannedMealOccurrence[];
+  } | null>(null);
   const contentProgress = useRef(new Animated.Value(0)).current;
 
   const animateContent = useCallback(
@@ -527,6 +602,7 @@ export default function MealsScreen() {
     () => sortMealsList(incompleteMeals),
     [incompleteMeals, sortMealsList]
   );
+  const completedMealCount = Math.max(0, meals.length - incompleteMeals.length);
 
   const data =
     activeTab === "all"
@@ -535,11 +611,20 @@ export default function MealsScreen() {
       ? sortedIncompleteMeals
       : sortedFavorites;
 
-  useEffect(() => {
-    if (activeTab === "complete" && incompleteMeals.length === 0) {
-      handleTabChange("all");
-    }
-  }, [activeTab, handleTabChange, incompleteMeals.length]);
+  const scrollCompletionMealToTop = useCallback(
+    (mealId: string) => {
+      const index = sortedIncompleteMeals.findIndex((meal) => meal.id === mealId);
+      if (index < 0) return;
+      requestAnimationFrame(() => {
+        mealsListRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: 0,
+        });
+      });
+    },
+    [sortedIncompleteMeals]
+  );
 
   const handleSortChange = useCallback(
     (selection: MealSortSelection | null) => {
@@ -739,6 +824,47 @@ export default function MealsScreen() {
     [updateMeal]
   );
 
+  const deleteMealNormally = useCallback(
+    async (mealId: string) => {
+      const meal = meals.find((candidate) => candidate.id === mealId);
+      if (!meal) return;
+      const isDeletingLastMeal = meals.length === 1 && meals[0]?.id === mealId;
+      await Promise.all([
+        snapshotMealTitleInWeekPlanHistory(meal.id, meal.title),
+        snapshotServedMealTitle(meal.id, meal.title),
+      ]);
+      deleteMeal(mealId);
+      if (isDeletingLastMeal) {
+        await clearWeekPlanData();
+      }
+    },
+    [deleteMeal, meals],
+  );
+
+  const handleDeleteMeal = useCallback(
+    async (mealId: string) => {
+      const meal = meals.find((candidate) => candidate.id === mealId);
+      if (!meal) return;
+      const occurrences = await getActivePlannedMealOccurrences({
+        mealId,
+        startDay,
+        orderedDays,
+      });
+      if (occurrences.length > 0) {
+        setPlannedMealDeletion({ meal, occurrences });
+        return;
+      }
+      await deleteMealNormally(mealId);
+    },
+    [deleteMealNormally, meals, orderedDays, startDay],
+  );
+
+  const handleDeleteResolvedMeal = useCallback(async () => {
+    if (!plannedMealDeletion) return;
+    await deleteMealNormally(plannedMealDeletion.meal.id);
+    setPlannedMealDeletion(null);
+  }, [deleteMealNormally, plannedMealDeletion]);
+
   const handleSuggestNextWeek = useCallback(
     (meal: Meal) => {
       setPendingSuggestMeal(meal);
@@ -804,14 +930,31 @@ export default function MealsScreen() {
             updatedAt: new Date().toISOString(),
           });
         };
-        return <MealCompletionCard meal={item} onApply={handleApply} />;
+        const handleUpdateDetails = (
+          patch: Pick<Partial<Meal>, "difficulty" | "expense">
+        ) => {
+          updateMeal({
+            id: item.id,
+            ...patch,
+            updatedAt: new Date().toISOString(),
+          });
+        };
+        return (
+          <MealCompletionCard
+            meal={item}
+            onApply={handleApply}
+            onUpdateDetails={handleUpdateDetails}
+            onExpand={() => scrollCompletionMealToTop(item.id)}
+            isLastIncomplete={sortedIncompleteMeals.length === 1}
+          />
+        );
       }
       const isFreezerTab = activeTab === "favorites";
       return (
         <MealListItem
           meal={item}
           onPress={() => onOpenMeal(item)}
-          onDelete={() => deleteMeal(item.id)}
+          onDelete={() => void handleDeleteMeal(item.id)}
           isFreezer={isFreezerTab}
           onFreezerPress={
             isFreezerTab ? () => openFreezerModal(item) : undefined
@@ -829,12 +972,14 @@ export default function MealsScreen() {
     },
     [
       activeTab,
-      deleteMeal,
       displayOptions,
+      handleDeleteMeal,
       handleRemoveFromFreezer,
       onOpenMeal,
       openFreezerModal,
       galaxyMealId,
+      scrollCompletionMealToTop,
+      sortedIncompleteMeals.length,
       updateMeal,
     ]
   );
@@ -874,10 +1019,14 @@ export default function MealsScreen() {
     }
     if (activeTab === "complete") {
       return (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>No matches found</Text>
-          <Text style={styles.emptySubtitle}>
-            Try searching with a different meal name.
+        <View style={styles.completeEmptyState}>
+          <Text style={styles.completeEmptySparkle}>✨</Text>
+          <Text style={styles.completeEmptyTitle}>All caught up!</Text>
+          <Text style={styles.completeEmptySubtitle}>
+            Every meal has the details Weekly Eats needs.
+          </Text>
+          <Text style={styles.completeEmptyCount}>
+            {completedMealCount} {completedMealCount === 1 ? "meal" : "meals"} complete ✓
           </Text>
         </View>
       );
@@ -890,7 +1039,7 @@ export default function MealsScreen() {
         </Text>
       </View>
     );
-  }, [activeIngredientFilter, activeTab, handleClearIngredientFilter, ingredientSearchResults.length, pendingImportQueue.length, searchQuery, styles]);
+  }, [activeIngredientFilter, activeTab, completedMealCount, handleClearIngredientFilter, ingredientSearchResults.length, pendingImportQueue.length, searchQuery, styles]);
 
   const opacity = contentProgress.interpolate({
     inputRange: [0, 1],
@@ -1182,21 +1331,6 @@ export default function MealsScreen() {
             incompleteCount={incompleteMeals.length}
           />
         </View>
-        {activeTab === "complete" ? (
-          <View style={styles.completeHelper}>
-            <View style={styles.completeHelperIcon}>
-              <Text style={styles.completeHelperIconText}>✨</Text>
-            </View>
-            <View style={styles.completeHelperText}>
-              <Text style={styles.completeHelperTitle}>
-                These meals could use a few more details.
-              </Text>
-              <Text style={styles.completeHelperSubtitle}>
-                Add ingredients for better grocery lists and smarter suggestions.
-              </Text>
-            </View>
-          </View>
-        ) : null}
         {isFreezerTab ? (
           <View style={styles.freezerHelper}>
             <Text style={styles.freezerHelperTitle}>Ready to serve</Text>
@@ -1208,6 +1342,7 @@ export default function MealsScreen() {
         ) : null}
         <Animated.View style={[styles.listContainer, { opacity }]}>
           <FlatList
+            ref={mealsListRef}
             testID="meals-list"
             style={styles.list}
             data={data}
@@ -1225,8 +1360,49 @@ export default function MealsScreen() {
                 onRefresh={refresh}
               />
             }
+            onScrollToIndexFailed={({ index, averageItemLength }) => {
+              mealsListRef.current?.scrollToOffset({
+                offset: Math.max(0, index * averageItemLength),
+                animated: true,
+              });
+              setTimeout(() => {
+                mealsListRef.current?.scrollToIndex({
+                  index,
+                  animated: true,
+                  viewPosition: 0,
+                });
+              }, 100);
+            }}
             ListHeaderComponent={
-              activeTab === "all" ? (
+              activeTab === "complete" ? (
+                <View style={styles.completeDashboardHeader}>
+                  <View style={styles.completeStatsCard}>
+                    <View style={styles.completeStat}>
+                      <View style={[styles.completeStatIcon, styles.completeStatIconPink]}>
+                        <MaterialCommunityIcons name="clipboard-text-outline" size={22} color={theme.color.accent} />
+                      </View>
+                      <View style={styles.completeStatDetails}>
+                        <AnimatedCount value={incompleteMeals.length} style={styles.completeStatNumber} />
+                        <Text style={styles.completeStatLabel}>Needs attention</Text>
+                      </View>
+                    </View>
+                    <View style={styles.completeStatDivider} />
+                    <View style={styles.completeStat}>
+                      <View style={[styles.completeStatIcon, styles.completeStatIconGold]}>
+                        <MaterialCommunityIcons name="check-circle-outline" size={22} color={theme.color.warning} />
+                      </View>
+                      <View style={styles.completeStatDetails}>
+                        <AnimatedCount value={completedMealCount} style={styles.completeStatNumber} />
+                        <Text style={styles.completeStatLabel}>Meals complete</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {incompleteMeals.length > 0 ? <View style={styles.completeSectionHeader}>
+                    <Text style={styles.completeSectionTitle}>Needs attention</Text>
+                  </View> : null}
+                </View>
+              ) : activeTab === "all" ? (
                 <View style={styles.searchHeader}>
                   <MealSearchInput
                     value={searchQuery}
@@ -1462,6 +1638,15 @@ export default function MealsScreen() {
         onSelectMeal={handleSelectFreezerCandidate}
         title="Add to freezer"
         subtitle="Pick a meal to add to your freezer inventory."
+      />
+      <PlannedMealDeletionModal
+        meal={plannedMealDeletion?.meal ?? null}
+        occurrences={plannedMealDeletion?.occurrences ?? []}
+        replacementMeals={meals.filter(
+          (meal) => meal.id !== plannedMealDeletion?.meal.id,
+        )}
+        onCancel={() => setPlannedMealDeletion(null)}
+        onDelete={handleDeleteResolvedMeal}
       />
       <Modal
         visible={Boolean(pendingSuggestMeal)}
@@ -1749,43 +1934,102 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.sm,
       lineHeight: theme.type.size.sm * 1.4,
     },
-    completeHelper: {
-      marginTop: theme.space.lg,
-      marginHorizontal: theme.space.lg,
+    completeDashboardHeader: {
+      gap: theme.space.lg,
+      paddingBottom: theme.space.lg,
+    },
+    completeStatsCard: {
+      minHeight: 100,
+      flexDirection: "row",
+      alignItems: "stretch",
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surfaceAlt,
+      overflow: "hidden",
+    },
+    completeStat: {
+      flex: 1,
       flexDirection: "row",
       alignItems: "center",
-      gap: theme.space.md,
-      backgroundColor: theme.color.surfaceAlt,
-      borderRadius: theme.radius.lg,
-      padding: theme.space.md,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
+      justifyContent: "center",
+      gap: theme.space.lg,
+      paddingHorizontal: theme.space.lg,
+      paddingVertical: theme.space.md,
     },
-    completeHelperIcon: {
-      width: 44,
-      height: 44,
+    completeStatDetails: {
+      flex: 1,
+      alignItems: "center",
+      gap: 2,
+    },
+    completeStatDivider: {
+      width: StyleSheet.hairlineWidth,
+      marginVertical: theme.space.md,
+      backgroundColor: theme.color.accent,
+    },
+    completeStatIcon: {
+      width: 40,
+      height: 40,
       borderRadius: theme.radius.full,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor:
-        theme.mode === "dark" ? "rgba(255, 75, 145, 0.16)" : "#FFF0F6",
     },
-    completeHelperIconText: {
-      fontSize: 20,
+    completeStatIconPink: {
+      backgroundColor: theme.mode === "dark" ? "rgba(255, 75, 145, 0.14)" : "#FFF0F6",
     },
-    completeHelperText: {
-      flex: 1,
-      gap: theme.space.xs,
+    completeStatIconGold: {
+      backgroundColor: theme.mode === "dark" ? "rgba(245, 158, 11, 0.14)" : "#FFF7E6",
     },
-    completeHelperTitle: {
+    completeStatNumber: {
       color: theme.color.ink,
-      fontSize: theme.type.size.base,
+      fontSize: theme.type.size.h2,
       fontWeight: theme.type.weight.bold,
     },
-    completeHelperSubtitle: {
+    completeStatLabel: {
       color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      lineHeight: 19,
+      fontSize: theme.type.size.xs,
+      lineHeight: 16,
+      textAlign: "center",
+    },
+    completeSectionHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: theme.space.xs,
+      paddingTop: theme.space.xs,
+    },
+    completeSectionTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+    },
+    completeEmptyState: {
+      alignItems: "center",
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.xl,
+      paddingTop: theme.space["2xl"],
+      paddingBottom: theme.space["2xl"],
+    },
+    completeEmptySparkle: {
+      fontSize: 30,
+      marginBottom: theme.space.xs,
+    },
+    completeEmptyTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.h2,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    completeEmptySubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      lineHeight: 22,
+      textAlign: "center",
+    },
+    completeEmptyCount: {
+      marginTop: theme.space.md,
+      color: theme.color.success,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
     },
     confirmBackdrop: {
       flex: 1,

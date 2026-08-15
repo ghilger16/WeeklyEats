@@ -20,6 +20,7 @@ import { WeeklyTheme } from "../../styles/theme";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 import { deriveFamilyInitials } from "../../utils/familyInitials";
+import { memberColorPalette } from "../../components/meals/FamilyRatingIcons";
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_MAX_TRANSLATE = SCREEN_HEIGHT;
 export default function FamilyMembersModal() {
@@ -28,7 +29,7 @@ export default function FamilyMembersModal() {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { members, addMember, removeMember, isLoading } = useFamilyMembers();
   const [inputValue, setInputValue] = useState("");
-  const [isDeleteMode, setDeleteMode] = useState(false);
+  const inputRef = useRef<TextInput | null>(null);
   const translateY = useRef(new Animated.Value(SHEET_MAX_TRANSLATE)).current;
   const closingRef = useRef(false);
   const initialsMap = useMemo(() => deriveFamilyInitials(members), [members]);
@@ -135,20 +136,28 @@ export default function FamilyMembersModal() {
   const handleAddMember = useCallback(async () => {
     const trimmed = inputValue.trim();
     if (!trimmed) {
+      inputRef.current?.focus();
+      return;
+    }
+    const normalized = trimmed.toLowerCase();
+    if (
+      members.some(
+        (member) => member.name.trim().toLowerCase() === normalized
+      )
+    ) {
+      setInputValue("");
+      inputRef.current?.focus();
       return;
     }
     await addMember(trimmed);
     setInputValue("");
-  }, [addMember, inputValue]);
+  }, [addMember, inputValue, members]);
   const handleRemoveMember = useCallback(
     async (id: string) => {
       await removeMember(id);
     },
     [removeMember]
   );
-  const toggleDeleteMode = useCallback(() => {
-    setDeleteMode((prev) => !prev);
-  }, []);
   return (
     <View style={styles.backdrop}>
       <Pressable
@@ -165,91 +174,89 @@ export default function FamilyMembersModal() {
           <View style={styles.handle} />
 
           <View style={styles.header}>
-            <Text style={styles.headerEmoji}>🧑‍🍳</Text>
-            <Text style={styles.headerTitle}>Family Table</Text>
+            <Text style={styles.headerEmoji}>👩‍🍳</Text>
+            <Text style={styles.headerTitle}>Who are you cooking for?</Text>
             <Text style={styles.headerSubtitle}>
-              Add the people you cook for. We’ll keep their initials handy.
+              Add your family so everyone can rate meals.
             </Text>
           </View>
-          <View style={styles.chipSection}>
+          <View style={styles.familySection}>
+            <Text style={styles.sectionLabel}>Your family</Text>
             {isLoading ? (
               <Text style={styles.emptyText}>Loading family members…</Text>
             ) : (
-              <View style={styles.chipGrid}>
-                {members.map((member) => (
-                  <Pressable
+              <View style={styles.familyList}>
+                {members.map((member, index) => (
+                  <View
                     key={member.id}
-                    onPress={() => {
-                      if (isDeleteMode) {
-                        handleRemoveMember(member.id);
-                      }
-                    }}
-                    accessibilityRole={isDeleteMode ? "button" : undefined}
-                    accessibilityLabel={
-                      isDeleteMode
-                        ? `Remove ${member.name}`
-                        : `Family member ${member.name}`
-                    }
-                    style={({ pressed }) => [
-                      styles.chip,
-                      pressed && styles.chipPressed,
-                      isDeleteMode && styles.chipDeleteMode,
-                    ]}
+                    style={styles.familyRow}
                   >
-                    <View style={styles.chipInitial}>
-                      <Text style={styles.chipInitialText}>
+                    <View
+                      style={[
+                        styles.familyAvatar,
+                        {
+                          backgroundColor:
+                            memberColorPalette[
+                              index % memberColorPalette.length
+                            ],
+                        },
+                      ]}
+                    >
+                      <Text style={styles.familyAvatarText}>
                         {initialsMap[member.id] ?? "?"}
                       </Text>
                     </View>
-                    <Text style={styles.chipName} numberOfLines={1}>
+                    <Text style={styles.familyMemberName} numberOfLines={1}>
                       {member.name}
                     </Text>
-                    {isDeleteMode ? (
-                      <View style={styles.chipRemoveGlyph}>
-                        <MaterialCommunityIcons
-                          name="close"
-                          size={16}
-                          color={theme.color.subtleInk}
-                        />
-                      </View>
-                    ) : null}
-                  </Pressable>
+                    <Pressable
+                      onPress={() => handleRemoveMember(member.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${member.name}`}
+                      hitSlop={10}
+                      style={({ pressed }) => [
+                        styles.removeButton,
+                        pressed && styles.controlPressed,
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name="close"
+                        size={19}
+                        color={theme.color.subtleInk}
+                      />
+                    </Pressable>
+                  </View>
                 ))}
               </View>
             )}
-          </View>
-          <View style={styles.inputRow}>
-            <TextInput
-              value={inputValue}
-              onChangeText={setInputValue}
-              placeholder="Add a family member"
-              placeholderTextColor={theme.color.subtleInk}
-              style={styles.textInput}
-              autoCapitalize="words"
-              returnKeyType="done"
-              onSubmitEditing={handleAddMember}
-            />
-            <Pressable
-              onPress={(event) => {
-                event.stopPropagation();
-                toggleDeleteMode();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={
-                isDeleteMode ? "Exit delete mode" : "Delete family members"
-              }
-              style={({ pressed }) => [
-                styles.trashButton,
-                pressed && styles.trashButtonPressed,
-                isDeleteMode && styles.trashButtonActive,
-              ]}
-            >
-              <MaterialCommunityIcons
-                name={isDeleteMode ? "trash-can" : "trash-can-outline"}
-                size={22}
-                color={isDeleteMode ? theme.color.ink : theme.color.subtleInk}
+            <View style={styles.inputRow}>
+              <TextInput
+                ref={inputRef}
+                value={inputValue}
+                onChangeText={setInputValue}
+                placeholder="Add a family member"
+                placeholderTextColor={theme.color.subtleInk}
+                style={styles.textInput}
+                autoCapitalize="words"
+                returnKeyType="done"
+                onSubmitEditing={handleAddMember}
               />
-            </Pressable>
+              <Pressable
+                onPress={handleAddMember}
+                accessibilityRole="button"
+                accessibilityLabel="Add family member"
+                style={({ pressed }) => [
+                  styles.addButton,
+                  pressed && styles.controlPressed,
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="plus"
+                  size={22}
+                  color={theme.color.accent}
+                />
+              </Pressable>
+            </View>
           </View>
           <Animated.View style={{ height: kbHeight }} />
         </SafeAreaView>
@@ -291,12 +298,13 @@ const createStyles = (theme: WeeklyTheme) =>
       alignItems: "center",
     },
     headerEmoji: {
-      fontSize: 28,
+      fontSize: 36,
     },
     headerTitle: {
       color: theme.color.ink,
-      fontSize: theme.type.size.title,
+      fontSize: theme.type.size.h2,
       fontWeight: theme.type.weight.bold,
+      textAlign: "center",
     },
     headerSubtitle: {
       color: theme.color.subtleInk,
@@ -304,105 +312,84 @@ const createStyles = (theme: WeeklyTheme) =>
       textAlign: "center",
     },
     inputRow: {
+      minHeight: 48,
       flexDirection: "row",
       alignItems: "center",
-      gap: theme.space.sm,
+      borderRadius: theme.radius.md,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
     },
     textInput: {
       flex: 1,
-      height: theme.component.input.height,
-      borderRadius: theme.component.input.radius,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-      paddingHorizontal: theme.component.input.paddingH,
-      backgroundColor: theme.color.surfaceAlt,
+      minHeight: 48,
+      paddingHorizontal: theme.space.md,
       color: theme.color.ink,
       fontSize: theme.type.size.base,
     },
-    trashButton: {
+    addButton: {
       width: 44,
       height: 44,
       borderRadius: theme.radius.full,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: theme.color.surfaceAlt,
+      marginRight: theme.space.xs,
     },
-    trashButtonActive: {
-      backgroundColor: theme.color.accent,
-      borderColor: theme.color.accent,
+    controlPressed: {
+      opacity: 0.65,
     },
-    trashButtonPressed: {
-      opacity: 0.85,
+    familySection: {
+      gap: theme.space.sm,
     },
-    chipSection: {
-      gap: theme.space.md,
-      alignItems: "center",
+    sectionLabel: {
+      marginBottom: theme.space.xs,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
+      textTransform: "uppercase",
+      letterSpacing: 1,
     },
     emptyText: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
-      textAlign: "center",
     },
-    chipGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      justifyContent: "center",
-      alignItems: "flex-start",
-      marginHorizontal: -theme.space.sm,
-      rowGap: theme.space.sm,
-      columnGap: theme.space.sm,
+    familyList: {
+      gap: theme.space.xs,
     },
-    chip: {
+    familyRow: {
+      minHeight: 48,
       flexDirection: "row",
       alignItems: "center",
       gap: theme.space.sm,
-      paddingHorizontal: theme.space.lg,
-      paddingVertical: theme.space.sm,
-      borderRadius: theme.radius.full,
+      paddingHorizontal: theme.space.sm,
+      borderRadius: theme.radius.md,
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
-      marginHorizontal: theme.space.sm,
-      marginVertical: theme.space.sm / 2,
-      maxWidth: "48%",
-      flexGrow: 0,
-      flexShrink: 0,
     },
-    chipPressed: {
-      opacity: 0.9,
-    },
-    chipDeleteMode: {
-      backgroundColor: theme.color.surface,
-    },
-    chipInitial: {
-      width: 28,
-      height: 28,
+    familyAvatar: {
+      width: 32,
+      height: 32,
       borderRadius: theme.radius.full,
-      backgroundColor: theme.color.accent,
       alignItems: "center",
       justifyContent: "center",
     },
-    chipInitialText: {
-      color: theme.color.ink,
+    familyAvatarText: {
+      color: "#FFFFFF",
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.bold,
     },
-    chipName: {
+    familyMemberName: {
+      flex: 1,
       color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      flexShrink: 1,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
     },
-    chipRemoveGlyph: {
-      marginLeft: theme.space.xs,
-      width: 24,
-      height: 24,
+    removeButton: {
+      width: 32,
+      height: 32,
       borderRadius: theme.radius.full,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: theme.color.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
     },
   });

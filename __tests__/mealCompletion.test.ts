@@ -15,6 +15,8 @@ const createMeal = (ingredients: Meal["ingredients"] = []): Meal => ({
   locked: false,
   isFavorite: false,
   ingredients,
+  difficulty: 1,
+  expense: 1,
 });
 
 describe("meal completion", () => {
@@ -35,6 +37,13 @@ describe("meal completion", () => {
         ])
       )
     ).toBe(false);
+  });
+
+  it("treats missing difficulty or expense as incomplete", () => {
+    const completeMeal = createMeal(["Chicken"]);
+    expect(isMealIncomplete({ ...completeMeal, difficulty: undefined })).toBe(true);
+    expect(isMealIncomplete({ ...completeMeal, expense: undefined })).toBe(true);
+    expect(isMealIncomplete(completeMeal)).toBe(false);
   });
 
   it("preserves existing ingredients and de-duplicates confirmed values", () => {

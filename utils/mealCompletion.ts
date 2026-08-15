@@ -29,13 +29,19 @@ const SHOPPING_CATEGORIES: ShoppingCategory[] = [
 const getIngredientName = (ingredient: MealIngredient) =>
   typeof ingredient === "string" ? ingredient.trim() : ingredient.name.trim();
 
-export const isMealIncomplete = (meal: Meal) =>
-  !(meal.ingredients ?? []).some((ingredient) => {
+export const isMealIncomplete = (meal: Meal) => {
+  const hasKeyIngredients = (meal.ingredients ?? []).some((ingredient) => {
     const name = getIngredientName(ingredient);
     if (!name) return false;
     return typeof ingredient === "string" ||
       ingredient.ingredientType !== "pantryStaple";
   });
+  return (
+    !hasKeyIngredients ||
+    typeof meal.difficulty !== "number" ||
+    typeof meal.expense !== "number"
+  );
+};
 
 const normalizeIngredient = (value: unknown): Ingredient | null => {
   if (!value || typeof value !== "object") return null;

@@ -4,6 +4,7 @@ import {
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -19,17 +20,30 @@ import {
   DayPinsState,
   normalizeDayPinsState,
 } from "../../../types/dayPins";
-import { EAT_OUT_MEAL, FLEX_NIGHT_MEAL } from "../../../types/specialMeals";
+import {
+  EAT_OUT_MEAL,
+  FLEX_NIGHT_MEAL,
+  isSpecialMealId,
+} from "../../../types/specialMeals";
+import { PlannedWeekDayKey } from "../../../types/weekPlan";
+import { ServedMealEntry } from "../../../stores/servedMealsStorage";
+import InlineDaySearch from "../inline/InlineDaySearch";
+import InlineSideEditor from "../inline/InlineSideEditor";
+import InlineEatOutEditor from "../inline/InlineEatOutEditor";
+import ChangeMealIdentity from "../../week-dashboard/ChangeMealIdentity";
 
 type Props = {
   visible: boolean;
   dayName: string;
+  dayKey?: PlannedWeekDayKey;
+  history?: ServedMealEntry[];
   mode?: "plan" | "changeDinner" | "recordPastDinner";
   currentMeal?: Meal | null;
   suggestion?: MealSuggestion;
   canSuggestAnother?: boolean;
   onDismiss: () => void;
   onAddMeal: (meal: Meal, side?: string) => void;
+  onAddMealWithSides?: (meal: Meal, sides: string[]) => void;
   onSuggestAnother: () => void;
   meals?: Meal[];
   onSelectSearchMeal?: (meal: Meal, side?: string) => void;
@@ -95,12 +109,15 @@ const formatLastServed = (iso?: string) => {
 export default function SuggestMealModal({
   visible,
   dayName,
+  dayKey,
+  history = [],
   mode: flowMode = "plan",
   currentMeal,
   suggestion,
   canSuggestAnother = true,
   onDismiss,
   onAddMeal,
+  onAddMealWithSides,
   onSuggestAnother,
   meals = [],
   onSelectSearchMeal,
@@ -476,7 +493,8 @@ export default function SuggestMealModal({
                 onChange={onPinsChange}
                 mode="editable"
               />
-            ) : (mode === "suggest" ||
+            ) : ((isChangeDinnerMode && !selectedSideMeal) ||
+                mode === "suggest" ||
                 (isHistoricalLoggingMode && mode === "search")) &&
               !selectedSideMeal ? (
               <View style={styles.topStack}>
@@ -486,16 +504,11 @@ export default function SuggestMealModal({
                       {currentMealContextLabel}
                     </Text>
                     <View style={styles.replacingMealRow}>
-                      <Text style={styles.replacingEmoji}>
-                        {currentMeal.emoji ?? "🍽️"}
-                      </Text>
-                      <Text style={styles.replacingTitle} numberOfLines={1}>
-                        {currentMeal.title}
-                      </Text>
+                      <ChangeMealIdentity meal={currentMeal} />
                     </View>
                   </View>
                 ) : null}
-                {mode === "suggest" ? (
+                {mode === "suggest" && !isChangeDinnerMode ? (
                   <View style={styles.quickActionRow}>
                     {visibleModeActions.map(renderModeActionButton)}
                   </View>
@@ -531,7 +544,58 @@ export default function SuggestMealModal({
               </View>
             ) : null}
 
-            {selectedSideMeal ? (
+            {isChangeDinnerMode &&
+            mode === "suggest" &&
+            !selectedSideMeal &&
+            dayKey ? (
+              <ScrollView
+                style={styles.inlineSearchScroll}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <InlineDaySearch
+                  day={dayKey}
+                  meals={meals}
+                  history={history}
+                assignedMeal={null}
+                onSelectMeal={handleSelectSearchResult}
+                onSelectEatOut={() => switchMode("eatOut")}
+                onSelectFlexNight={() => onFlexNight?.()}
+                  onEditSides={() => {}}
+                  onViewDetails={() => {}}
+                  onRemove={() => {}}
+                  onExpandedLayout={() => {}}
+                />
+              </ScrollView>
+            ) : selectedSideMeal &&
+              isChangeDinnerMode &&
+              dayKey &&
+              !isSpecialMealId(selectedSideMeal.id) ? (
+              <ScrollView
+                style={styles.inlineSearchScroll}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <InlineSideEditor
+                  key={`${dayKey}:${selectedSideMeal.id}`}
+                  day={dayKey}
+                  meal={selectedSideMeal}
+                  initialSides={sides}
+                  completionLabel="Continue"
+                  completionAccessibilityLabel={`Continue with ${selectedSideMeal.title}`}
+                  onDone={(selectedSides) => {
+                    if (onAddMealWithSides) {
+                      onAddMealWithSides(selectedSideMeal, selectedSides);
+                      return;
+                    }
+                    onAddMeal(selectedSideMeal);
+                  }}
+                  onSelectedSidesChange={() => {}}
+                  onChangeMeal={handleBackFromSideScreen}
+                  onExpandedLayout={() => {}}
+                />
+              </ScrollView>
+            ) : selectedSideMeal ? (
               <View style={styles.searchSideStep}>
                 <View style={styles.selectedMealCard}>
                   <Text style={styles.rowEmoji}>
@@ -713,6 +777,16 @@ export default function SuggestMealModal({
                   />
                 )}
               </>
+            ) : mode === "eatOut" && isChangeDinnerMode && dayKey ? (
+              <InlineEatOutEditor
+                day={dayKey}
+                calendarEvents={[]}
+                onBack={handleBackToSuggestion}
+                onSave={(note) => {
+                  onEatOut?.(note || undefined);
+                }}
+                onExpandedLayout={() => {}}
+              />
             ) : mode === "eatOut" ? (
               isEatOutDetailMode ? (
                 <View style={styles.searchSideStep}>
@@ -946,7 +1020,10 @@ export default function SuggestMealModal({
               </View>
             ) : null}
 
-            {mode === "suggest" && !selectedSideMeal && !isHistoricalLoggingMode ? (
+            {mode === "suggest" &&
+            !selectedSideMeal &&
+            !isHistoricalLoggingMode &&
+            !isChangeDinnerMode ? (
               <View style={styles.actions}>
                 <Pressable
                   onPress={handleSaveSuggestedMealToDay}
@@ -1002,6 +1079,7 @@ const createStyles = (theme: WeeklyTheme) =>
       flex: 1,
       gap: theme.space.lg,
     },
+    inlineSearchScroll: { flex: 1 },
     header: {
       flexDirection: "row",
       alignItems: "center",

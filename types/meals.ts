@@ -75,8 +75,6 @@ export const createEmptyMealDraft = (): MealDraft => ({
   freezerUnit: "",
   recipeUrl: "",
   ingredients: [],
-  difficulty: 3,
-  expense: 3,
   prepNotes: "",
 });
 

@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { alpha, WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
@@ -228,8 +229,14 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
   suggestedSides: Array.isArray(meal.suggestedSides)
     ? [...meal.suggestedSides]
     : [],
-  difficulty: snapToLevelValue(meal.difficulty ?? 3, DIFFICULTY_LEVELS),
-  expense: snapToLevelValue(meal.expense ?? 3, EXPENSE_LEVELS),
+  difficulty:
+    typeof meal.difficulty === "number"
+      ? snapToLevelValue(meal.difficulty, DIFFICULTY_LEVELS)
+      : undefined,
+  expense:
+    typeof meal.expense === "number"
+      ? snapToLevelValue(meal.expense, EXPENSE_LEVELS)
+      : undefined,
   prepNotes: meal.prepNotes ?? "",
   freezerAmount:
     "freezerAmount" in meal && meal.freezerAmount !== undefined
@@ -1076,13 +1083,31 @@ export default function MealCard({
   );
 
   const handleCycleDifficulty = useCallback(() => {
-    const current = form.difficulty ?? 3;
-    persistDetailPatch({ difficulty: current <= 1 ? 3 : current <= 3 ? 5 : 1 });
+    const current = form.difficulty;
+    persistDetailPatch({
+      difficulty:
+        typeof current !== "number"
+          ? 1
+          : current <= 1
+          ? 3
+          : current <= 3
+          ? 5
+          : 1,
+    });
   }, [form.difficulty, persistDetailPatch]);
 
   const handleCycleExpense = useCallback(() => {
-    const current = form.expense ?? 3;
-    persistDetailPatch({ expense: current <= 1 ? 3 : current <= 3 ? 5 : 1 });
+    const current = form.expense;
+    persistDetailPatch({
+      expense:
+        typeof current !== "number"
+          ? 1
+          : current <= 1
+          ? 3
+          : current <= 3
+          ? 5
+          : 1,
+    });
   }, [form.expense, persistDetailPatch]);
 
   const handleHeaderBack = useCallback(() => {
@@ -1133,13 +1158,17 @@ export default function MealCard({
     !isEditMode && addMealStep === "manual" && !isAutoFillPreviewVisible;
 
   if (isEditMode || isManualCreate) {
-    const difficultyLevel =
-      DIFFICULTY_LEVELS.find((level) => level.value === form.difficulty) ?? DIFFICULTY_LEVELS[1];
-    const difficultyLabel = difficultyLevel.label;
-    const difficultyColor = theme.color[difficultyLevel.colorKey];
-    const expenseLabel = "$".repeat(
-      form.expense && form.expense >= 4 ? 3 : form.expense && form.expense <= 2 ? 1 : 2
+    const difficultyLevel = DIFFICULTY_LEVELS.find(
+      (level) => level.value === form.difficulty
     );
+    const difficultyLabel = difficultyLevel?.label ?? "Not set";
+    const difficultyColor = difficultyLevel
+      ? theme.color[difficultyLevel.colorKey]
+      : undefined;
+    const hasExpense = typeof form.expense === "number";
+    const expenseLabel = hasExpense
+      ? "$".repeat(form.expense! >= 4 ? 3 : form.expense! <= 2 ? 1 : 2)
+      : "Not set";
     const freezerValue = form.freezerAmount || form.freezerQuantity;
     const isFamilyStar =
       hasFamilyMembers && familyRatingSummary?.isUnanimousHeart === true;
@@ -1338,7 +1367,7 @@ export default function MealCard({
                   accessibilityLabel="Add ingredient"
                   style={styles.detailAddIngredientButton}
                 >
-                  <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
+                  <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
                 </Pressable>
               </View>
             ) : null}
@@ -1384,7 +1413,7 @@ export default function MealCard({
                       accessibilityLabel="Add pantry staple"
                       style={styles.detailAddIngredientButton}
                     >
-                      <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
+                      <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
                     </Pressable>
                   </View>
                 ) : null}
@@ -1417,17 +1446,20 @@ export default function MealCard({
               >
                 <Text style={styles.detailTileLabel}>Difficulty</Text>
                 <View style={styles.detailDifficultyValueRow}>
-                  <View style={[styles.detailDifficultyDot, { backgroundColor: difficultyColor }]} />
-                  <Text style={styles.detailTileValue}>{difficultyLabel}</Text>
+                  {difficultyColor ? (
+                    <View style={[styles.detailDifficultyDot, { backgroundColor: difficultyColor }]} />
+                  ) : null}
+                  <Text style={[styles.detailTileValue, !difficultyLevel && styles.detailTileValueUnset]}>{difficultyLabel}</Text>
+                  {!difficultyLevel ? <Text style={styles.detailTileAdd}>+</Text> : null}
                 </View>
               </Pressable>
               <Pressable
                 onPress={handleCycleExpense}
                 accessibilityRole="button"
-                accessibilityLabel={`Expense, ${expenseLabel.length} dollar signs`}
+                accessibilityLabel={hasExpense ? `Expense, ${expenseLabel.length} dollar signs` : "Expense, not set"}
                 accessibilityHint="Double tap to change expense"
                 style={({ pressed }) => [styles.detailTile, pressed && styles.detailPressed]}
-              ><Text style={styles.detailTileLabel}>Expense</Text><Text style={styles.detailTileValue}>{expenseLabel}</Text></Pressable>
+              ><Text style={styles.detailTileLabel}>Expense</Text><View style={styles.detailTileValueRow}><Text style={[styles.detailTileValue, !hasExpense && styles.detailTileValueUnset]}>{expenseLabel}</Text>{!hasExpense ? <Text style={styles.detailTileAdd}>+</Text> : null}</View></Pressable>
               {freezerValue ? (
                 <View style={styles.detailTile}><Text style={styles.detailTileLabel}>Freezer</Text><Text style={styles.detailTileValue}>{freezerValue}{form.freezerUnit ? ` ${form.freezerUnit}` : ""}</Text></View>
               ) : null}
@@ -2174,7 +2206,10 @@ export default function MealCard({
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
           >
-            <View style={styles.autoFillModalContent}>
+            <SafeAreaView
+              edges={["top", "bottom"]}
+              style={styles.autoFillModalContent}
+            >
               <View style={styles.autoFillModalHeader}>
                 <View style={styles.autoFillEmojiPreview}>
                   <Text style={styles.autoFillEmojiGlyph}>
@@ -2182,9 +2217,16 @@ export default function MealCard({
                   </Text>
                 </View>
                 <View style={styles.autoFillHeaderText}>
-                  <Text style={styles.autoFillModalTitle}>
-                    Recipe found ✨
-                  </Text>
+                  <Text style={styles.autoFillEyebrow}>RECIPE FOUND ✨</Text>
+                  <TextInput
+                    placeholder="Meal title"
+                    placeholderTextColor={theme.color.subtleInk}
+                    style={styles.autoFillHeroTitleInput}
+                    value={autoFillDraft?.title ?? ""}
+                    onChangeText={(value) => updateAutoFillDraft("title", value)}
+                    autoCapitalize="words"
+                    accessibilityLabel="Meal title"
+                  />
                   <Text style={styles.autoFillModalDescription}>
                     Make any changes before adding this meal.
                   </Text>
@@ -2204,226 +2246,159 @@ export default function MealCard({
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
-                <View style={styles.autoFillEditorSection}>
-                  <Text style={styles.autoFillFieldLabel}>Meal Title</Text>
-                  <TextInput
-                    placeholder="Meal title"
-                    placeholderTextColor={theme.color.subtleInk}
-                    style={styles.autoFillInput}
-                    value={autoFillDraft?.title ?? ""}
-                    onChangeText={(value) => updateAutoFillDraft("title", value)}
-                  />
-                </View>
-
-                <View style={styles.autoFillEditorSection}>
-                  <Text style={styles.autoFillFieldLabel}>
-                    KEY INGREDIENTS
-                  </Text>
-                  <View style={styles.ingredientsWrapper}>
-                    {!autoFillIngredientEntries.length ? (
-                      <Text style={styles.ingredientsEmpty}>
-                        Add a few highlights for this meal.
-                      </Text>
-                    ) : (
-                      autoFillKeyIngredientEntries.map(
-                        ({ ingredient, index }) => {
-                          const ingredientName = ingredient.name;
-                          return (
-                            <Pressable
-                              key={`${ingredientName}-${index}`}
-                              style={({ pressed }) => [
-                                styles.autoFillIngredientChip,
-                                isAutoFillIngredientDeleteMode &&
-                                  styles.chipDeleteMode,
-                                pressed &&
-                                  isAutoFillIngredientDeleteMode &&
-                                  styles.chipPressed,
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel={
-                                isAutoFillIngredientDeleteMode
-                                  ? `Remove ${ingredientName}`
-                                  : `Move ${ingredientName} to Pantry Staples`
-                              }
-                              onPress={() => {
-                                if (isAutoFillIngredientDeleteMode) {
-                                  handleRemoveAutoFillIngredient(index);
-                                  return;
-                                }
-                                handleToggleAutoFillIngredientType(index);
-                              }}
-                            >
-                              <Text style={styles.autoFillIngredientChipText}>
-                                {ingredientName}
-                              </Text>
-                            </Pressable>
-                          );
-                        }
-                      )
-                    )}
-                  </View>
-                  <View style={styles.addIngredientRow}>
-                    <TextInput
-                      placeholder="Add ingredient"
-                      placeholderTextColor={theme.color.subtleInk}
-                      style={styles.autoFillIngredientInput}
-                      value={newAutoFillIngredient}
-                      onChangeText={setNewAutoFillIngredient}
-                      onFocus={() => setIsAutoFillIngredientDeleteMode(false)}
-                      onSubmitEditing={handleAddAutoFillIngredient}
-                      returnKeyType="done"
-                    />
+                <View style={styles.detailSection}>
+                  <View style={styles.detailSectionHeader}>
+                    <Text style={styles.detailSectionLabel}>Key Ingredients</Text>
                     <Pressable
-                      onPress={() => {
-                        if (!autoFillDraft?.ingredients.length) {
-                          return;
-                        }
-                        setIsAutoFillIngredientDeleteMode((prev) => !prev);
-                      }}
-                      disabled={!autoFillDraft?.ingredients.length}
+                      onPress={() =>
+                        setIsAutoFillIngredientDeleteMode((current) => !current)
+                      }
                       accessibilityRole="button"
                       accessibilityLabel={
                         isAutoFillIngredientDeleteMode
-                          ? "Exit ingredient delete mode"
-                          : "Delete ingredients"
+                          ? "Finish editing ingredients"
+                          : "Edit ingredients"
                       }
-                      style={({ pressed }) => [
-                        styles.ingredientTrashButton,
-                        pressed &&
-                          Boolean(autoFillDraft?.ingredients.length) &&
-                          styles.ingredientTrashButtonPressed,
-                        isAutoFillIngredientDeleteMode &&
-                          styles.ingredientTrashButtonActive,
-                        !autoFillDraft?.ingredients.length &&
-                          styles.ingredientTrashButtonDisabled,
-                      ]}
                     >
-                      <MaterialCommunityIcons
-                        name={
-                          isAutoFillIngredientDeleteMode
-                            ? "trash-can"
-                            : "trash-can-outline"
-                        }
-                        size={18}
-                        color={
-                          !autoFillDraft?.ingredients.length
-                            ? theme.color.border
-                            : isAutoFillIngredientDeleteMode
-                            ? theme.color.ink
-                            : theme.color.subtleInk
-                        }
-                      />
+                      <Text style={styles.detailEditText}>
+                        {isAutoFillIngredientDeleteMode ? "Done" : "Edit"}
+                      </Text>
                     </Pressable>
                   </View>
-                  {autoFillPantryStapleEntries.length ? (
-                    <>
-                      <Text
-                        style={[
-                          styles.autoFillFieldLabel,
-                          styles.pantrySectionLabel,
-                        ]}
-                      >
-                        PANTRY STAPLES
-                      </Text>
-                      <View style={styles.ingredientsWrapper}>
-                        {autoFillPantryStapleEntries.map(
-                          ({ ingredient, index }) => {
-                            const ingredientName = ingredient.name;
-                            return (
-                              <Pressable
-                                key={`${ingredientName}-${index}`}
-                                style={({ pressed }) => [
-                                  styles.autoFillIngredientChip,
-                                  styles.autoFillPantryChip,
-                                  isAutoFillIngredientDeleteMode &&
-                                    styles.chipDeleteMode,
-                                  pressed &&
-                                    isAutoFillIngredientDeleteMode &&
-                                    styles.chipPressed,
-                                ]}
-                                accessibilityRole="button"
-                                accessibilityLabel={
-                                  isAutoFillIngredientDeleteMode
-                                    ? `Remove ${ingredientName}`
-                                    : `Move ${ingredientName} to Key Ingredients`
-                                }
-                                onPress={() => {
-                                  if (isAutoFillIngredientDeleteMode) {
-                                    handleRemoveAutoFillIngredient(index);
-                                    return;
-                                  }
-                                  handleToggleAutoFillIngredientType(index);
-                                }}
-                              >
-                                <Text
-                                  style={[
-                                    styles.autoFillIngredientChipText,
-                                    styles.autoFillPantryChipText,
-                                  ]}
-                                >
-                                  {ingredientName}
-                                </Text>
-                              </Pressable>
-                            );
-                          }
-                        )}
-                      </View>
-                      <View style={styles.addIngredientRow}>
-                        <TextInput
-                          placeholder="Add ingredient"
-                          placeholderTextColor={theme.color.subtleInk}
-                          style={styles.autoFillIngredientInput}
-                          value={newAutoFillPantryIngredient}
-                          onChangeText={setNewAutoFillPantryIngredient}
-                          onFocus={() =>
-                            setIsAutoFillIngredientDeleteMode(false)
-                          }
-                          onSubmitEditing={handleAddAutoFillPantryIngredient}
-                          returnKeyType="done"
-                        />
-                        <Pressable
-                          onPress={() => {
-                            if (!autoFillDraft?.ingredients.length) {
-                              return;
-                            }
-                            setIsAutoFillIngredientDeleteMode((prev) => !prev);
-                          }}
-                          disabled={!autoFillDraft?.ingredients.length}
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            isAutoFillIngredientDeleteMode
-                              ? "Exit ingredient delete mode"
-                              : "Delete ingredients"
-                          }
-                          style={({ pressed }) => [
-                            styles.ingredientTrashButton,
-                            pressed &&
-                              Boolean(autoFillDraft?.ingredients.length) &&
-                              styles.ingredientTrashButtonPressed,
-                            isAutoFillIngredientDeleteMode &&
-                              styles.ingredientTrashButtonActive,
-                            !autoFillDraft?.ingredients.length &&
-                              styles.ingredientTrashButtonDisabled,
+                  {autoFillKeyIngredientEntries.length ? (
+                    <View style={styles.detailIngredientsGrid}>
+                      {autoFillKeyIngredientEntries.map(({ ingredient, index }) => (
+                        <View
+                          key={`${ingredient.name}-${index}`}
+                          style={[
+                            styles.detailChip,
+                            isAutoFillIngredientDeleteMode && styles.detailChipEditing,
                           ]}
                         >
-                          <MaterialCommunityIcons
-                            name={
-                              isAutoFillIngredientDeleteMode
-                                ? "trash-can"
-                                : "trash-can-outline"
-                            }
-                            size={18}
-                            color={
-                              !autoFillDraft?.ingredients.length
-                                ? theme.color.border
-                                : isAutoFillIngredientDeleteMode
-                                ? theme.color.ink
-                                : theme.color.subtleInk
-                            }
+                          <Pressable
+                            style={styles.autoFillIngredientMoveTarget}
+                            onPress={() => handleToggleAutoFillIngredientType(index)}
+                            disabled={!isAutoFillIngredientDeleteMode}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Move ${ingredient.name} to Pantry Staples`}
+                          >
+                            <View style={styles.detailChipDot} />
+                            <Text style={styles.detailChipText} numberOfLines={1}>
+                              {capitalizeMealTitleWords(ingredient.name)}
+                            </Text>
+                          </Pressable>
+                          {isAutoFillIngredientDeleteMode ? (
+                            <Pressable
+                              onPress={() => handleRemoveAutoFillIngredient(index)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Remove ${ingredient.name}`}
+                              hitSlop={6}
+                            >
+                              <MaterialCommunityIcons
+                                name="trash-can-outline"
+                                size={15}
+                                color={theme.color.subtleInk}
+                              />
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={styles.detailEmptyText}>No key ingredients added yet</Text>
+                  )}
+
+                  {isAutoFillIngredientDeleteMode ? (
+                    <View style={styles.detailAddIngredientRow}>
+                      <TextInput
+                        placeholder="Add ingredient"
+                        placeholderTextColor={theme.color.subtleInk}
+                        style={styles.detailAddIngredientInput}
+                        value={newAutoFillIngredient}
+                        onChangeText={setNewAutoFillIngredient}
+                        onSubmitEditing={handleAddAutoFillIngredient}
+                        returnKeyType="done"
+                      />
+                      <Pressable
+                        onPress={handleAddAutoFillIngredient}
+                        accessibilityRole="button"
+                        accessibilityLabel="Add ingredient"
+                        style={styles.detailAddIngredientButton}
+                      >
+                        <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
+                      </Pressable>
+                    </View>
+                  ) : null}
+
+                  {(isAutoFillIngredientDeleteMode || autoFillPantryStapleEntries.length > 0) ? (
+                    <View style={styles.detailPantrySection}>
+                      <Text style={styles.detailSectionLabel}>Pantry Staples</Text>
+                      {autoFillPantryStapleEntries.length ? (
+                        <View style={styles.detailIngredientsGrid}>
+                          {autoFillPantryStapleEntries.map(({ ingredient, index }) => (
+                            <View
+                              key={`${ingredient.name}-${index}`}
+                              style={[
+                                styles.detailChip,
+                                styles.detailPantryChip,
+                                isAutoFillIngredientDeleteMode && styles.detailChipEditing,
+                              ]}
+                            >
+                              <Pressable
+                                style={styles.autoFillIngredientMoveTarget}
+                                onPress={() => handleToggleAutoFillIngredientType(index)}
+                                disabled={!isAutoFillIngredientDeleteMode}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Move ${ingredient.name} to Key Ingredients`}
+                              >
+                                <View style={styles.detailChipDot} />
+                                <Text
+                                  style={[styles.detailChipText, styles.detailPantryChipText]}
+                                  numberOfLines={1}
+                                >
+                                  {capitalizeMealTitleWords(ingredient.name)}
+                                </Text>
+                              </Pressable>
+                              {isAutoFillIngredientDeleteMode ? (
+                                <Pressable
+                                  onPress={() => handleRemoveAutoFillIngredient(index)}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Remove ${ingredient.name}`}
+                                  hitSlop={6}
+                                >
+                                  <MaterialCommunityIcons
+                                    name="trash-can-outline"
+                                    size={15}
+                                    color={theme.color.subtleInk}
+                                  />
+                                </Pressable>
+                              ) : null}
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                      {isAutoFillIngredientDeleteMode ? (
+                        <View style={styles.detailAddIngredientRow}>
+                          <TextInput
+                            placeholder="Add pantry staple"
+                            placeholderTextColor={theme.color.subtleInk}
+                            style={styles.detailAddIngredientInput}
+                            value={newAutoFillPantryIngredient}
+                            onChangeText={setNewAutoFillPantryIngredient}
+                            onSubmitEditing={handleAddAutoFillPantryIngredient}
+                            returnKeyType="done"
                           />
-                        </Pressable>
-                      </View>
-                    </>
+                          <Pressable
+                            onPress={handleAddAutoFillPantryIngredient}
+                            accessibilityRole="button"
+                            accessibilityLabel="Add pantry staple"
+                            style={styles.detailAddIngredientButton}
+                          >
+                            <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
+                          </Pressable>
+                        </View>
+                      ) : null}
+                    </View>
                   ) : null}
                 </View>
 
@@ -2552,7 +2527,7 @@ export default function MealCard({
                   </Text>
                 </Pressable>
               </View>
-            </View>
+            </SafeAreaView>
           </KeyboardAvoidingView>
         </Modal>
         <EmojiPickerModal
@@ -2669,15 +2644,18 @@ const createStyles = (theme: WeeklyTheme) =>
     detailPantrySection: { gap: theme.space.md, paddingTop: theme.space.lg },
     detailEmptyText: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
     detailMoreIngredientsText: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
-    detailAddIngredientRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
-    detailAddIngredientInput: { flex: 1, minHeight: 44, borderRadius: theme.radius.md, paddingHorizontal: theme.space.md, color: theme.color.ink, fontSize: theme.type.size.base, backgroundColor: theme.color.surfaceAlt },
-    detailAddIngredientButton: { width: 44, height: 44, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.accent },
+    detailAddIngredientRow: { minHeight: 48, flexDirection: "row", alignItems: "center", borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+    detailAddIngredientInput: { flex: 1, minHeight: 48, paddingHorizontal: theme.space.md, color: theme.color.ink, fontSize: theme.type.size.base },
+    detailAddIngredientButton: { width: 44, height: 44, marginRight: theme.space.xs, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center" },
     detailGrid: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.md },
     detailTile: { minWidth: "46%", flexGrow: 1, gap: theme.space.xs, padding: theme.space.md, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt },
     detailTileLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, textTransform: "uppercase", letterSpacing: 0.5 },
     detailDifficultyValueRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+    detailTileValueRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
     detailDifficultyDot: { width: 8, height: 8, borderRadius: theme.radius.full },
     detailTileValue: { color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
+    detailTileValueUnset: { color: theme.color.subtleInk, fontWeight: theme.type.weight.medium },
+    detailTileAdd: { marginLeft: "auto", color: theme.color.accent, fontSize: theme.type.size.title, fontWeight: theme.type.weight.medium },
     detailNotesCard: { padding: theme.space.lg, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt },
     detailNotesText: { color: theme.color.ink, fontSize: theme.type.size.base, lineHeight: 23 },
     detailNotesInput: { minHeight: 104, padding: theme.space.lg, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, color: theme.color.ink, fontSize: theme.type.size.base, lineHeight: 23, textAlignVertical: "top", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.cardOutline },
@@ -3111,28 +3089,26 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     autoFillModalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0, 0, 0, 0.35)",
-      alignItems: "center",
-      justifyContent: "center",
-      paddingHorizontal: theme.space.xl,
+      backgroundColor: theme.color.bg,
     },
     autoFillModalContent: {
       width: "100%",
-      maxHeight: "86%",
-      borderRadius: theme.radius.xl,
-      backgroundColor: theme.color.surface,
-      padding: theme.space.xl,
+      flex: 1,
+      backgroundColor: theme.color.bg,
+      paddingTop: theme.space["2xl"],
       gap: theme.space.lg,
     },
     autoFillModalHeader: {
       flexDirection: "row",
       alignItems: "center",
-      gap: theme.space.md,
+      gap: theme.space.lg,
+      marginHorizontal: theme.space.xl,
+      paddingVertical: theme.space.sm,
     },
     autoFillEmojiPreview: {
-      width: 52,
-      height: 52,
-      borderRadius: theme.radius.md,
+      width: 76,
+      height: 76,
+      borderRadius: theme.radius.xl,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: theme.color.surfaceAlt,
@@ -3140,16 +3116,26 @@ const createStyles = (theme: WeeklyTheme) =>
       borderColor: theme.color.cardOutline,
     },
     autoFillEmojiGlyph: {
-      fontSize: 29,
+      fontSize: 46,
     },
     autoFillHeaderText: {
       flex: 1,
       gap: theme.space.xs,
     },
-    autoFillModalTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.h2,
+    autoFillEyebrow: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.xs,
       fontWeight: theme.type.weight.bold,
+      letterSpacing: 0.8,
+    },
+    autoFillHeroTitleInput: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.h1,
+      fontWeight: theme.type.weight.bold,
+      paddingHorizontal: 0,
+      paddingVertical: 0,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.color.accent,
     },
     autoFillModalDescription: {
       color: theme.color.subtleInk,
@@ -3161,54 +3147,27 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     autoFillModalScrollContent: {
       gap: theme.space.xl,
-      paddingBottom: theme.space.sm,
+      paddingHorizontal: theme.space.xl,
+      paddingTop: theme.space.sm,
+      paddingBottom: theme.space.lg,
     },
     autoFillEditorSection: {
-      gap: theme.space.sm,
-    },
-    autoFillInput: {
-      backgroundColor: theme.color.surfaceAlt,
+      gap: theme.space.md,
+      padding: theme.space.lg,
       borderRadius: theme.radius.md,
-      paddingVertical: theme.space.md,
-      paddingHorizontal: theme.space.md,
-      color: theme.color.ink,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.medium,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    autoFillIngredientChip: {
-      maxWidth: "100%",
       backgroundColor: theme.color.surfaceAlt,
-      borderRadius: theme.radius.md,
-      paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.xs + 1,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    autoFillIngredientChipText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      lineHeight: 19,
-    },
-    autoFillPantryChip: {
-      backgroundColor: theme.color.bg,
       borderColor: theme.color.cardOutline,
     },
-    autoFillPantryChipText: {
-      color: theme.color.subtleInk,
-    },
-    autoFillIngredientInput: {
+    autoFillIngredientMoveTarget: {
       flex: 1,
-      paddingVertical: theme.space.xs,
-      paddingHorizontal: theme.space.sm,
-      color: theme.color.ink,
-      fontSize: theme.type.size.sm,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: theme.color.border,
+      minWidth: 0,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
     },
     autoFillLevelChip: {
-      backgroundColor: theme.color.surfaceAlt,
+      backgroundColor: theme.color.surface,
       borderColor: theme.color.border,
     },
     autoFillLevelChipSelected: {
@@ -3220,7 +3179,7 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.bold,
     },
     autoFillNotesInput: {
-      backgroundColor: theme.color.surfaceAlt,
+      backgroundColor: theme.color.surface,
       borderRadius: theme.radius.md,
       paddingHorizontal: theme.space.md,
       paddingVertical: theme.space.sm,
@@ -3262,9 +3221,12 @@ const createStyles = (theme: WeeklyTheme) =>
     autoFillModalActions: {
       flexDirection: "row",
       gap: theme.space.md,
+      paddingHorizontal: theme.space.xl,
       paddingTop: theme.space.lg,
+      paddingBottom: theme.space.xl,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: theme.color.border,
+      backgroundColor: theme.color.bg,
     },
     autoFillModalButton: {
       flex: 1,
