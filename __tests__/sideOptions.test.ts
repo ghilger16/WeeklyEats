@@ -4,123 +4,107 @@ import {
   replaceSideWithCustomOption,
   SideOption,
 } from "../components/plan-week/inline/sideOptions";
+import {
+  CUISINE_SIDE_SUGGESTIONS,
+  getSideSuggestions,
+} from "../utils/cuisineSideSuggestions";
+import { CUISINE_OPTIONS } from "../types/cuisine";
 import { Meal } from "../types/meals";
 
 const meal: Meal = {
   id: "meal",
-  title: "Meal",
-  emoji: "🍽️",
+  title: "Tacos",
+  emoji: "🌮",
   rating: 0,
   servedCount: 0,
   showServedCount: false,
   plannedCostTier: 1,
   locked: false,
   isFavorite: false,
-  suggestedSides: [
-    "Rice",
-    "Salad",
-    "Corn",
-    "Green Beans",
-    "Fruit",
-    "Garlic Bread",
-  ],
+  cuisine: "mexican",
+  suggestedSides: ["Corn"],
 };
 
-describe("inline side options", () => {
-  it("always produces six unique options and starts with existing sides", () => {
-    const options = getSideOptionsForMeal(meal, ["Rice", "rice", "Broccoli"]);
-
-    expect(options).toHaveLength(6);
-    expect(options.slice(0, 2).map((option) => option.name)).toEqual([
-      "Rice",
-      "Broccoli",
-    ]);
-    expect(new Set(options.map((option) => option.name.toLowerCase())).size).toBe(6);
-  });
-
-  it("prepends a custom option, trims the final option, and selects it", () => {
-    const options: SideOption[] = ["A", "B", "C", "D", "E", "F"].map(
-      (name) => ({ name, isCustom: false }),
+describe("cuisine side suggestions", () => {
+  it("has a curated list for every supported cuisine", () => {
+    expect(Object.keys(CUISINE_SIDE_SUGGESTIONS).sort()).toEqual(
+      CUISINE_OPTIONS.map((option) => option.value).sort(),
     );
-    const result = replaceSideWithCustomOption(options, ["A", "F"], " Egg Rolls ");
-
-    expect(result?.options.map((option) => option.name)).toEqual([
-      "Egg Rolls",
-      "A",
-      "B",
-      "C",
-      "D",
-      "E",
-    ]);
-    expect(result?.selectedSides).toEqual(["A", "Egg Rolls"]);
+    CUISINE_OPTIONS.forEach((option) => {
+      expect(CUISINE_SIDE_SUGGESTIONS[option.value].length).toBeGreaterThanOrEqual(6);
+    });
   });
 
-  it("rejects case-insensitive duplicates", () => {
-    const options: SideOption[] = ["Rice", "B", "C", "D", "E", "F"].map(
-      (name) => ({ name, isCustom: false }),
-    );
-
-    expect(replaceSideWithCustomOption(options, [], " rice ")).toBeNull();
-  });
-
-  it("rejects blank and whitespace-only custom sides", () => {
-    const options = getSideOptionsForMeal(meal);
-
-    expect(replaceSideWithCustomOption(options, [], "")).toBeNull();
-    expect(replaceSideWithCustomOption(options, [], "   ")).toBeNull();
-  });
-
-  it("keeps the newest custom option first when all six are custom", () => {
-    const options: SideOption[] = ["A", "B", "C", "D", "E", "F"].map(
-      (name) => ({ name, isCustom: true }),
-    );
-    const result = replaceSideWithCustomOption(options, ["B", "C"], "G");
-
-    expect(result?.options.map((option) => option.name)).toEqual([
-      "G",
-      "A",
-      "B",
-      "C",
-      "D",
-      "E",
-    ]);
-    expect(result?.options).toHaveLength(6);
-  });
-
-  it("loads selected sides before the meal's suggested sides", () => {
-    const options = getSideOptionsForMeal(meal, [
-      "Rice",
-      "Corn",
-      "Mac and Cheese",
-      "Salad",
-    ]);
-
-    expect(options.slice(0, 4).map((option) => option.name)).toEqual([
-      "Rice",
-      "Corn",
-      "Mac and Cheese",
-      "Salad",
-    ]);
-    expect(options).toHaveLength(6);
-  });
-
-  it("does not add hard-coded fallbacks when a meal has no suggestions", () => {
-    expect(getSideOptionsForMeal({ ...meal, suggestedSides: undefined })).toEqual(
-      [],
-    );
-  });
-
-  it("moves saved sides to the front and pushes old suggestions off the end", () => {
+  it("returns at most six suggestions and excludes saved sides", () => {
     expect(
-      promoteSavedSides(["Broccoli", " rice "], meal.suggestedSides),
+      getSideSuggestions({ cuisine: "mexican", savedSides: ["Spanish Rice", " corn "] }),
     ).toEqual([
-      "Broccoli",
-      "rice",
-      "Salad",
-      "Corn",
-      "Green Beans",
+      "Refried Beans",
+      "Chips & Salsa",
+      "Guacamole",
+      "Side Salad",
+      "Black Beans",
       "Fruit",
     ]);
   });
 
+  it("uses generic suggestions when cuisine is not set", () => {
+    expect(getSideSuggestions({ savedSides: [] })).toEqual([
+      "Side Salad",
+      "Green Beans",
+      "Broccoli",
+      "Corn",
+      "Rice",
+      "Roasted Potatoes",
+    ]);
+  });
+});
+
+describe("inline side options", () => {
+  it("prioritizes saved sides and follows them with cuisine suggestions", () => {
+    const options = getSideOptionsForMeal(meal, ["Guacamole"]);
+
+    expect(options.slice(0, 2)).toEqual([
+      { name: "Guacamole", isCustom: true },
+      { name: "Corn", isCustom: true },
+    ]);
+    expect(options).toHaveLength(6);
+    expect(options.filter((option) => !option.isCustom)).toHaveLength(4);
+    expect(options.some((option) => option.name === "Corn" && !option.isCustom)).toBe(false);
+  });
+
+  it("keeps saved sides while cuisine suggestions change", () => {
+    const mexican = getSideOptionsForMeal(meal);
+    const american = getSideOptionsForMeal({ ...meal, cuisine: "american" });
+
+    expect(mexican[0]).toEqual({ name: "Corn", isCustom: true });
+    expect(american[0]).toEqual({ name: "Corn", isCustom: true });
+    expect(mexican.some((option) => option.name === "Spanish Rice")).toBe(true);
+    expect(american.some((option) => option.name === "French Fries")).toBe(true);
+  });
+
+  it("adds and selects a custom side without removing saved choices", () => {
+    const options: SideOption[] = [
+      { name: "Corn", isCustom: true },
+      { name: "Spanish Rice", isCustom: false },
+    ];
+    const result = replaceSideWithCustomOption(options, ["Corn"], " Egg Rolls ");
+
+    expect(result?.options.slice(0, 2)).toEqual([
+      { name: "Egg Rolls", isCustom: true },
+      { name: "Corn", isCustom: true },
+    ]);
+    expect(result?.selectedSides).toEqual(["Corn", "Egg Rolls"]);
+  });
+
+  it("rejects blank and case-insensitive duplicate custom sides", () => {
+    const options = getSideOptionsForMeal(meal);
+    expect(replaceSideWithCustomOption(options, [], "   ")).toBeNull();
+    expect(replaceSideWithCustomOption(options, [], " corn ")).toBeNull();
+  });
+
+  it("moves explicitly selected sides to the front of saved meal sides", () => {
+    expect(promoteSavedSides(["Broccoli", " corn "], ["Corn", "Rice"]))
+      .toEqual(["Broccoli", "corn", "Rice"]);
+  });
 });

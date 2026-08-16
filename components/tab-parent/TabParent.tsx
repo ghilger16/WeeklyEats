@@ -43,6 +43,10 @@ type Props = {
     count: number;
     onPress?: () => void;
   };
+  smartLevel?: {
+    level: number;
+    onPress?: () => void;
+  };
   addBtn?: AddButtonProps;
   menuBtn?: MenuButtonProps;
 };
@@ -64,6 +68,7 @@ export default function TabParent({
   addBtn,
   menuBtn,
   streak,
+  smartLevel,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -98,6 +103,25 @@ export default function TabParent({
                   color={theme.color.accent}
                 />
                 <Text style={styles.streakText}>{streak.count}</Text>
+              </Pressable>
+            ) : null}
+            {typeof smartLevel?.level === "number" ? (
+              <Pressable
+                disabled={!smartLevel.onPress}
+                onPress={smartLevel.onPress}
+                style={({ pressed }) => [
+                  styles.streakPill,
+                  smartLevel.onPress && pressed && styles.streakPillPressed,
+                ]}
+                accessibilityRole={smartLevel.onPress ? "button" : "text"}
+                accessibilityLabel={`Smart Level ${smartLevel.level}`}
+              >
+                <MaterialCommunityIcons
+                  name={"magic-staff" as IconName}
+                  size={16}
+                  color={theme.color.accent}
+                />
+                <Text style={styles.streakText}>{smartLevel.level}</Text>
               </Pressable>
             ) : null}
             {addBtn ? (

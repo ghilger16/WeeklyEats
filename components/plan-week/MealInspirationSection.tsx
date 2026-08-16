@@ -5,7 +5,6 @@ import {
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,6 +19,7 @@ import {
   PlannedWeekDayKey,
 } from "../../types/weekPlan";
 import { Meal } from "../../types/meals";
+import { CUISINE_OPTIONS, CuisineType, getCuisineLabel } from "../../types/cuisine";
 
 export type MealPoolId =
   | "beenAwhile"
@@ -28,6 +28,7 @@ export type MealPoolId =
   | "fiveStars"
   | "freezerMeals"
   | "easy"
+  | "cuisine"
   | "budget";
 
 export type MealPool = {
@@ -38,7 +39,7 @@ export type MealPool = {
   chipIcon?: string;
   emptyText: string;
   meals: Meal[];
-  cycle?: "difficulty" | "expense";
+  cycle?: "difficulty" | "expense" | "cuisine" | "beenAwhile";
 };
 
 type Props = {
@@ -66,13 +67,14 @@ type Props = {
   onRestorePreviousWeek?: () => void;
 };
 
-const SWIPE_THRESHOLD = 36;
 const CAROUSEL_GAP = 12;
 type DifficultyMode = "easy" | "medium" | "hard";
 type ExpenseMode = 1 | 2 | 3;
+type BeenAwhileMode = 2 | 3 | 4;
 
 const DIFFICULTY_MODES: DifficultyMode[] = ["easy", "medium", "hard"];
 const EXPENSE_MODES: ExpenseMode[] = [1, 2, 3];
+const BEEN_AWHILE_MODES: BeenAwhileMode[] = [2, 3, 4];
 
 export default function MealInspirationSection({
   pools,
@@ -101,13 +103,14 @@ export default function MealInspirationSection({
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const transition = useRef(new Animated.Value(1)).current;
-  const isChipScrollActiveRef = useRef(false);
   const carouselRef = useRef<ScrollView>(null);
   const [carouselWidth, setCarouselWidth] = useState(0);
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const [difficultyMode, setDifficultyMode] =
     useState<DifficultyMode>("easy");
   const [expenseMode, setExpenseMode] = useState<ExpenseMode>(1);
+  const [beenAwhileMode, setBeenAwhileMode] = useState<BeenAwhileMode>(2);
+  const [cuisineMode, setCuisineMode] = useState<CuisineType>("american");
   const [isDiscoveryExpanded, setDiscoveryExpanded] = useState(false);
   const [isPlanTransitioning, setPlanTransitioning] = useState(false);
   const thinkingOpacity = useRef(new Animated.Value(0)).current;
@@ -131,6 +134,7 @@ export default function MealInspirationSection({
         "fiveStars",
         "freezerMeals",
         "easy",
+        "cuisine",
         "budget",
       ]),
     [],
@@ -230,6 +234,30 @@ export default function MealInspirationSection({
   const activeIndex = visiblePools.findIndex((pool) => pool.id === activePoolId);
   const sourceActivePool =
     activeIndex >= 0 ? visiblePools[activeIndex] : undefined;
+  const availableCuisineModes = useMemo(
+    () =>
+      CUISINE_OPTIONS.map((option) => option.value).filter((cuisine) =>
+        sourceActivePool?.cycle === "cuisine"
+          ? sourceActivePool.meals.some((meal) => meal.cuisine === cuisine)
+          : false,
+      ),
+    [sourceActivePool],
+  );
+  const resolvedCuisineMode = availableCuisineModes.includes(cuisineMode)
+    ? cuisineMode
+    : availableCuisineModes[0] ?? cuisineMode;
+
+  useEffect(() => {
+    if (
+      sourceActivePool?.cycle === "cuisine" &&
+      availableCuisineModes.length > 0 &&
+      !availableCuisineModes.includes(cuisineMode)
+    ) {
+      setCuisineMode(availableCuisineModes[0]);
+      setActiveCardIndex(0);
+    }
+  }, [availableCuisineModes, cuisineMode, sourceActivePool]);
+
   const activePool = useMemo(() => {
     if (!sourceActivePool) return null;
     if (sourceActivePool.cycle === "difficulty") {
@@ -255,8 +283,38 @@ export default function MealInspirationSection({
         ),
       };
     }
+    if (sourceActivePool.cycle === "cuisine") {
+      const cuisineLabel = getCuisineLabel(resolvedCuisineMode) ?? "Cuisine";
+      return {
+        ...sourceActivePool,
+        title: cuisineLabel,
+        subtitle: `${cuisineLabel} meals.`,
+        emptyText: `No ${cuisineLabel} meals yet.`,
+        meals: sourceActivePool.meals.filter(
+          (meal) => meal.cuisine === resolvedCuisineMode,
+        ),
+      };
+    }
+    if (sourceActivePool.cycle === "beenAwhile") {
+      return {
+        ...sourceActivePool,
+        title: `${beenAwhileMode}W`,
+        subtitle: `Not served for at least ${beenAwhileMode} weeks.`,
+        emptyText: `No meals waiting ${beenAwhileMode} weeks yet.`,
+        meals: sourceActivePool.meals.filter((meal) => {
+          const lastServedISO = getLastServedISO?.(meal.id);
+          const referenceISO = lastServedISO ?? meal.createdAt;
+          if (!referenceISO) return true;
+          const lastServedAt = new Date(referenceISO).getTime();
+          return (
+            !Number.isFinite(lastServedAt) ||
+            Date.now() - lastServedAt >= beenAwhileMode * 7 * 24 * 60 * 60 * 1000
+          );
+        }),
+      };
+    }
     return sourceActivePool;
-  }, [difficultyMode, expenseMode, sourceActivePool]);
+  }, [beenAwhileMode, difficultyMode, expenseMode, getLastServedISO, resolvedCuisineMode, sourceActivePool]);
 
   const animateIn = () => {
     transition.setValue(0);
@@ -288,64 +346,15 @@ export default function MealInspirationSection({
     animateIn();
   };
 
-  const handleTabPress = (index: number, pool: MealPool) => {
-    const isActive = pool.id === activePool?.id;
-    if (pool.cycle === "difficulty" && isActive) {
-      const nextIndex =
-        (DIFFICULTY_MODES.indexOf(difficultyMode) + 1) %
-        DIFFICULTY_MODES.length;
-      if (difficultyMode === "hard") {
-        setDifficultyMode("easy");
-        collapseToDiscovery();
-        return;
-      }
-      setDifficultyMode(DIFFICULTY_MODES[nextIndex]);
-      setActiveCardIndex(0);
-      carouselRef.current?.scrollTo({ x: 0, animated: false });
-      animateIn();
+  const applyCycleSelection = (apply: () => void, isSelected: boolean) => {
+    if (isSelected) {
       return;
     }
-    if (pool.cycle === "expense" && isActive) {
-      const nextIndex =
-        (EXPENSE_MODES.indexOf(expenseMode) + 1) % EXPENSE_MODES.length;
-      if (expenseMode === 3) {
-        setExpenseMode(1);
-        collapseToDiscovery();
-        return;
-      }
-      setExpenseMode(EXPENSE_MODES[nextIndex]);
-      setActiveCardIndex(0);
-      carouselRef.current?.scrollTo({ x: 0, animated: false });
-      animateIn();
-      return;
-    }
-    if (isActive) {
-      collapseToDiscovery();
-      return;
-    }
-    setPoolIndex(index);
+    apply();
+    setActiveCardIndex(0);
+    carouselRef.current?.scrollTo({ x: 0, animated: false });
+    animateIn();
   };
-
-  const advancePool = () => {
-    if (activeIndex < 0 || visiblePools.length === 0) return;
-    setPoolIndex((activeIndex + 1) % visiblePools.length);
-  };
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) =>
-          !isChipScrollActiveRef.current &&
-          Math.abs(gesture.dx) > 14 &&
-          Math.abs(gesture.dx) > Math.abs(gesture.dy),
-        onPanResponderRelease: (_, gesture) => {
-          if (Math.abs(gesture.dx) >= SWIPE_THRESHOLD) {
-            advancePool();
-          }
-        },
-      }),
-    [advancePool],
-  );
 
   const contentStyle = {
     opacity: transition,
@@ -359,14 +368,13 @@ export default function MealInspirationSection({
     ],
   };
   const mealCardWidth = carouselWidth
-    ? Math.max(200, carouselWidth * 0.756)
-    : 252;
+    ? Math.max(180, carouselWidth * 0.68)
+    : 227;
   const snapInterval = mealCardWidth + CAROUSEL_GAP;
 
   const handleCarouselMomentumEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>,
   ) => {
-    isChipScrollActiveRef.current = false;
     const nextIndex = Math.max(
       0,
       Math.min(
@@ -396,7 +404,7 @@ export default function MealInspirationSection({
   };
 
   return (
-    <View style={styles.wrap} {...panResponder.panHandlers}>
+    <View style={styles.wrap}>
       {isAutoPlanActive && autoPlanAnimationPhase === "result" ? (
         <View style={styles.autoPlanPanel}>
           <View style={styles.autoPlanHeadingRow}>
@@ -549,47 +557,125 @@ export default function MealInspirationSection({
         </Animated.View>
       ) : activePool ? (
         <View style={styles.activeTabRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${getPoolTabLabel(activePool.id, difficultyMode)} active tab`}
-            accessibilityState={{ selected: true }}
-            onPress={() => handleTabPress(activeIndex, activePool)}
-            style={({ pressed }) => [
-              styles.tab,
-              styles.tabActive,
-              pressed && styles.pressed,
-            ]}
-          >
-            {activePool.id === "freezerMeals" ? (
+          {activePool.cycle ? (
+            <>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                directionalLockEnabled
+                alwaysBounceVertical={false}
+                bounces={false}
+                style={styles.tabsScroller}
+                contentContainerStyle={styles.tabs}
+                accessibilityRole="tablist"
+              >
+              {activePool.cycle === "difficulty"
+                ? DIFFICULTY_MODES.map((mode) => {
+                    const isSelected = mode === difficultyMode;
+                    return (
+                      <Pressable
+                        key={mode}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: isSelected }}
+                        onPress={() =>
+                          applyCycleSelection(
+                            () => setDifficultyMode(mode),
+                            isSelected,
+                          )
+                        }
+                        style={({ pressed }) => [styles.tab, isSelected && styles.tabActive, pressed && styles.pressed]}
+                      >
+                        <View style={[styles.difficultyDot, { backgroundColor: getDifficultyModeColor(mode, theme) }]} />
+                        <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{getDifficultyModeLabel(mode)}</Text>
+                      </Pressable>
+                    );
+                  })
+                : activePool.cycle === "expense"
+                  ? EXPENSE_MODES.map((mode) => {
+                      const isSelected = mode === expenseMode;
+                      return (
+                        <Pressable
+                          key={mode}
+                          accessibilityRole="tab"
+                          accessibilityState={{ selected: isSelected }}
+                          accessibilityLabel={`${mode} dollar sign${mode === 1 ? "" : "s"} expense`}
+                          onPress={() => applyCycleSelection(() => setExpenseMode(mode), isSelected)}
+                          style={({ pressed }) => [styles.tab, isSelected && styles.tabActive, pressed && styles.pressed]}
+                        >
+                          <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{"$".repeat(mode)}</Text>
+                        </Pressable>
+                      );
+                    })
+                  : activePool.cycle === "beenAwhile"
+                    ? BEEN_AWHILE_MODES.map((mode) => {
+                        const isSelected = mode === beenAwhileMode;
+                        return (
+                          <Pressable
+                            key={mode}
+                            accessibilityRole="tab"
+                            accessibilityState={{ selected: isSelected }}
+                            accessibilityLabel={`Not served for ${mode} weeks`}
+                            onPress={() => applyCycleSelection(() => setBeenAwhileMode(mode), isSelected)}
+                            style={({ pressed }) => [styles.tab, isSelected && styles.tabActive, pressed && styles.pressed]}
+                          >
+                            <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{mode}W</Text>
+                          </Pressable>
+                        );
+                      })
+                    : availableCuisineModes.map((mode) => {
+                      const isSelected = mode === resolvedCuisineMode;
+                      return (
+                        <Pressable
+                          key={mode}
+                          accessibilityRole="tab"
+                          accessibilityState={{ selected: isSelected }}
+                          onPress={() => applyCycleSelection(() => setCuisineMode(mode), isSelected)}
+                          style={({ pressed }) => [styles.tab, isSelected && styles.tabActive, pressed && styles.pressed]}
+                        >
+                          <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{getCuisineLabel(mode)}</Text>
+                        </Pressable>
+                      );
+                    })}
+              </ScrollView>
+            </>
+          ) : (
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityLabel={`${getPoolTabLabel(activePool.id, difficultyMode, resolvedCuisineMode)} active tab`}
+              accessibilityState={{ selected: true }}
+              style={({ pressed }) => [styles.tab, styles.tabActive, pressed && styles.pressed]}
+            >
+              {activePool.id === "freezerMeals" ? (
               <MaterialCommunityIcons
                 name="snowflake"
                 size={20}
                 color={theme.color.ink}
                 style={[styles.tabIcon, styles.tabIconActive]}
               />
-            ) : activePool.cycle === "difficulty" ? (
-              <View
-                style={[
-                  styles.difficultyDot,
-                  { backgroundColor: getDifficultyModeColor(difficultyMode, theme) },
-                ]}
-                accessibilityLabel={`${getDifficultyModeLabel(difficultyMode)} difficulty`}
-              />
-            ) : activePool.cycle === "expense" ? (
-              <Text
-                style={styles.expenseText}
-                accessibilityLabel={`${expenseMode} dollar sign${expenseMode === 1 ? "" : "s"} expense`}
-              >
-                {"$".repeat(expenseMode)}
-              </Text>
-            ) : (
+              ) : (
               <Text style={[styles.tabIcon, styles.tabIconActive]}>
                 {(activePool.chipIcon ?? getPoolIcon(activePool.id)) || "🍽️"}
               </Text>
-            )}
-            <Text style={[styles.tabText, styles.tabTextActive]} numberOfLines={1}>
-              {getPoolTabLabel(activePool.id, difficultyMode)}
-            </Text>
+              )}
+              <Text style={[styles.tabText, styles.tabTextActive]} numberOfLines={1}>
+                {getPoolTabLabel(activePool.id, difficultyMode, resolvedCuisineMode)}
+              </Text>
+            </Pressable>
+          )}
+          <Pressable
+            onPress={collapseToDiscovery}
+            accessibilityRole="button"
+            accessibilityLabel={`Close ${activePool.title} inspiration tabs`}
+            style={({ pressed }) => [
+              styles.closeTabsButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <MaterialCommunityIcons
+              name="close"
+              size={20}
+              color={theme.color.subtleInk}
+            />
           </Pressable>
         </View>
       ) : (
@@ -625,7 +711,7 @@ export default function MealInspirationSection({
                 key={pool.id}
                 onPress={() => setPoolIndex(visiblePools.indexOf(pool))}
                 accessibilityRole="button"
-                accessibilityLabel={`Browse ${getPoolTabLabel(pool.id, difficultyMode)} meal suggestions`}
+                accessibilityLabel={`Browse ${pool.cycle === "cuisine" ? "Cuisine" : getPoolTabLabel(pool.id, difficultyMode, resolvedCuisineMode)} meal suggestions`}
                 style={({ pressed }) => [
                   styles.discoveryCell,
                   pressed && styles.discoveryCellPressed,
@@ -654,13 +740,19 @@ export default function MealInspirationSection({
                   >
                     $
                   </Text>
+                ) : pool.cycle === "cuisine" ? (
+                  <Text style={styles.discoveryIcon}>🌎</Text>
+                ) : pool.cycle === "beenAwhile" ? (
+                  <Text style={styles.discoveryIcon}>🕒</Text>
                 ) : (
                   <Text style={styles.discoveryIcon}>
                     {getDiscoveryPoolIcon(pool.id, pool.chipIcon)}
                   </Text>
                 )}
                 <Text style={styles.discoveryLabel} numberOfLines={1}>
-                  {getPoolTabLabel(pool.id, difficultyMode)}
+                  {pool.cycle === "cuisine"
+                    ? "Cuisine"
+                    : getPoolTabLabel(pool.id, difficultyMode, resolvedCuisineMode)}
                 </Text>
               </Pressable>
             ))}
@@ -715,12 +807,6 @@ export default function MealInspirationSection({
               snapToAlignment="start"
               disableIntervalMomentum
               contentContainerStyle={styles.carouselList}
-              onTouchStart={() => {
-                isChipScrollActiveRef.current = true;
-              }}
-              onTouchEnd={() => {
-                isChipScrollActiveRef.current = false;
-              }}
               onMomentumScrollEnd={handleCarouselMomentumEnd}
             >
               {activePool.meals.map((meal) => {
@@ -848,6 +934,7 @@ const getPoolIcon = (poolId: MealPoolId) => {
   if (poolId === "beenAwhile") return "🕒";
   if (poolId === "recentlyAdded") return "🕐";
   if (poolId === "familyStars") return "⭐";
+  if (poolId === "cuisine") return "🌎";
   if (poolId === "fiveStars") return "⭐";
   return "";
 };
@@ -860,6 +947,7 @@ const getDiscoveryPoolIcon = (poolId: MealPoolId, configuredIcon?: string) => {
 const getPoolTabLabel = (
   poolId: MealPoolId,
   difficultyMode: DifficultyMode = "easy",
+  cuisineMode: CuisineType = "american",
 ) => {
   if (poolId === "beenAwhile") return "Been Awhile";
   if (poolId === "recentlyAdded") return "Recently Added";
@@ -867,6 +955,7 @@ const getPoolTabLabel = (
   if (poolId === "fiveStars") return "Five Stars";
   if (poolId === "freezerMeals") return "Freezer";
   if (poolId === "easy") return getDifficultyModeLabel(difficultyMode);
+  if (poolId === "cuisine") return getCuisineLabel(cuisineMode) ?? "Cuisine";
   return "Expense";
 };
 
@@ -956,6 +1045,9 @@ const getMealReason = (
   if (poolId === "budget") {
     return `${"$".repeat(getExpenseTier(meal))} expense tier`;
   }
+  if (poolId === "cuisine") {
+    return `${getCuisineLabel(meal.cuisine) ?? "Cuisine"} cuisine`;
+  }
   return null;
 };
 
@@ -993,6 +1085,7 @@ const getPoolEmptyText = (poolId: MealPoolId, fallback: string) => {
   }
   if (poolId === "fiveStars") return "Five-star meals will appear here.";
   if (poolId === "easy") return fallback;
+  if (poolId === "cuisine") return fallback;
   if (poolId === "budget") return fallback;
   return fallback;
 };
@@ -1224,9 +1317,11 @@ const createStyles = (theme: WeeklyTheme) =>
     activeTabRow: {
       flexDirection: "row",
       alignItems: "center",
+      gap: theme.space.sm,
       minHeight: 48,
     },
     tabsScroller: {
+      flex: 1,
       maxWidth: "100%",
     },
     tabs: {
@@ -1235,6 +1330,18 @@ const createStyles = (theme: WeeklyTheme) =>
       alignItems: "center",
       gap: theme.space.sm,
       paddingRight: theme.space.lg,
+    },
+    closeTabsButton: {
+      width: 40,
+      height: 40,
+      marginLeft: "auto",
+      flexShrink: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
     },
     tab: {
       minHeight: 40,
@@ -1272,7 +1379,7 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
     },
     carouselSection: {
-      minHeight: 258,
+      minHeight: 232,
       justifyContent: "center",
     },
     carouselList: {
@@ -1281,16 +1388,16 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingRight: theme.space.xl * 2,
     },
     carouselCard: {
-      minHeight: 225,
-      paddingHorizontal: theme.space.xl,
-      paddingVertical: theme.space.xl,
+      minHeight: 203,
+      paddingHorizontal: theme.space.xl * 0.9,
+      paddingVertical: theme.space.xl * 0.9,
       borderRadius: theme.radius.xl,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.cardOutline,
       backgroundColor: theme.color.surface,
       alignItems: "center",
       justifyContent: "center",
-      gap: theme.space.md,
+      gap: theme.space.md * 0.9,
       shadowColor: "#000",
       shadowOpacity: theme.mode === "dark" ? 0.22 : 0.1,
       shadowRadius: 12,
@@ -1313,15 +1420,15 @@ const createStyles = (theme: WeeklyTheme) =>
       gap: theme.space.xs,
     },
     carouselFamilyStar: {
-      fontSize: 22,
+      fontSize: 20,
     },
     carouselEmoji: {
-      fontSize: 54,
+      fontSize: 49,
     },
     carouselTitle: {
       maxWidth: "100%",
       color: theme.color.ink,
-      fontSize: theme.type.size.h2,
+      fontSize: theme.type.size.title,
       fontWeight: theme.type.weight.bold,
       textAlign: "center",
     },

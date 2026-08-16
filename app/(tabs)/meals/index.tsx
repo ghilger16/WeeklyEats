@@ -62,17 +62,11 @@ import {
   isMealIncomplete,
   mergeConfirmedIngredients,
 } from "../../../utils/mealCompletion";
-import { getFamilyRatingSummary } from "../../../utils/familyRatings";
 import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
+import { getGalaxyMealId } from "../../../utils/galaxyMeal";
 
 const getMealRatingValue = (meal: Meal) =>
   typeof meal.rating === "number" ? meal.rating : 0;
-
-const hasFiveStarRating = (meal: Meal, memberIds: string[]) =>
-  memberIds.length > 1
-    ? getFamilyRatingSummary(meal.familyRatings, memberIds)?.isUnanimousHeart ??
-      false
-    : getMealRatingValue(meal) === 5;
 
 const getMealCostTier = (meal: Meal) => {
   if (typeof meal.expense === "number") {
@@ -751,38 +745,10 @@ export default function MealsScreen() {
   );
 
   const galaxyMealId = useMemo(() => {
-    const highestServedCount = meals.reduce(
-      (highest, meal) => Math.max(highest, getMealServedCount(meal)),
-      0
+    return getGalaxyMealId(
+      meals,
+      members.map((member) => member.id)
     );
-    if (highestServedCount <= 0) {
-      return null;
-    }
-
-    const eligibleMeals = meals.filter(
-      (meal) =>
-        hasFiveStarRating(
-          meal,
-          members.map((member) => member.id)
-        ) &&
-        getMealServedCount(meal) === highestServedCount
-    );
-    if (!eligibleMeals.length) {
-      return null;
-    }
-
-    return [...eligibleMeals].sort((a, b) => {
-      const servedDelta = getMealServedCount(b) - getMealServedCount(a);
-      if (servedDelta !== 0) {
-        return servedDelta;
-      }
-      const recencyDelta =
-        getMealRecencyTimestamp(b) - getMealRecencyTimestamp(a);
-      if (recencyDelta !== 0) {
-        return recencyDelta;
-      }
-      return a.title.localeCompare(b.title);
-    })[0]?.id ?? null;
   }, [meals, members]);
 
   const openFreezerModal = useCallback((meal: Meal) => {
@@ -931,7 +897,7 @@ export default function MealsScreen() {
           });
         };
         const handleUpdateDetails = (
-          patch: Pick<Partial<Meal>, "difficulty" | "expense">
+          patch: Pick<Partial<Meal>, "difficulty" | "expense" | "cuisine">
         ) => {
           updateMeal({
             id: item.id,

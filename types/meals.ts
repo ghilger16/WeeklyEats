@@ -49,6 +49,7 @@ export type Meal = {
   suggestedSides?: string[];
   difficulty?: number;
   expense?: number;
+  cuisine?: CuisineType | null;
   prepNotes?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -80,3 +81,4 @@ export const createEmptyMealDraft = (): MealDraft => ({
 
 export const createMealId = () =>
   `meal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+import { CuisineType } from "./cuisine";

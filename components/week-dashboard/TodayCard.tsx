@@ -119,6 +119,7 @@ export default function TodayCard({
   const isFlexNight = meal.id === FLEX_NIGHT_MEAL_ID;
   const sidesLabel = sides.join(" · ");
   const prepNotes = notes ?? meal.prepNotes?.trim();
+  const hasPrepNotes = Boolean(prepNotes?.trim());
   const eatOutNote = isEatOut
     ? notes?.trim() ||
       (meal.title !== EAT_OUT_MEAL.title ? meal.title.trim() : "") ||
@@ -470,13 +471,13 @@ export default function TodayCard({
         </View>
       ) : (
         <>
-          <View style={styles.mealRow}>
+          <View style={[styles.mealRow, !hasPrepNotes && styles.mealRowCentered]}>
             <Text style={styles.emoji}>{meal.emoji || "🍽️"}</Text>
-            <View style={styles.mealText}>
-              <Text style={styles.title}>{meal.title}</Text>
+            <View style={[styles.mealText, !hasPrepNotes && styles.mealTextCentered]}>
+              <Text style={[styles.title, !hasPrepNotes && styles.mealTitleCentered]}>{meal.title}</Text>
               {isFlexNight ? <Text style={styles.meta}>Keep tonight flexible</Text> : null}
               {sidesLabel ? <Text style={styles.sides}>w/ {sidesLabel}</Text> : null}
-              {prepNotes ? <Text style={styles.notes}>{prepNotes}</Text> : null}
+              {hasPrepNotes ? <Text style={styles.notes}>{prepNotes?.trim()}</Text> : null}
             </View>
           </View>
           {isServed && phase !== "burst" ? (
@@ -549,9 +550,12 @@ const createStyles = (theme: WeeklyTheme) =>
     eyebrow: { color: theme.color.accent, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
     badges: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
     mealRow: { flexDirection: "row", alignItems: "center", gap: theme.space.md, marginTop: 6 },
+    mealRowCentered: { justifyContent: "center" },
     emoji: { fontSize: 42 },
     mealText: { flex: 1, gap: theme.space.xs },
+    mealTextCentered: { flex: 0, alignItems: "center" },
     title: { color: theme.color.ink, fontSize: theme.type.size.h2, fontWeight: theme.type.weight.bold },
+    mealTitleCentered: { textAlign: "center" },
     meta: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
     sides: { color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
     notes: { color: theme.color.subtleInk, fontSize: theme.type.size.xs },

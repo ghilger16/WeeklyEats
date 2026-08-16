@@ -15,6 +15,8 @@ import {
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { alpha, WeeklyTheme } from "../../styles/theme";
 import { Ingredient, Meal } from "../../types/meals";
+import CuisineSelectorModal from "./CuisineSelectorModal";
+import { getCuisineLabel } from "../../types/cuisine";
 import {
   retryIngredientSuggestions,
   suggestIngredientsForMealTitle,
@@ -23,7 +25,7 @@ import {
 type Props = {
   meal: Meal;
   onApply: (ingredients: Ingredient[]) => void;
-  onUpdateDetails: (patch: Pick<Partial<Meal>, "difficulty" | "expense">) => void;
+  onUpdateDetails: (patch: Pick<Partial<Meal>, "difficulty" | "expense" | "cuisine">) => void;
   onExpand: () => void;
   isLastIncomplete?: boolean;
 };
@@ -40,6 +42,8 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
   const [isCompleting, setCompleting] = useState(false);
   const [detailDifficulty, setDetailDifficulty] = useState(meal.difficulty);
   const [detailExpense, setDetailExpense] = useState(meal.expense);
+  const [detailCuisine, setDetailCuisine] = useState(meal.cuisine);
+  const [isCuisineSelectorVisible, setCuisineSelectorVisible] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const celebrationOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
@@ -79,7 +83,8 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
     if (isCompleting) return;
     setDetailDifficulty(meal.difficulty);
     setDetailExpense(meal.expense);
-  }, [isCompleting, meal.difficulty, meal.expense]);
+    setDetailCuisine(meal.cuisine);
+  }, [isCompleting, meal.cuisine, meal.difficulty, meal.expense]);
 
   const addManualIngredient = useCallback(() => {
     const name = manualKey.trim();
@@ -164,6 +169,7 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
     !hasKeyIngredients ? "ingredients" : null,
     typeof meal.difficulty !== "number" ? "difficulty" : null,
     typeof meal.expense !== "number" ? "expense" : null,
+    !meal.cuisine ? "cuisine" : null,
   ].filter((label): label is string => Boolean(label));
   const missingStatus = `Missing ${missingDetailLabels.join(
     missingDetailLabels.length === 2 ? " and " : ", "
@@ -194,6 +200,7 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
       : detailExpense <= 3
       ? "$$"
       : "$$$";
+  const cuisineLabel = getCuisineLabel(detailCuisine) ?? "Not set";
   const finishMeal = useCallback(
     (commit: () => void) => {
       if (isCompleting) return;
@@ -270,25 +277,50 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
     if (
       addsKeyIngredient &&
       typeof meal.difficulty === "number" &&
-      typeof meal.expense === "number"
+      typeof meal.expense === "number" &&
+      Boolean(meal.cuisine)
     ) {
       finishMeal(commit);
       return;
     }
     commit();
-  }, [finishMeal, meal.difficulty, meal.expense, onApply, selectedIngredients]);
+  }, [finishMeal, meal.cuisine, meal.difficulty, meal.expense, onApply, selectedIngredients]);
 
   const detailsReady =
-    typeof detailDifficulty === "number" && typeof detailExpense === "number";
+    typeof detailDifficulty === "number" &&
+    typeof detailExpense === "number" &&
+    Boolean(detailCuisine);
   const handleSaveDetails = useCallback(() => {
     if (!detailsReady) return;
     finishMeal(() =>
       onUpdateDetails({
         difficulty: detailDifficulty,
         expense: detailExpense,
+        cuisine: detailCuisine,
       })
     );
-  }, [detailDifficulty, detailExpense, detailsReady, finishMeal, onUpdateDetails]);
+  }, [detailCuisine, detailDifficulty, detailExpense, detailsReady, finishMeal, onUpdateDetails]);
+
+  const handleSelectCuisine = useCallback(
+    (cuisine: Meal["cuisine"]) => {
+      setCuisineSelectorVisible(false);
+      setDetailCuisine(cuisine);
+      if (
+        cuisine &&
+        typeof detailDifficulty === "number" &&
+        typeof detailExpense === "number"
+      ) {
+        finishMeal(() =>
+          onUpdateDetails({
+            cuisine,
+            difficulty: detailDifficulty,
+            expense: detailExpense,
+          })
+        );
+      }
+    },
+    [detailDifficulty, detailExpense, finishMeal, onUpdateDetails]
+  );
 
   const sparkleOffsets = [
     [-24, -16], [-10, -24], [8, -22], [24, -12],
@@ -442,6 +474,18 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
                 {typeof detailExpense !== "number" ? <Text style={styles.detailAdd}>+</Text> : null}
               </View>
             </Pressable>
+            <Pressable
+              onPress={() => setCuisineSelectorVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Cuisine, ${cuisineLabel}`}
+              style={({ pressed }) => [styles.detailTile, pressed && styles.pressed]}
+            >
+              <Text style={styles.detailTileLabel}>Cuisine</Text>
+              <View style={styles.detailValueRow}>
+                <Text style={[styles.detailValue, !detailCuisine && styles.detailValueUnset]}>{cuisineLabel}</Text>
+                {!detailCuisine ? <Text style={styles.detailAdd}>+</Text> : null}
+              </View>
+            </Pressable>
           </View>
           <View style={styles.footer}>
             <Pressable
@@ -460,6 +504,14 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
           </View>
         </View>
       ) : null}
+      <CuisineSelectorModal
+        visible={isCuisineSelectorVisible}
+        selected={detailCuisine}
+        mealTitle={meal.title}
+        mealEmoji={meal.emoji}
+        onSelect={handleSelectCuisine}
+        onClose={() => setCuisineSelectorVisible(false)}
+      />
     </View>
     </Animated.View>
   );
@@ -503,8 +555,8 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   retry: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
   detailsDrawer: { gap: theme.space.md },
   detailsLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.medium, textTransform: "uppercase", letterSpacing: 0.8 },
-  detailsGrid: { flexDirection: "row", gap: theme.space.md },
-  detailTile: { flex: 1, gap: theme.space.xs, padding: theme.space.md, borderRadius: theme.radius.md, backgroundColor: theme.color.surface },
+  detailsGrid: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.md },
+  detailTile: { minWidth: "46%", flexGrow: 1, gap: theme.space.xs, padding: theme.space.md, borderRadius: theme.radius.md, backgroundColor: theme.color.surface },
   detailTileLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, textTransform: "uppercase", letterSpacing: 0.5 },
   detailValueRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
   detailDot: { width: 8, height: 8, borderRadius: theme.radius.full },

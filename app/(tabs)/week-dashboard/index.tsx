@@ -59,6 +59,7 @@ import {
   getCurrentWeekPlan,
   getCurrentWeekSides,
   getWeekPlanStreak,
+  getWeekPlanHistory,
   setCurrentWeekPlan,
   setCurrentWeekSides,
   setWeekPlanDataBatch,
@@ -77,9 +78,11 @@ import { DayPinsState, normalizeDayPinsState } from "../../../types/dayPins";
 import { Meal } from "../../../types/meals";
 import { FamilyRatingValue } from "../../../types/meals";
 import { useFamilyMembers } from "../../../hooks/useFamilyMembers";
-import { getFamilyRatingSummary, setFamilyRatingValue } from "../../../utils/familyRatings";
+import { setFamilyRatingValue } from "../../../utils/familyRatings";
+import { getGalaxyMealId } from "../../../utils/galaxyMeal";
 import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
 import { promoteSavedSides } from "../../../components/plan-week/inline/sideOptions";
+import { getSmartLevel } from "../../../utils/smartLevel";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>(
@@ -152,6 +155,7 @@ export default function WeekDashboardScreen() {
     createInitialSuggestionIndex
   );
   const [streakCount, setStreakCount] = useState(0);
+  const [plannedWeeksCount, setPlannedWeeksCount] = useState(0);
   const [isStreakModalOpen, setStreakModalOpen] = useState(false);
   const dashboardAnim = useRef(new Animated.Value(0)).current;
   const scrollViewRef = useRef<ScrollView>(null);
@@ -172,9 +176,17 @@ export default function WeekDashboardScreen() {
     const closeSub = DeviceEventEmitter.addListener("streakModalClose", () =>
       setStreakModalOpen(false)
     );
+    const smartOpenSub = DeviceEventEmitter.addListener("smartLevelModalOpen", () =>
+      setStreakModalOpen(true)
+    );
+    const smartCloseSub = DeviceEventEmitter.addListener("smartLevelModalClose", () =>
+      setStreakModalOpen(false)
+    );
     return () => {
       openSub.remove();
       closeSub.remove();
+      smartOpenSub.remove();
+      smartCloseSub.remove();
     };
   }, []);
 
@@ -268,9 +280,17 @@ export default function WeekDashboardScreen() {
     refresh: refreshServedMeals,
   } = useServedMeals();
   const refreshStreak = useCallback(async () => {
-    const streak = await getWeekPlanStreak();
+    const [streak, history] = await Promise.all([
+      getWeekPlanStreak(),
+      getWeekPlanHistory(),
+    ]);
     setStreakCount(streak.count ?? 0);
+    setPlannedWeeksCount(history.length);
   }, []);
+  const smartLevel = useMemo(
+    () => getSmartLevel({ meals, servedEntries, plannedWeeksCount }),
+    [meals, plannedWeeksCount, servedEntries],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -526,19 +546,11 @@ export default function WeekDashboardScreen() {
   }, [today?.mealId, updateMeal]);
 
   const todayIsGalaxyMeal = useMemo(() => {
-    if (!today?.mealId || members.length <= 1) return false;
-    const memberIds = members.map((member) => member.id);
-    const highestServedCount = meals.reduce(
-      (highest, item) => Math.max(highest, item.servedCount ?? 0),
-      0,
-    );
-    const currentMeal = meals.find((item) => item.id === today.mealId);
-    return Boolean(
-      currentMeal &&
-      highestServedCount > 0 &&
-      currentMeal.servedCount === highestServedCount &&
-      getFamilyRatingSummary(currentMeal.familyRatings, memberIds)?.isUnanimousHeart,
-    );
+    if (!today?.mealId) return false;
+    return getGalaxyMealId(
+      meals,
+      members.map((member) => member.id)
+    ) === today.mealId;
   }, [meals, members, today?.mealId]);
 
   const handleTodaySaveFreezer = useCallback(
@@ -1531,6 +1543,11 @@ export default function WeekDashboardScreen() {
                 pressed && styles.setupButtonPressed,
               ]}
             >
+              <MaterialCommunityIcons
+                name="calendar-week"
+                size={20}
+                color="#FFFFFF"
+              />
               <Text style={styles.setupPrimaryText}>
                 Plan this week
               </Text>
@@ -1545,6 +1562,11 @@ export default function WeekDashboardScreen() {
               pressed && styles.setupButtonPressed,
             ]}
           >
+            <MaterialCommunityIcons
+              name="calendar-week"
+              size={20}
+              color="#FFFFFF"
+            />
             <Text style={styles.setupPrimaryText}>Plan next week</Text>
           </Pressable>
         </View>
@@ -1701,6 +1723,10 @@ export default function WeekDashboardScreen() {
           streak={{
             count: streakCount,
             onPress: () => router.push("/modals/streaksHistoryModal"),
+          }}
+          smartLevel={{
+            level: smartLevel,
+            onPress: () => router.push("/modals/smartLevelModal"),
           }}
         >
           <ScrollView
@@ -2471,10 +2497,12 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     setupPrimaryButton: {
       minHeight: theme.component.button.height,
+      flexDirection: "row",
       borderRadius: theme.component.button.radius,
       backgroundColor: theme.color.accent,
       alignItems: "center",
       justifyContent: "center",
+      gap: theme.space.sm,
       paddingHorizontal: theme.space.lg,
     },
     setupPrimaryText: {

@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { useThemeController } from "../../../providers/theme/ThemeController";
-import { WeeklyTheme } from "../../../styles/theme";
+import { alpha, WeeklyTheme } from "../../../styles/theme";
 import { Meal } from "../../../types/meals";
 import { PLANNED_WEEK_DISPLAY_NAMES, PlannedWeekDayKey } from "../../../types/weekPlan";
 import {
@@ -102,35 +102,28 @@ export default function InlineSideEditor({
               color={theme.color.subtleInk}
             />
           </Pressable>
-          <Text style={styles.sectionTitle}>Suggested Sides</Text>
+          <Text style={styles.sectionTitle}>Sides</Text>
         </View>
       </View>
 
-      <View style={styles.grid}>
-        {options.map((option) => {
+      <View style={styles.sideGroup}>
+        <Text style={styles.sideGroupLabel}>Suggested Sides</Text>
+        <View style={styles.grid}>
+          {options.map((option) => {
           const selected = selectedKeys.has(normalize(option.name));
           return (
-            <Pressable
+            <SideChip
               key={option.name.toLowerCase()}
+              option={option}
+              selected={selected}
               onPress={() => toggleSide(option.name)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: selected }}
-              accessibilityLabel={`${option.name}, ${selected ? "selected" : "not selected"}`}
-              style={({ pressed }) => [
-                styles.sideChip,
-                selected && styles.sideChipSelected,
-                pressed && styles.pressed,
-              ]}
-            >
-              <MaterialCommunityIcons
-                name={selected ? "check-circle" : "checkbox-blank-circle-outline"}
-                size={25}
-                color={selected ? theme.color.accent : theme.color.subtleInk}
-              />
-              <Text numberOfLines={1} style={styles.sideName}>{option.name}</Text>
-            </Pressable>
+              styles={styles}
+              accent={theme.color.accent}
+              accentMuted={alpha(theme.color.accent, 0.58)}
+            />
           );
         })}
+        </View>
       </View>
 
       <View style={styles.customInputRow}>
@@ -148,20 +141,17 @@ export default function InlineSideEditor({
         />
         <Pressable
           onPress={addCustomSide}
-          disabled={!customSide.trim()}
           accessibilityRole="button"
           accessibilityLabel="Add custom side"
-          accessibilityState={{ disabled: !customSide.trim() }}
           style={({ pressed }) => [
             styles.customAddButton,
-            !customSide.trim() && styles.customAddButtonDisabled,
             pressed && customSide.trim() && styles.pressed,
           ]}
         >
           <MaterialCommunityIcons
             name="plus"
-            size={20}
-            color="#FFFFFF"
+            size={22}
+            color={theme.color.accent}
           />
         </Pressable>
       </View>
@@ -187,20 +177,54 @@ export default function InlineSideEditor({
   );
 }
 
+type SideChipProps = {
+  option: { name: string };
+  selected: boolean;
+  onPress: () => void;
+  styles: ReturnType<typeof createStyles>;
+  accent: string;
+  accentMuted: string;
+};
+
+const SideChip = ({ option, selected, onPress, styles, accent, accentMuted }: SideChipProps) => (
+  <Pressable
+    onPress={onPress}
+    accessibilityRole="checkbox"
+    accessibilityState={{ checked: selected }}
+    accessibilityLabel={`${option.name}, ${selected ? "selected" : "not selected"}`}
+    style={({ pressed }) => [
+      styles.sideChip,
+      selected && styles.sideChipSelected,
+      pressed && styles.pressed,
+    ]}
+  >
+    <View style={styles.sideChipDot} />
+    <Text numberOfLines={1} style={[styles.sideName, selected && styles.sideNameSelected]}>{option.name}</Text>
+    <MaterialCommunityIcons
+      name={selected ? "check" : "plus"}
+      size={15}
+      color={selected ? accent : accentMuted}
+    />
+  </Pressable>
+);
+
 const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   content: { paddingHorizontal: theme.space.sm, paddingBottom: theme.space.sm, gap: theme.space.md },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   titleLeading: { flex: 1, flexDirection: "row", alignItems: "center", gap: theme.space.xs },
   backButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.full },
   sectionTitle: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+  sideGroup: { gap: theme.space.sm },
+  sideGroupLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, textTransform: "uppercase", letterSpacing: 0.7 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm },
-  sideChip: { width: "48.5%", minHeight: 56, paddingHorizontal: theme.space.md, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
-  sideChipSelected: { borderColor: theme.color.accent, backgroundColor: theme.mode === "dark" ? "rgba(255, 75, 145, 0.10)" : "rgba(255, 75, 145, 0.06)" },
-  sideName: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base },
-  customInputRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
-  input: { flex: 1, minHeight: 44, borderRadius: theme.radius.md, paddingHorizontal: theme.space.md, color: theme.color.ink, fontSize: theme.type.size.base, backgroundColor: theme.color.surfaceAlt },
-  customAddButton: { width: 44, height: 44, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.accent },
-  customAddButtonDisabled: { opacity: 0.45 },
+  sideChip: { width: "48.5%", height: 44, paddingHorizontal: theme.space.md, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderRadius: theme.radius.md, backgroundColor: theme.color.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  sideChipSelected: { borderColor: theme.color.accent, backgroundColor: alpha(theme.color.accent, 0.12) },
+  sideChipDot: { width: 7, height: 7, borderRadius: theme.radius.full, backgroundColor: theme.color.accent },
+  sideName: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
+  sideNameSelected: { color: theme.color.accent },
+  customInputRow: { minHeight: 48, flexDirection: "row", alignItems: "center", borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  input: { flex: 1, minHeight: 48, paddingHorizontal: theme.space.md, color: theme.color.ink, fontSize: theme.type.size.base },
+  customAddButton: { width: 44, height: 44, marginRight: theme.space.xs, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center" },
   actions: { marginTop: theme.space.sm, flexDirection: "row", gap: theme.space.sm },
   doneButton: { flex: 1, minHeight: 52, borderRadius: theme.radius.xl, backgroundColor: theme.color.accent, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm },
   doneText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },

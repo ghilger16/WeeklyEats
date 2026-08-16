@@ -153,23 +153,18 @@ const MealListItem = memo(function MealListItem({
   };
 
   const resolveExpenseTier = () => {
-    if (typeof meal.expense === "number") {
-      if (meal.expense <= 2) {
-        return 1;
-      }
-      if (meal.expense >= 4) {
-        return 3;
-      }
-      return 2;
+    if (typeof meal.expense !== "number" || Number.isNaN(meal.expense)) {
+      return undefined;
     }
-
-    return Math.min(Math.max(meal.plannedCostTier ?? 2, 1), 3);
+    if (meal.expense <= 2) return 1;
+    if (meal.expense >= 4) return 3;
+    return 2;
   };
 
   const expenseTier = resolveExpenseTier();
   const expenseLabel =
-    expenseTier === 1 ? "cheap" : expenseTier === 2 ? "medium" : "pricey";
-  const costLabel = "$".repeat(expenseTier);
+    expenseTier === 1 ? "cheap" : expenseTier === 2 ? "medium" : expenseTier === 3 ? "pricey" : undefined;
+  const costLabel = expenseTier ? "$".repeat(expenseTier) : "";
   const difficultyColorKey = resolveDifficultyColorKey(meal.difficulty);
   const difficultyColor = difficultyColorKey
     ? theme.color[difficultyColorKey]
@@ -371,7 +366,7 @@ const MealListItem = memo(function MealListItem({
                         accessible
                       />
                     ) : null}
-                    {showExpense ? (
+                    {showExpense && expenseTier ? (
                       <Text
                         style={styles.cost}
                         accessibilityLabel={`Expense ${expenseLabel}`}

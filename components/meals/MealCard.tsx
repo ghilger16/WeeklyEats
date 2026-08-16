@@ -34,6 +34,8 @@ import RatingStars from "./RatingStars";
 import FamilyRatingRow from "./FamilyRatingRow";
 import FamilyRatingAchievements from "./FamilyRatingAchievements";
 import EmojiPickerModal from "../emoji/EmojiPickerModal";
+import CuisineSelectorModal from "./CuisineSelectorModal";
+import { CuisineType, getCuisineLabel } from "../../types/cuisine";
 import {
   DEFAULT_MEAL_EMOJI,
   suggestEmojiForTitle,
@@ -142,7 +144,7 @@ const triggerMealSaveHaptic = () => {
 type AutoFillPreviewDraft = {
   title: string;
   ingredients: IngredientValue[];
-  suggestedSides: string[];
+  cuisine?: CuisineType | null;
   difficulty?: number;
   expense?: number;
   prepNotes: string;
@@ -237,6 +239,7 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
     typeof meal.expense === "number"
       ? snapToLevelValue(meal.expense, EXPENSE_LEVELS)
       : undefined,
+  cuisine: meal.cuisine ?? undefined,
   prepNotes: meal.prepNotes ?? "",
   freezerAmount:
     "freezerAmount" in meal && meal.freezerAmount !== undefined
@@ -309,6 +312,9 @@ export default function MealCard({
   ] = useState(false);
   const autoFillTriggeredRef = useRef(false);
   const [isEmojiPickerVisible, setEmojiPickerVisible] = useState(false);
+  const [isCuisineSelectorVisible, setCuisineSelectorVisible] = useState(false);
+  const [isAutoFillCuisineSelectorVisible, setAutoFillCuisineSelectorVisible] =
+    useState(false);
   const [showTitleRequiredError, setShowTitleRequiredError] = useState(false);
   const [addMealStep, setAddMealStep] = useState<AddMealStep>(
     mode === "edit" ? "manual" : "entry"
@@ -613,7 +619,7 @@ export default function MealCard({
     setAutoFillDraft({
       title: outcome.data.title?.trim() ?? "",
       ingredients: normalizedIngredients,
-      suggestedSides: [...(outcome.data.suggestedSides ?? [])],
+      cuisine: outcome.data.cuisine,
       difficulty: normalizedDifficulty,
       expense: normalizedExpense,
       prepNotes: outcome.data.prepNotes?.trim() ?? "",
@@ -715,7 +721,7 @@ export default function MealCard({
     if (cleanedIngredients.length > 0) {
       nextForm.ingredients = cleanedIngredients;
     }
-    nextForm.suggestedSides = [...autoFillDraft.suggestedSides];
+    nextForm.cuisine = autoFillDraft.cuisine ?? undefined;
 
     if (typeof autoFillDraft.difficulty === "number") {
       nextForm.difficulty = autoFillDraft.difficulty;
@@ -764,6 +770,7 @@ export default function MealCard({
       form.rating !== initial.rating ||
       form.difficulty !== initial.difficulty ||
       form.expense !== initial.expense ||
+      form.cuisine !== initial.cuisine ||
       Boolean(form.isFavorite) !== Boolean(initial.isFavorite)
     );
   }, [form, initialMeal, isEditMode, prepNotesDraft]);
@@ -772,6 +779,7 @@ export default function MealCard({
       Boolean(
         autoFillDraft?.title.trim() ||
           autoFillDraft?.ingredients.length ||
+          autoFillDraft?.cuisine ||
           autoFillDraft?.difficulty ||
           autoFillDraft?.expense ||
           autoFillDraft?.prepNotes.trim()
@@ -1169,6 +1177,7 @@ export default function MealCard({
     const expenseLabel = hasExpense
       ? "$".repeat(form.expense! >= 4 ? 3 : form.expense! <= 2 ? 1 : 2)
       : "Not set";
+    const cuisineLabel = getCuisineLabel(form.cuisine) ?? "Not set";
     const freezerValue = form.freezerAmount || form.freezerQuantity;
     const isFamilyStar =
       hasFamilyMembers && familyRatingSummary?.isUnanimousHeart === true;
@@ -1460,6 +1469,19 @@ export default function MealCard({
                 accessibilityHint="Double tap to change expense"
                 style={({ pressed }) => [styles.detailTile, pressed && styles.detailPressed]}
               ><Text style={styles.detailTileLabel}>Expense</Text><View style={styles.detailTileValueRow}><Text style={[styles.detailTileValue, !hasExpense && styles.detailTileValueUnset]}>{expenseLabel}</Text>{!hasExpense ? <Text style={styles.detailTileAdd}>+</Text> : null}</View></Pressable>
+              <Pressable
+                onPress={() => setCuisineSelectorVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel={`Cuisine, ${cuisineLabel}`}
+                accessibilityHint="Double tap to choose a cuisine"
+                style={({ pressed }) => [styles.detailTile, pressed && styles.detailPressed]}
+              >
+                <Text style={styles.detailTileLabel}>Cuisine</Text>
+                <View style={styles.detailTileValueRow}>
+                  <Text style={[styles.detailTileValue, !form.cuisine && styles.detailTileValueUnset]}>{cuisineLabel}</Text>
+                  {!form.cuisine ? <Text style={styles.detailTileAdd}>+</Text> : null}
+                </View>
+              </Pressable>
               {freezerValue ? (
                 <View style={styles.detailTile}><Text style={styles.detailTileLabel}>Freezer</Text><Text style={styles.detailTileValue}>{freezerValue}{form.freezerUnit ? ` ${form.freezerUnit}` : ""}</Text></View>
               ) : null}
@@ -1535,6 +1557,17 @@ export default function MealCard({
           suggestedEmoji={showEmojiSuggestion ? suggestedEmoji : undefined}
           onPick={handleDetailPickEmoji}
           onClose={handleCloseEmojiPicker}
+        />
+        <CuisineSelectorModal
+          visible={isCuisineSelectorVisible}
+          selected={form.cuisine}
+          mealTitle={form.title}
+          mealEmoji={form.emoji}
+          onSelect={(cuisine) => {
+            persistDetailPatch({ cuisine });
+            setCuisineSelectorVisible(false);
+          }}
+          onClose={() => setCuisineSelectorVisible(false)}
         />
       </View>
     );
@@ -2403,6 +2436,28 @@ export default function MealCard({
                 </View>
 
                 <View style={styles.autoFillEditorSection}>
+                  <Text style={styles.autoFillFieldLabel}>Cuisine</Text>
+                  <Pressable
+                    onPress={() => setAutoFillCuisineSelectorVisible(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Imported cuisine, ${getCuisineLabel(autoFillDraft?.cuisine) ?? "not set"}`}
+                    style={({ pressed }) => [
+                      styles.autoFillFieldRow,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Text style={styles.autoFillFieldValue}>
+                      {getCuisineLabel(autoFillDraft?.cuisine) ?? "Not set"}
+                    </Text>
+                    <MaterialCommunityIcons
+                      name="chevron-right"
+                      size={22}
+                      color={theme.color.accent}
+                    />
+                  </Pressable>
+                </View>
+
+                <View style={styles.autoFillEditorSection}>
                   <Text style={styles.autoFillFieldLabel}>Difficulty</Text>
                   <View style={styles.levelChipRow}>
                     {DIFFICULTY_LEVELS.map(({ label, value }) => {
@@ -2536,6 +2591,17 @@ export default function MealCard({
           suggestedEmoji={showEmojiSuggestion ? suggestedEmoji : undefined}
           onPick={handlePickEmoji}
           onClose={handleCloseEmojiPicker}
+        />
+        <CuisineSelectorModal
+          visible={isAutoFillCuisineSelectorVisible}
+          selected={autoFillDraft?.cuisine}
+          mealTitle={autoFillDraft?.title ?? form.title}
+          mealEmoji={autoFillPreviewEmoji}
+          onSelect={(cuisine) => {
+            updateAutoFillDraft("cuisine", cuisine);
+            setAutoFillCuisineSelectorVisible(false);
+          }}
+          onClose={() => setAutoFillCuisineSelectorVisible(false)}
         />
       </KeyboardAvoidingView>
     </View>

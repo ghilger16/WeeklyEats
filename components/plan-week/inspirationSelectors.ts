@@ -1,5 +1,6 @@
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
 import { Meal } from "../../types/meals";
+import { CuisineType } from "../../types/cuisine";
 
 export const getBeenAwhileMeals = (
   meals: Meal[],
@@ -61,6 +62,11 @@ export const getFreezerMeals = (
 export const getEasyMeals = (meals: Meal[]) =>
   meals.filter(
     (meal) => typeof meal.difficulty === "number" && meal.difficulty <= 2,
+  );
+
+export const getCuisineMeals = (meals: Meal[], cuisine?: CuisineType) =>
+  meals.filter(
+    (meal) => Boolean(meal.cuisine) && (!cuisine || meal.cuisine === cuisine),
   );
 
 const expenseValue = (meal: Meal) => meal.expense ?? meal.plannedCostTier ?? 3;

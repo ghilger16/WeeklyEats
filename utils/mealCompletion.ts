@@ -39,7 +39,8 @@ export const isMealIncomplete = (meal: Meal) => {
   return (
     !hasKeyIngredients ||
     typeof meal.difficulty !== "number" ||
-    typeof meal.expense !== "number"
+    typeof meal.expense !== "number" ||
+    !meal.cuisine
   );
 };
 

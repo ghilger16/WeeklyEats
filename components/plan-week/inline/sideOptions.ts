@@ -1,4 +1,5 @@
 import { Meal } from "../../../types/meals";
+import { getSideSuggestions } from "../../../utils/cuisineSideSuggestions";
 
 export type SideOption = {
   name: string;
@@ -30,21 +31,34 @@ export const getSideOptionsForMeal = (
 ): SideOption[] => {
   const seen = new Set<string>();
   const options: SideOption[] = [];
-  const suggestedSides = Array.isArray(meal.suggestedSides)
+  const savedMealSides = Array.isArray(meal.suggestedSides)
     ? meal.suggestedSides
     : [];
-  const suggestedSideKeys = new Set(suggestedSides.map(normalize));
+  const savedSides = [...existingSides, ...savedMealSides].filter(
+    (side): side is string => typeof side === "string" && Boolean(side.trim()),
+  );
+  const suggestedSides = getSideSuggestions({
+    cuisine: meal.cuisine,
+    savedSides,
+  });
 
-  [...existingSides, ...suggestedSides].forEach((name) => {
+  savedSides.forEach((name) => {
     if (typeof name !== "string") return;
     const trimmed = name.trim();
     const key = normalize(trimmed);
-    if (!trimmed || seen.has(key) || options.length >= 6) return;
+    if (!trimmed || seen.has(key)) return;
     seen.add(key);
-    options.push({ name: trimmed, isCustom: !suggestedSideKeys.has(key) });
+    options.push({ name: trimmed, isCustom: true });
   });
 
-  return options;
+  suggestedSides.forEach((name) => {
+    const key = normalize(name);
+    if (seen.has(key)) return;
+    seen.add(key);
+    options.push({ name, isCustom: false });
+  });
+
+  return options.slice(0, 6);
 };
 
 export const replaceSideWithCustomOption = (
@@ -58,10 +72,7 @@ export const replaceSideWithCustomOption = (
     return null;
   }
 
-  const nextOptions = [
-    { name: trimmed, isCustom: true },
-    ...options,
-  ].slice(0, 6);
+  const nextOptions = [{ name: trimmed, isCustom: true }, ...options].slice(0, 6);
   const visibleKeys = new Set(nextOptions.map((option) => normalize(option.name)));
   const nextSelectedSides = [
       ...selectedSides.filter((side) => visibleKeys.has(normalize(side))),

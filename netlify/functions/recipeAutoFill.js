@@ -21,6 +21,29 @@ const SHOPPING_CATEGORIES = [
   "other",
 ];
 
+const CUISINE_OPTIONS = [
+  "american",
+  "bbq",
+  "cajunCreole",
+  "caribbean",
+  "chinese",
+  "french",
+  "greek",
+  "indian",
+  "italian",
+  "japanese",
+  "korean",
+  "mediterranean",
+  "mexican",
+  "middleEastern",
+  "southern",
+  "spanish",
+  "texMex",
+  "thai",
+  "vietnamese",
+  "other",
+];
+
 const CATEGORY_ORDER = {
   meat: 1,
   seafood: 2,
@@ -150,21 +173,6 @@ const extractTitleFromUrl = (url) => {
 
 const clamp = (value, min, max) =>
   Math.min(Math.max(Math.round(value), min), max);
-
-const normalizeSuggestedSides = (value) => {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set();
-  const sides = [];
-  value.forEach((item) => {
-    if (typeof item !== "string" || sides.length >= 6) return;
-    const side = item.trim().replace(/\s+/g, " ");
-    const key = side.toLocaleLowerCase();
-    if (!side || seen.has(key)) return;
-    seen.add(key);
-    sides.push(side);
-  });
-  return sides;
-};
 
 const cleanIngredient = (ingredient) => {
   if (!ingredient || typeof ingredient !== "string") {
@@ -303,7 +311,7 @@ const buildOpenAiPayload = (url, text) => ({
     {
       role: "user",
       content: [
-        "Return a JSON object with keys: title, ingredients, difficulty, expense, prepNotes, suggestedSides.",
+        "Return a JSON object with keys: title, ingredients, cuisine, difficulty, expense, prepNotes.",
 
         "For title, invent the short meal name a family would say at dinner. Do not copy the recipe page title.",
         "Title should usually be 2-4 words and under 28 characters.",
@@ -363,18 +371,11 @@ const buildOpenAiPayload = (url, text) => ({
         "PrepNotes should only include advance-ahead tasks, like defrosting or marinating. Keep it short.",
         "Difficulty and expense are integers 1-5. PrepNotes is short.",
 
-        "SIDE SUGGESTIONS",
-        "Based on this specific recipe, return exactly 6 simple side dish suggestions in suggestedSides.",
-        "Consider the actual main dish, ingredients, and cuisine, not cuisine alone.",
-        "Prefer common, practical household sides that pair naturally with the meal.",
-        "Side names should usually be 1-3 words.",
-        "Avoid elaborate chef-style sides and avoid substantially duplicating the main dish.",
-        "Avoid ingredients or components already in the main dish unless commonly served separately.",
-        "Provide variety across all six suggestions.",
-        "Do not include beverages or desserts.",
-        "Do not include sauces, dips, garnishes, or appetizers unless an item such as Chips & Salsa is genuinely a common side.",
-        "Suggested sides are metadata only. Never add them to ingredients or pantry staples unless they are actual recipe ingredients.",
-        "Examples of suitable side names include Corn, Rice, Garlic Bread, Green Beans, Salad, Broccoli, Mashed Potatoes, Beans, Fruit, Chips & Salsa, Naan, and Roasted Vegetables.",
+        "Cuisine must be one of these exact values only:",
+        CUISINE_OPTIONS.join(", "),
+        "Choose cuisine from the recipe's dish identity, ingredients, and preparation method.",
+        "Use other only when the recipe clearly has a cuisine identity that is not represented in the list.",
+        "Return cuisine as null when the cuisine cannot be determined reliably. Do not guess from the recipe website or author alone.",
 
         `Recipe URL: ${url}`,
         `Recipe text: ${text}`,
@@ -585,7 +586,9 @@ exports.handler = async (event) => {
 
   const prepNotes =
     typeof parsed.prepNotes === "string" ? parsed.prepNotes.trim() : "";
-  const suggestedSides = normalizeSuggestedSides(parsed.suggestedSides);
+  const cuisine = CUISINE_OPTIONS.includes(parsed.cuisine)
+    ? parsed.cuisine
+    : null;
 
   return {
     statusCode: 200,
@@ -594,10 +597,10 @@ exports.handler = async (event) => {
       data: {
         title,
         ingredients,
+        cuisine,
         difficulty,
         expense,
         prepNotes,
-        suggestedSides,
       },
     }),
   };

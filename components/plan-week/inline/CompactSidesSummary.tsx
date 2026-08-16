@@ -34,16 +34,22 @@ export default function CompactSidesSummary({ sides }: Props) {
 
   useEffect(() => {
     setMeasuredWidths({});
-  }, [candidates, fontScale]);
+  }, [fontScale]);
 
-  const fallback = candidates[candidates.length - 1] ?? "";
+  const namedCandidates = candidates.slice(0, -1);
+  const fittingCandidate = namedCandidates.find(
+    (candidate) =>
+      measuredWidths[candidate] !== undefined &&
+      measuredWidths[candidate] <= availableWidth,
+  );
+  const hasMeasuredEveryCandidate = namedCandidates.every(
+    (candidate) => measuredWidths[candidate] !== undefined,
+  );
   const summary =
-    candidates.find(
-      (candidate, index) =>
-        index < candidates.length - 1 &&
-        measuredWidths[candidate] !== undefined &&
-        measuredWidths[candidate] <= availableWidth,
-    ) ?? fallback;
+    fittingCandidate ??
+    (hasMeasuredEveryCandidate
+      ? candidates[candidates.length - 1] ?? ""
+      : candidates[0] ?? "");
 
   if (!sides.length) return null;
 

@@ -52,6 +52,14 @@ export default function RootLayout() {
                 headerShown: false,
               }}
             />
+            <Stack.Screen
+              name="modals/smartLevelModal"
+              options={{
+                presentation: "transparentModal",
+                animation: "slide_from_bottom",
+                headerShown: false,
+              }}
+            />
           </Stack>
         </FamilyMembersProvider>
       </WeekStartControllerProvider>

@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Meal, FamilyRatingValue } from "../types/meals";
+import { isCuisineType } from "../types/cuisine";
 
 const MEALS_STORAGE_KEY = "@weeklyeats/meals";
 
@@ -55,6 +56,12 @@ const applyMealDefaults = (meal: Meal): Meal => ({
   showServedCount: Boolean(meal.showServedCount),
   familyRatings: sanitizeFamilyRatings(meal.familyRatings),
   suggestedSides: sanitizeSuggestedSides(meal.suggestedSides),
+  cuisine:
+    meal.cuisine === null
+      ? null
+      : isCuisineType(meal.cuisine)
+      ? meal.cuisine
+      : undefined,
 });
 
 const parseMeals = (raw: string | null): Meal[] => {

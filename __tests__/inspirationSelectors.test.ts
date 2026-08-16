@@ -2,6 +2,7 @@ import {
   getBeenAwhileMeals,
   getBudgetMeals,
   getEasyMeals,
+  getCuisineMeals,
   getRecentlyAddedUnservedMeals,
 } from "../components/plan-week/inspirationSelectors";
 import { Meal } from "../types/meals";
@@ -46,6 +47,21 @@ describe("inspiration selectors", () => {
     expect(getBudgetMeals(meals).map((item) => item.id)).toEqual([
       "easy-budget",
       "hard",
+    ]);
+  });
+
+  it("filters cuisine inspiration to meals with a selected cuisine", () => {
+    const meals = [
+      meal("tacos", { cuisine: "mexican" }),
+      meal("pasta", { cuisine: "italian" }),
+      meal("unset"),
+    ];
+    expect(getCuisineMeals(meals).map((item) => item.id)).toEqual([
+      "tacos",
+      "pasta",
+    ]);
+    expect(getCuisineMeals(meals, "mexican").map((item) => item.id)).toEqual([
+      "tacos",
     ]);
   });
 

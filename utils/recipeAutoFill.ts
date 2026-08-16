@@ -1,9 +1,10 @@
 import { Ingredient } from "../types/meals";
+import { CuisineType, isCuisineType } from "../types/cuisine";
 
 export type RecipeAutoFillResult = {
   title?: string;
   ingredients?: Ingredient[];
-  suggestedSides?: string[];
+  cuisine?: CuisineType | null;
   difficulty?: number;
   expense?: number;
   prepNotes?: string;
@@ -24,21 +25,6 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(Math.round(value), min), max);
-
-export const normalizeSuggestedSides = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const sides: string[] = [];
-  value.forEach((item) => {
-    if (typeof item !== "string" || sides.length >= 6) return;
-    const side = item.trim().replace(/\s+/g, " ");
-    const key = side.toLocaleLowerCase();
-    if (!side || seen.has(key)) return;
-    seen.add(key);
-    sides.push(side);
-  });
-  return sides;
-};
 
 const buildFunctionUrl = () => {
   if (!API_BASE_URL) {
@@ -116,9 +102,9 @@ export const autoFillMealFromUrl = async (
         data: {
           title: payload.data.title?.trim(),
           ingredients: payload.data.ingredients,
-          suggestedSides: normalizeSuggestedSides(
-            payload.data.suggestedSides,
-          ),
+          cuisine: isCuisineType(payload.data.cuisine)
+            ? payload.data.cuisine
+            : null,
           difficulty:
             typeof payload.data.difficulty === "number"
               ? clamp(payload.data.difficulty, 1, 5)

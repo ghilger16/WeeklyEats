@@ -81,6 +81,7 @@ import {
   getFamilyStarMeals,
   getFreezerMeals,
   getRecentlyAddedUnservedMeals,
+  getCuisineMeals,
 } from "../../components/plan-week/inspirationSelectors";
 import PinInventory, {
   InventoryPinId,
@@ -717,6 +718,7 @@ export default function PlanWeekModal() {
               nextIcon: "⭐",
               emptyText: "No meal history yet.",
               meals: getBeenAwhileMeals(availableMeals, servedEntries),
+              cycle: "beenAwhile" as const,
             },
           ]
         : []),
@@ -762,6 +764,16 @@ export default function PlanWeekModal() {
           (meal) => typeof meal.difficulty === "number",
         ),
         cycle: "difficulty",
+      },
+      {
+        id: "cuisine",
+        title: "Cuisine",
+        subtitle: "Meals grouped by cuisine.",
+        nextIcon: "💰",
+        chipIcon: "🌎",
+        emptyText: "Add a cuisine to your meals to browse them here.",
+        meals: getCuisineMeals(availableMeals),
+        cycle: "cuisine",
       },
       {
         id: "budget",
@@ -2594,16 +2606,14 @@ export default function PlanWeekModal() {
                                 );
                                 return;
                               }
+                              resetSides({
+                                ...daySidesMap,
+                                [day]: selectedSides,
+                              });
                               setPendingInlineMeal(null);
                               setExpandedDrawerDay(null);
                             }}
                             onSelectedSidesChange={(selectedSides) => {
-                              if (inspirationTargetDay !== day) {
-                                resetSides({
-                                  ...daySidesMap,
-                                  [day]: selectedSides,
-                                });
-                              }
                               setPendingInlineMeal((current) =>
                                 current?.day === day
                                   ? { ...current, sides: selectedSides }
