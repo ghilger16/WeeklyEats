@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { WeekPlanDay } from "../../hooks/useCurrentWeekPlan";
+import MealEmoji from "../emoji/MealEmoji";
 
 export default function TomorrowPreview({ day }: { day?: WeekPlanDay }) {
   const { theme } = useThemeController();
@@ -13,7 +14,7 @@ export default function TomorrowPreview({ day }: { day?: WeekPlanDay }) {
     <View style={styles.section}>
       <Text style={styles.label}>TOMORROW</Text>
       <View style={styles.row}>
-        <Text style={styles.emoji}>{day.meal?.emoji ?? "🍽️"}</Text>
+        <MealEmoji value={day.meal?.emoji} size={26} />
         <View style={styles.copy}>
           <Text style={styles.title}>{day.meal?.title ?? "Unplanned"}</Text>
           {day.sides.length ? (

@@ -5,6 +5,7 @@ import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
 import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
+import MealEmoji from "../emoji/MealEmoji";
 
 export default function ChangeMealIdentity({ meal }: { meal: Meal }) {
   const { theme } = useThemeController();
@@ -23,7 +24,7 @@ export default function ChangeMealIdentity({ meal }: { meal: Meal }) {
             color={theme.color.accent}
           />
         ) : (
-          <Text style={styles.emoji}>{meal.emoji || "🍽️"}</Text>
+          <MealEmoji value={meal.emoji} size={28} />
         )}
       </View>
       <View style={styles.copy}>

@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import MealEmoji from "../emoji/MealEmoji";
 import * as Haptics from "expo-haptics";
 import {
   ActivityIndicator,
@@ -36,6 +37,7 @@ import FamilyRatingAchievements from "./FamilyRatingAchievements";
 import EmojiPickerModal from "../emoji/EmojiPickerModal";
 import CuisineSelectorModal from "./CuisineSelectorModal";
 import { CuisineType, getCuisineLabel } from "../../types/cuisine";
+import { formatFreezerMealAmount, getFreezerMealAmount } from "../../utils/freezerMealAmount";
 import {
   DEFAULT_MEAL_EMOJI,
   suggestEmojiForTitle,
@@ -228,8 +230,8 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
         .map(normalizeIngredientValue)
         .filter(isIngredient)
     : [],
-  suggestedSides: Array.isArray(meal.suggestedSides)
-    ? [...meal.suggestedSides]
+  preferredSides: Array.isArray(meal.preferredSides)
+    ? [...meal.preferredSides]
     : [],
   difficulty:
     typeof meal.difficulty === "number"
@@ -246,6 +248,7 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
       ? meal.freezerAmount ?? ""
       : meal.freezerQuantity ?? "",
   freezerUnit: meal.freezerUnit ?? "",
+  freezerMealAmount: meal.freezerMealAmount,
   freezerAddedAt: meal.freezerAddedAt,
   createdAt: meal.createdAt,
   updatedAt: meal.updatedAt,
@@ -922,6 +925,22 @@ export default function MealCard({
     createMealFromValues(form, prepNotesDraft);
   }, [createMealFromValues, form, isEditMode, prepNotesDraft]);
 
+  const handleQuickPickSubmit = useCallback(() => {
+    if (!form.title.trim()) {
+      setShowTitleRequiredError(true);
+      return;
+    }
+
+    Keyboard.dismiss();
+    createMealFromValues(
+      {
+        ...form,
+        emoji: suggestedEmoji ?? form.emoji,
+      },
+      ""
+    );
+  }, [createMealFromValues, form, suggestedEmoji]);
+
   const persistDetailIngredients = useCallback(
     (ingredients: Ingredient[]) => {
       if (!isEditMode) {
@@ -1178,7 +1197,7 @@ export default function MealCard({
       ? "$".repeat(form.expense! >= 4 ? 3 : form.expense! <= 2 ? 1 : 2)
       : "Not set";
     const cuisineLabel = getCuisineLabel(form.cuisine) ?? "Not set";
-    const freezerValue = form.freezerAmount || form.freezerQuantity;
+    const freezerValue = getFreezerMealAmount(form as Meal);
     const isFamilyStar =
       hasFamilyMembers && familyRatingSummary?.isUnanimousHeart === true;
     const visibleKeyIngredients =
@@ -1243,7 +1262,7 @@ export default function MealCard({
               accessibilityLabel="Meal icon"
               accessibilityHint="Double tap to change meal icon"
             >
-              <Text style={styles.detailEmoji}>{form.emoji}</Text>
+              <MealEmoji value={form.emoji} size={54} />
             </Pressable>
             <View style={styles.detailHeroText}>
               {isDetailTitleEditing ? (
@@ -1263,7 +1282,10 @@ export default function MealCard({
                   selectTextOnFocus
                   autoCapitalize="words"
                   returnKeyType="done"
-                  style={styles.detailTitleInput}
+                  style={[
+                    styles.detailTitleInput,
+                    !detailTitleDraft && styles.detailTitlePlaceholder,
+                  ]}
                   accessibilityLabel="Meal title"
                   placeholder="Meal Title"
                   placeholderTextColor={theme.color.subtleInk}
@@ -1278,7 +1300,14 @@ export default function MealCard({
                   accessibilityLabel={`Meal title, ${form.title}`}
                   accessibilityHint="Double tap to edit meal title"
                 >
-                  <Text style={styles.detailTitle}>{form.title || "Meal title"}</Text>
+                  <Text
+                    style={[
+                      styles.detailTitle,
+                      !form.title && styles.detailTitlePlaceholder,
+                    ]}
+                  >
+                    {form.title || "Meal title"}
+                  </Text>
                 </Pressable>
               )}
               {showTitleRequiredError ? (
@@ -1483,7 +1512,7 @@ export default function MealCard({
                 </View>
               </Pressable>
               {freezerValue ? (
-                <View style={styles.detailTile}><Text style={styles.detailTileLabel}>Freezer</Text><Text style={styles.detailTileValue}>{freezerValue}{form.freezerUnit ? ` ${form.freezerUnit}` : ""}</Text></View>
+                <View style={styles.detailTile}><Text style={styles.detailTileLabel}>Freezer</Text><Text style={styles.detailTileValue}>{formatFreezerMealAmount(freezerValue)}</Text></View>
               ) : null}
             </View>
           </View>
@@ -1582,6 +1611,77 @@ export default function MealCard({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.entryContent}
         >
+          <View style={styles.quickPickCard}>
+            <View style={styles.recipeEntryHeadingRow}>
+              <View style={styles.quickPickIcon}>
+                <MaterialCommunityIcons
+                  name="lightning-bolt"
+                  size={26}
+                  color={theme.color.accent}
+                />
+              </View>
+              <View style={styles.recipeEntryHeadingText}>
+                <Text style={styles.recipeEntryTitle}>Quick Pick</Text>
+                <Text style={styles.recipeEntryDescription}>
+                  Enter a meal title now. You can add the details later.
+                </Text>
+              </View>
+            </View>
+            <View
+              style={[
+                styles.quickPickInputRow,
+                showTitleRequiredError && styles.inputError,
+              ]}
+            >
+              <MealEmoji
+                value={suggestedEmoji ?? form.emoji ?? DEFAULT_MEAL_EMOJI}
+                size={24}
+              />
+              <TextInput
+                accessibilityLabel="Quick Pick meal title"
+                placeholder="Meal title"
+                placeholderTextColor={theme.color.subtleInk}
+                style={styles.linkTextInput}
+                value={form.title}
+                onChangeText={(value) =>
+                  updateField("title", capitalizeMealTitleWords(value))
+                }
+                onSubmitEditing={handleQuickPickSubmit}
+                autoCapitalize="words"
+                autoCorrect
+                returnKeyType="done"
+              />
+            </View>
+            {showTitleRequiredError ? (
+              <Text style={styles.fieldErrorText} accessibilityRole="alert">
+                Enter a meal title.
+              </Text>
+            ) : null}
+            <Pressable
+              style={({ pressed }) => [
+                styles.quickPickButton,
+                !form.title.trim() && styles.autoFillButtonDisabled,
+                pressed && form.title.trim() && styles.entryButtonPressed,
+              ]}
+              onPress={handleQuickPickSubmit}
+              accessibilityRole="button"
+              accessibilityLabel="Add Quick Pick meal"
+            >
+              <MaterialCommunityIcons
+                name="plus-circle"
+                size={20}
+                color={theme.color.accent}
+              />
+              <Text style={styles.quickPickButtonText}>Add Quick Pick</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.entryDividerRow}>
+            <View style={styles.entryDividerLine} />
+            <Text style={styles.entryDividerText}>or</Text>
+            <View style={styles.entryDividerLine} />
+          </View>
+
           <View style={styles.recipeEntryCard}>
             <View style={styles.recipeEntryHeadingRow}>
               <View style={styles.recipeEntryIcon}>
@@ -1809,7 +1909,7 @@ export default function MealCard({
                 accessibilityRole="button"
                 accessibilityLabel="Choose meal icon"
               >
-                <Text style={styles.emojiPreviewGlyph}>{form.emoji}</Text>
+                <MealEmoji value={form.emoji} size={42} />
                 <Text style={styles.emojiPreviewHint}>Tap to change</Text>
               </Pressable>
               {showEmojiSuggestion ? (
@@ -2689,6 +2789,7 @@ const createStyles = (theme: WeeklyTheme) =>
     detailHeroText: { flex: 1, gap: theme.space.xs },
     detailTitle: { color: theme.color.ink, fontSize: theme.type.size.h1, fontWeight: theme.type.weight.bold },
     detailTitleInput: { color: theme.color.ink, fontSize: theme.type.size.h1, fontWeight: theme.type.weight.bold, padding: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.accent },
+    detailTitlePlaceholder: { fontSize: theme.type.size.h1 * 0.9 },
     detailRatingText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
     familyStarTitle: { color: "#FEC107", fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
     galaxyMealTitleRow: { flexDirection: "row", alignItems: "center", gap: theme.space.xs },
@@ -2744,6 +2845,49 @@ const createStyles = (theme: WeeklyTheme) =>
       borderWidth: 1,
       borderColor: theme.color.cardOutline,
       backgroundColor: theme.color.surfaceAlt,
+    },
+    quickPickCard: {
+      padding: theme.space.lg,
+      gap: theme.space.md,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: alpha(theme.color.accent, 0.45),
+      backgroundColor: theme.color.surfaceAlt,
+    },
+    quickPickIcon: {
+      width: 52,
+      height: 52,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.focus,
+    },
+    quickPickInputRow: {
+      minHeight: theme.component.input.height,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: theme.space.md,
+      gap: theme.space.sm,
+      borderRadius: theme.radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      backgroundColor: theme.color.surface,
+    },
+    quickPickButton: {
+      minHeight: theme.component.button.height,
+      borderRadius: theme.radius.xl,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.accent,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+      backgroundColor: theme.color.surface,
+    },
+    quickPickButtonText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
     },
     recipeEntryHeadingRow: {
       flexDirection: "row",

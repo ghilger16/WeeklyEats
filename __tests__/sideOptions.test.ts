@@ -22,7 +22,7 @@ const meal: Meal = {
   locked: false,
   isFavorite: false,
   cuisine: "mexican",
-  suggestedSides: ["Corn"],
+  preferredSides: ["Corn"],
 };
 
 describe("cuisine side suggestions", () => {
@@ -65,8 +65,8 @@ describe("inline side options", () => {
     const options = getSideOptionsForMeal(meal, ["Guacamole"]);
 
     expect(options.slice(0, 2)).toEqual([
-      { name: "Guacamole", isCustom: true },
       { name: "Corn", isCustom: true },
+      { name: "Guacamole", isCustom: true },
     ]);
     expect(options).toHaveLength(6);
     expect(options.filter((option) => !option.isCustom)).toHaveLength(4);
@@ -105,6 +105,23 @@ describe("inline side options", () => {
 
   it("moves explicitly selected sides to the front of saved meal sides", () => {
     expect(promoteSavedSides(["Broccoli", " corn "], ["Corn", "Rice"]))
-      .toEqual(["Broccoli", "corn", "Rice"]);
+      .toEqual(["Corn", "Rice", "Broccoli"]);
+  });
+
+  it("keeps preferred casing and removes whitespace-safe duplicates", () => {
+    const options = getSideOptionsForMeal({
+      ...meal,
+      preferredSides: [" Garlic  Bread ", "Caesar Salad"],
+      cuisine: "italian",
+    });
+
+    expect(options.map((option) => option.name)).toEqual([
+      "Garlic  Bread",
+      "Caesar Salad",
+      "Side Salad",
+      "Broccoli",
+      "Green Beans",
+      "Roasted Vegetables",
+    ]);
   });
 });

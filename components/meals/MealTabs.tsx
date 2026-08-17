@@ -22,9 +22,15 @@ type Props = {
   activeTab: MealTabKey;
   onChange: (tab: MealTabKey) => void;
   incompleteCount?: number;
+  freezerCount?: number;
 };
 
-const MealTabs = ({ activeTab, onChange, incompleteCount = 0 }: Props) => {
+const MealTabs = ({
+  activeTab,
+  onChange,
+  incompleteCount = 0,
+  freezerCount = 0,
+}: Props) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const animationDuration = theme.motion.duration.normal;
@@ -125,9 +131,12 @@ const MealTabs = ({ activeTab, onChange, incompleteCount = 0 }: Props) => {
               >
                 {tab.label}
               </Text>
-              {tab.key === "complete" ? (
+              {tab.key === "complete" ||
+              (tab.key === "favorites" && freezerCount > 0) ? (
                 <View style={styles.countBadge}>
-                  <Text style={styles.countBadgeText}>{incompleteCount}</Text>
+                  <Text style={styles.countBadgeText}>
+                    {tab.key === "complete" ? incompleteCount : freezerCount}
+                  </Text>
                 </View>
               ) : null}
             </View>

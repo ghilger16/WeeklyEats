@@ -1,5 +1,6 @@
 import { ServedMealEntry } from "../stores/servedMealsStorage";
 import { Meal } from "../types/meals";
+import { getFreezerMealAmount } from "./freezerMealAmount";
 
 export type SmartLevel = 1 | 2 | 3 | 4 | 5;
 
@@ -35,10 +36,7 @@ export const getSmartLevel = ({
   const detailedMeals = meals.filter(hasPlanningDetails).length;
   const completeProfiles = meals.filter(hasCompletePlanningProfile).length;
   const freezerMeals = meals.filter(
-    (meal) =>
-      meal.freezerAmount?.trim() ||
-      meal.freezerQuantity?.trim() ||
-      meal.freezerAddedAt,
+    (meal) => getFreezerMealAmount(meal) !== null,
   ).length;
 
   if (
@@ -66,4 +64,3 @@ export const getSmartLevel = ({
 
   return 1;
 };
-

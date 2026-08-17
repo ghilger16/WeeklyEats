@@ -15,6 +15,7 @@ import { Meal } from "../../../types/meals";
 import { PLANNED_WEEK_DISPLAY_NAMES, PlannedWeekDayKey } from "../../../types/weekPlan";
 import {
   getSideOptionsForMeal,
+  promoteSavedSides,
   replaceSideWithCustomOption,
 } from "./sideOptions";
 
@@ -26,11 +27,13 @@ type Props = {
   completionLabel?: string;
   completionAccessibilityLabel?: string;
   onSelectedSidesChange: (sides: string[]) => void;
+  onPreferredSidesChange?: (sides: string[]) => void;
   onChangeMeal: () => void;
   onExpandedLayout: () => void;
 };
 
-const normalize = (value: string) => value.trim().toLowerCase();
+const normalize = (value: string) =>
+  value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 
 export default function InlineSideEditor({
   day,
@@ -40,6 +43,7 @@ export default function InlineSideEditor({
   completionLabel = "Done",
   completionAccessibilityLabel,
   onSelectedSidesChange,
+  onPreferredSidesChange,
   onChangeMeal,
   onExpandedLayout,
 }: Props) {
@@ -55,14 +59,26 @@ export default function InlineSideEditor({
     return initialSides.filter((side) => optionKeys.has(normalize(side)));
   });
   const [customSide, setCustomSide] = useState("");
+  const preferredSidesRef = useRef(meal.preferredSides ?? []);
   const inputRef = useRef<TextInput>(null);
   const selectedKeys = useMemo(
     () => new Set(selectedSides.map(normalize)),
     [selectedSides],
   );
 
-  const toggleSide = (side: string) => {
+  const rememberPreferredSide = (side: string) => {
+    const next = promoteSavedSides([side], preferredSidesRef.current);
+    preferredSidesRef.current = next;
+    onPreferredSidesChange?.(next);
+  };
+
+  const toggleSide = (option: { name: string; isCustom: boolean }) => {
+    const side = option.name;
     const key = normalize(side);
+    const isCurrentlySelected = selectedKeys.has(key);
+    if (!isCurrentlySelected) {
+      rememberPreferredSide(side);
+    }
     setSelectedSides((current) => {
       const next = current.some((value) => normalize(value) === key)
         ? current.filter((value) => normalize(value) !== key)
@@ -82,6 +98,7 @@ export default function InlineSideEditor({
     setOptions(replacement.options);
     setSelectedSides(replacement.selectedSides);
     onSelectedSidesChange(replacement.selectedSides);
+    rememberPreferredSide(customSide);
     setCustomSide("");
     Haptics.selectionAsync().catch(() => {});
   };
@@ -116,7 +133,7 @@ export default function InlineSideEditor({
               key={option.name.toLowerCase()}
               option={option}
               selected={selected}
-              onPress={() => toggleSide(option.name)}
+              onPress={() => toggleSide(option)}
               styles={styles}
               accent={theme.color.accent}
               accentMuted={alpha(theme.color.accent, 0.58)}

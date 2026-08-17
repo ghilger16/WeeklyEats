@@ -31,6 +31,7 @@ const lightPalette = {
   surfaceAlt: "#EEEEF2",
   ink: "#0A0A0A",
   subtleInk: "#6B7280",
+  success: "#009B63",
   border: "rgba(10, 10, 10, 0.08)",
   focus: "rgba(79, 70, 229, 0.35)",
   cardOutline: "rgba(79, 70, 229, 0.15)",

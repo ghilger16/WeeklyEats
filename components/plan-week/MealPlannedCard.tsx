@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
+import MealEmoji from "../emoji/MealEmoji";
 
 type Props = {
   meal: Meal;
@@ -87,7 +88,7 @@ export default function MealPlannedCard({ meal, sides, onSwap }: Props) {
         <View style={styles.plannedBadge}>
           <Text style={styles.plannedBadgeText}>DAY PLANNED</Text>
         </View>
-        <Text style={styles.plannedEmoji}>{meal.emoji ?? "🍽️"}</Text>
+        <MealEmoji value={meal.emoji} size={34} />
         <View style={styles.plannedMetaRow}>
           <Text style={[styles.plannedMetaText, styles.plannedMetaAccent]}>
             {costLabel}

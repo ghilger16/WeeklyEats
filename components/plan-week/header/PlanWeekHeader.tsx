@@ -3,10 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useMemo } from "react";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
-import {
-  CurrentPlannedWeek,
-  PlannedWeekDayKey,
-} from "../../../types/weekPlan";
+import { CurrentPlannedWeek, PlannedWeekDayKey } from "../../../types/weekPlan";
 import DaysIndicatorRow from "./DaysIndicatorRow";
 
 type PlanWeekHeaderProps = {
@@ -112,7 +109,8 @@ const createStyles = (theme: WeeklyTheme) =>
       alignItems: "center",
       justifyContent: "space-between",
       paddingHorizontal: theme.space.xl,
-      paddingVertical: theme.space.lg,
+      paddingTop: theme.space.lg,
+      paddingBottom: theme.space.lg,
     },
     headerCenter: {
       flex: 1,

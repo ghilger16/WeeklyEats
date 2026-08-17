@@ -7,9 +7,10 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
+import MealEmoji from "./MealEmoji";
 import {
   DEFAULT_MEAL_EMOJI,
   EMOJI_CATALOG,
@@ -26,6 +27,35 @@ type EmojiPickerModalProps = {
 };
 
 const renderKey = (entry: EmojiCatalogEntry) => entry.emoji;
+
+type EmojiGridItemProps = {
+  entry: EmojiCatalogEntry;
+  isSelected: boolean;
+  onPick: (emoji: string) => void;
+  styles: ReturnType<typeof createStyles>;
+};
+
+const EmojiGridItem = memo(function EmojiGridItem({
+  entry,
+  isSelected,
+  onPick,
+  styles,
+}: EmojiGridItemProps) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.emojiButton,
+        isSelected && styles.emojiButtonSelected,
+        pressed && styles.emojiButtonPressed,
+      ]}
+      onPress={() => onPick(entry.emoji)}
+      accessibilityLabel={entry.label}
+      accessibilityState={{ selected: isSelected }}
+    >
+      <MealEmoji value={entry.emoji} size={32} />
+    </Pressable>
+  );
+});
 
 export const EmojiPickerModal = ({
   visible,
@@ -68,28 +98,19 @@ export const EmojiPickerModal = ({
   }, [handlePick, suggestedEmoji]);
 
   const renderItem = useCallback(
-    ({ item }: { item: EmojiCatalogEntry }) => {
-      const isSelected = selectedEmoji === item.emoji;
-      return (
-        <Pressable
-          style={({ pressed }) => [
-            styles.emojiButton,
-            isSelected && styles.emojiButtonSelected,
-            pressed && styles.emojiButtonPressed,
-          ]}
-          onPress={() => handlePick(item.emoji)}
-          accessibilityLabel={item.label}
-          accessibilityState={{ selected: isSelected }}
-        >
-          <Text style={styles.emoji}>{item.emoji}</Text>
-        </Pressable>
-      );
-    },
+    ({ item }: { item: EmojiCatalogEntry }) => (
+      <EmojiGridItem
+        entry={item}
+        isSelected={selectedEmoji === item.emoji}
+        onPick={handlePick}
+        styles={styles}
+      />
+    ),
     [handlePick, selectedEmoji, styles]
   );
 
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+    <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={styles.container}>
@@ -115,15 +136,20 @@ export const EmojiPickerModal = ({
               accessibilityRole="button"
               accessibilityLabel="Use suggested meal icon"
             >
-              <Text style={styles.suggestionText}>
-                Suggested: <Text style={styles.suggestionEmoji}>{suggestedEmoji}</Text>
-              </Text>
+              <View style={styles.suggestionContent}>
+                <Text style={styles.suggestionText}>Suggested:</Text>
+                <MealEmoji value={suggestedEmoji} size={24} />
+              </View>
             </Pressable>
           ) : null}
           <FlatList
             data={data}
             keyExtractor={renderKey}
             numColumns={6}
+            initialNumToRender={36}
+            maxToRenderPerBatch={24}
+            updateCellsBatchingPeriod={16}
+            windowSize={5}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.listContent}
             renderItem={renderItem}
@@ -206,6 +232,11 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.medium,
+    },
+    suggestionContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
     },
     suggestionEmoji: {
       fontSize: theme.type.size.title,

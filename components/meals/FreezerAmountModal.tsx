@@ -1,55 +1,43 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import MealEmoji from "../emoji/MealEmoji";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useEffect, useMemo, useState } from "react";
-import {
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
-
-const UNIT_OPTIONS = [
-  "Servings",
-  "Half Serving",
-  "Portions",
-  "Containers",
-  "Leftovers",
-  "Cups",
-  "Pints",
-  "Quarts",
-  "Pieces",
-  "Ounces",
-  "Pounds",
-] as const;
-
-const DEFAULT_UNIT = UNIT_OPTIONS[0];
+import {
+  formatFreezerMealAmount,
+  getFreezerMealAmount,
+} from "../../utils/freezerMealAmount";
 
 type Props = {
   visible: boolean;
   initialMeal?: Meal | null;
   initialAmount?: string;
-  initialUnit?: string;
   initialAddedAt?: string;
   onDismiss: () => void;
-  onComplete: (
-    meal: Meal,
-    amount: string,
-    unit: string,
-    addedAt: string
-  ) => void;
+  onComplete: (meal: Meal, mealAmount: number, addedAt: string) => void;
+};
+
+const parseDate = (value?: string | null) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isToday = (date: Date) => {
+  const today = new Date();
+  return date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
 };
 
 export default function FreezerAmountModal({
   visible,
   initialMeal,
   initialAmount,
-  initialUnit,
   initialAddedAt,
   onDismiss,
   onComplete,
@@ -57,463 +45,141 @@ export default function FreezerAmountModal({
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const meal = initialMeal ?? null;
-
-  const parseAmount = (value?: string): number | null => {
-    if (value === undefined || value === null) {
-      return null;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return null;
-    }
-    return Math.round(parsed);
-  };
-
-  const parseDate = (value?: string | null): Date | null => {
-    if (!value) {
-      return null;
-    }
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return null;
-    }
-    return parsed;
-  };
-
-  const [selectedMeal, setSelectedMeal] = useState<Meal | null>(meal);
-  const [amount, setAmount] = useState<number | null>(
-    parseAmount(initialAmount)
-  );
-  const [unit, setUnit] = useState<string>(
-    initialUnit && initialUnit.length > 0 ? initialUnit : DEFAULT_UNIT
-  );
-  const [addedDate, setAddedDate] = useState<Date>(() => new Date());
-  const [isDateMode, setIsDateMode] = useState(false);
+  const [amount, setAmount] = useState(1);
+  const [addedDate, setAddedDate] = useState(new Date());
+  const [isDatePickerVisible, setDatePickerVisible] = useState(false);
 
   useEffect(() => {
-    if (!visible) {
-      return;
-    }
-    setIsDateMode(false);
-    setSelectedMeal(meal);
-    setAmount(parseAmount(initialAmount));
-    setUnit(initialUnit && initialUnit.length > 0 ? initialUnit : DEFAULT_UNIT);
-    setAddedDate(
-      parseDate(initialAddedAt ?? meal?.freezerAddedAt) ?? new Date()
-    );
-  }, [initialAddedAt, initialAmount, initialUnit, meal, visible]);
+    if (!visible) return;
+    const legacyMeal = meal ?? ({ freezerAmount: initialAmount } as Meal);
+    setAmount(getFreezerMealAmount(legacyMeal) ?? 1);
+    setAddedDate(parseDate(initialAddedAt ?? meal?.freezerAddedAt) ?? new Date());
+    setDatePickerVisible(false);
+  }, [initialAddedAt, initialAmount, meal, visible]);
 
-  const increment = () =>
-    setAmount((prev) => {
-      if (prev === null) {
-        return 1;
-      }
-      return prev + 1;
-    });
-  const decrement = () =>
-    setAmount((prev) => {
-      if (prev === null) {
-        return null;
-      }
-      const next = Math.max(0, prev - 1);
-      return next;
-    });
+  const dateLabel = isToday(addedDate)
+    ? "Today"
+    : addedDate.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   const handleClose = () => {
-    setIsDateMode(false);
+    setDatePickerVisible(false);
     onDismiss();
   };
 
-  const handleSave = () => {
-    if (!selectedMeal) {
-      return;
-    }
-    const hasAmount = amount !== null && amount > 0;
-    const amountStr = hasAmount ? String(amount) : "";
-    const unitStr = hasAmount ? unit : "";
-    onComplete(selectedMeal, amountStr, unitStr, addedDate.toISOString());
-  };
-
-  const hasAmountValue = amount !== null && amount > 0;
-  const amountDisplay =
-    amount !== null
-      ? `${amount}${unit ? ` ${unit}` : ""}`
-      : `0 ${unit && unit.length > 0 ? unit : DEFAULT_UNIT}`;
-  const disableSave = !selectedMeal;
-
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      presentationStyle="overFullScreen"
-      onRequestClose={onDismiss}
-    >
+    <Modal visible={visible} animationType="fade" transparent presentationStyle="overFullScreen" onRequestClose={handleClose}>
       <View style={styles.backdrop}>
-        <Pressable style={styles.backdropPad} onPress={onDismiss} />
-        <SafeAreaView style={styles.sheet}>
-          <View style={styles.amountContent}>
-            <View style={styles.amountBody}>
-              <View style={styles.amountHeader}>
-                <Pressable
-                  onPress={handleClose}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close freezer amount editor"
-                  style={({ pressed }) => [
-                    styles.backButton,
-                    pressed && styles.backButtonPressed,
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="close"
-                    size={20}
-                    color={theme.color.subtleInk}
-                  />
+        <Pressable style={styles.backdropPad} onPress={handleClose} />
+        <SafeAreaView edges={["bottom"]} style={styles.sheet}>
+          <View style={styles.handle} />
+          <View style={styles.header}>
+            <Pressable onPress={handleClose} accessibilityRole="button" accessibilityLabel="Close Add to Freezer" style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}>
+              <MaterialCommunityIcons name="close" size={22} color={theme.color.ink} />
+            </Pressable>
+            <Text style={styles.title}>Add to Freezer</Text>
+            <View style={styles.headerSpacer} />
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+            <View style={styles.mealIdentity}>
+              <MealEmoji value={meal?.emoji} size={38} />
+              <Text style={styles.mealName} numberOfLines={2}>{meal?.title ?? "Meal"}</Text>
+            </View>
+            <View style={styles.divider} />
+
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>How much is in the freezer?</Text>
+              <Text style={styles.helper}>1 meal = enough for your family for one dinner</Text>
+              <View style={styles.stepper}>
+                <Pressable onPress={() => setAmount((current) => Math.max(0.5, current - 0.5))} accessibilityRole="button" accessibilityLabel="Decrease freezer meals" style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}>
+                  <MaterialCommunityIcons name="minus" size={28} color={theme.color.accent} />
                 </Pressable>
-                <Text style={styles.amountHeaderTitle}>
-                  {isDateMode ? "Set Date Added" : "Set Amount"}
-                </Text>
-                <Pressable
-                  onPress={() => setIsDateMode((prev) => !prev)}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    isDateMode ? "Show amount controls" : "Change freezer date"
-                  }
-                  style={({ pressed }) => [
-                    styles.headerIconButton,
-                    pressed && styles.headerIconButtonPressed,
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name={isDateMode ? "counter" : "calendar-month"}
-                    size={20}
-                    color={theme.color.subtleInk}
-                  />
+                <Text style={styles.amount}>{formatFreezerMealAmount(amount)}</Text>
+                <Pressable onPress={() => setAmount((current) => current + 0.5)} accessibilityRole="button" accessibilityLabel="Increase freezer meals" style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}>
+                  <MaterialCommunityIcons name="plus" size={28} color={theme.color.accent} />
                 </Pressable>
               </View>
-              {selectedMeal ? (
-                <>
-                  {!isDateMode ? (
-                    <Text
-                      style={[
-                        styles.example,
-                        !hasAmountValue && styles.examplePlaceholder,
-                      ]}
-                    >
-                      {amountDisplay}
-                    </Text>
-                  ) : null}
-                  <Text style={styles.mealName}>{selectedMeal.title}</Text>
-                </>
-              ) : null}
-              {isDateMode ? (
-                <View style={styles.dateContainer}>
-                  <Text style={styles.fieldLabel}>Freezer Date</Text>
-                  <View style={styles.datePickerWrapper}>
-                    {Platform.OS === "web" ? (
-                      <Text style={styles.dateDisplayText}>
-                        {addedDate.toLocaleDateString()}
-                      </Text>
-                    ) : (
-                      <DateTimePicker
-                        value={addedDate}
-                        mode="date"
-                        display={Platform.OS === "ios" ? "spinner" : "calendar"}
-                        onChange={(_, selectedDate) => {
-                          if (selectedDate) {
-                            setAddedDate(selectedDate);
-                          }
-                        }}
-                      />
-                    )}
-                  </View>
-                  {Platform.OS === "web" ? (
-                    <Text style={styles.dateHelperText}>
-                      Date editing is currently limited on web. It will use the
-                      selected date above.
-                    </Text>
-                  ) : null}
-                </View>
-              ) : (
-                <>
-                  <Text style={styles.fieldLabel}>Amount</Text>
-                  <View style={styles.counterRow}>
-                    <Pressable
-                      onPress={decrement}
-                      accessibilityRole="button"
-                      accessibilityLabel="Decrease amount"
-                      style={({ pressed }) => [
-                        styles.counterButton,
-                        pressed && styles.counterButtonPressed,
-                      ]}
-                    >
-                      <Text style={styles.counterButtonText}>-</Text>
-                    </Pressable>
-                    <Text style={styles.counterValue}>
-                      {amount !== null ? amount : 0}
-                    </Text>
-                    <Pressable
-                      onPress={increment}
-                      accessibilityRole="button"
-                      accessibilityLabel="Increase amount"
-                      style={({ pressed }) => [
-                        styles.counterButton,
-                        pressed && styles.counterButtonPressed,
-                      ]}
-                    >
-                      <Text style={styles.counterButtonText}>+</Text>
-                    </Pressable>
-                  </View>
-                  <Text style={styles.fieldLabel}>Unit</Text>
-                  <View style={styles.unitGrid}>
-                    {UNIT_OPTIONS.map((option) => {
-                      const isActive = option === unit;
-                      return (
-                        <Pressable
-                          key={option}
-                          onPress={() => setUnit(option)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Set unit to ${option}`}
-                          style={({ pressed }) => [
-                            styles.unitChip,
-                            isActive && styles.unitChipActive,
-                            pressed && styles.unitChipPressed,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.unitChipText,
-                              isActive && styles.unitChipTextActive,
-                            ]}
-                          >
-                            {option}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </>
-              )}
             </View>
-            <Pressable
-              onPress={handleSave}
-              disabled={disableSave}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: disableSave }}
-              accessibilityLabel="Save freezer amount"
-              style={({ pressed }) => [
-                styles.saveButton,
-                pressed && !disableSave && styles.saveButtonPressed,
-                disableSave && styles.saveButtonDisabled,
-              ]}
-            >
-              <Text style={styles.saveButtonText}>Save</Text>
-            </Pressable>
-          </View>
+
+            <View style={styles.divider} />
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Frozen on</Text>
+              <Pressable onPress={() => setDatePickerVisible((current) => !current)} accessibilityRole="button" accessibilityLabel={`Frozen on ${dateLabel}`} style={({ pressed }) => [styles.dateRow, pressed && styles.pressed]}>
+                <MaterialCommunityIcons name="calendar-month" size={24} color={theme.color.accent} />
+                <Text style={styles.dateText}>{dateLabel}</Text>
+                <MaterialCommunityIcons name="chevron-right" size={24} color={theme.color.accent} />
+              </Pressable>
+              {isDatePickerVisible ? (
+                <View style={styles.datePickerWrap}>
+                  {Platform.OS === "web" ? (
+                    <Text style={styles.dateText}>{addedDate.toLocaleDateString()}</Text>
+                  ) : Platform.OS === "ios" ? (
+                    <DateTimePicker
+                      value={addedDate}
+                      mode="date"
+                      display="spinner"
+                      textColor={theme.mode === "dark" ? "#FFFFFF" : theme.color.ink}
+                      themeVariant={theme.mode}
+                      onChange={(_, selectedDate) => {
+                        if (selectedDate) setAddedDate(selectedDate);
+                      }}
+                    />
+                  ) : (
+                    <DateTimePicker
+                      value={addedDate}
+                      mode="date"
+                      display="calendar"
+                      onChange={(_, selectedDate) => {
+                        if (selectedDate) setAddedDate(selectedDate);
+                        setDatePickerVisible(false);
+                      }}
+                    />
+                  )}
+                </View>
+              ) : null}
+            </View>
+          </ScrollView>
+
+          <Pressable
+            disabled={!meal}
+            onPress={() => meal && onComplete(meal, amount, addedDate.toISOString())}
+            accessibilityRole="button"
+            accessibilityLabel="Add to Freezer"
+            style={({ pressed }) => [styles.primaryButton, !meal && styles.disabled, pressed && meal && styles.pressed]}
+          >
+            <Text style={styles.primaryText}>Add to Freezer</Text>
+          </Pressable>
         </SafeAreaView>
       </View>
     </Modal>
   );
 }
 
-const createStyles = (theme: WeeklyTheme) =>
-  StyleSheet.create({
-    backdrop: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.35)",
-      justifyContent: "flex-end",
-    },
-    backdropPad: {
-      flex: 1,
-    },
-    sheet: {
-      backgroundColor: theme.color.surface,
-      borderTopLeftRadius: theme.radius.xl,
-      borderTopRightRadius: theme.radius.xl,
-      paddingHorizontal: theme.space.xl,
-      paddingTop: theme.space.lg,
-      paddingBottom: theme.space["2xl"],
-      gap: theme.space.lg,
-      minHeight: "65%",
-      maxHeight: "80%",
-    },
-    amountContent: {
-      flex: 1,
-      justifyContent: "space-between",
-    },
-    amountBody: {
-      gap: theme.space.lg,
-      flexGrow: 1,
-    },
-    backButton: {
-      width: 44,
-      height: 44,
-      borderRadius: theme.radius.full,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-      alignSelf: "flex-start",
-    },
-    backButtonPressed: {
-      opacity: 0.8,
-    },
-    headerIconButton: {
-      width: 44,
-      height: 44,
-      borderRadius: theme.radius.full,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    headerIconButtonPressed: {
-      opacity: 0.85,
-    },
-    mealName: {
-      textAlign: "center",
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
-    },
-    example: {
-      textAlign: "center",
-      color: theme.color.accent,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.bold,
-    },
-    examplePlaceholder: {
-      color: theme.color.subtleInk,
-    },
-    amountHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-    amountHeaderTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
-      textTransform: "uppercase",
-      letterSpacing: 0.8,
-    },
-    amountHeaderSpacer: {
-      width: 44,
-      height: 44,
-    },
-    dateContainer: {
-      gap: theme.space.md,
-    },
-    datePickerWrapper: {
-      borderRadius: theme.radius.lg,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-      backgroundColor: theme.color.surfaceAlt,
-      padding: theme.space.md,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    dateDisplayText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.medium,
-    },
-    dateHelperText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.xs,
-      textAlign: "center",
-    },
-    fieldLabel: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.xs,
-      fontWeight: theme.type.weight.bold,
-      textTransform: "uppercase",
-      letterSpacing: 0.8,
-    },
-    counterRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: theme.space.lg,
-    },
-    counterButton: {
-      width: 44,
-      height: 44,
-      borderRadius: theme.radius.full,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-      backgroundColor: theme.color.surfaceAlt,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    counterButtonPressed: {
-      opacity: 0.85,
-    },
-    counterButtonText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.title,
-      fontWeight: theme.type.weight.bold,
-    },
-    counterValue: {
-      minWidth: 64,
-      textAlign: "center",
-      color: theme.color.ink,
-      fontSize: theme.type.size.h1,
-      fontWeight: theme.type.weight.bold,
-    },
-    unitGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: theme.space.sm,
-    },
-    unitChip: {
-      paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.xs,
-      borderRadius: theme.radius.full,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    unitChipActive: {
-      backgroundColor: theme.color.surface,
-      borderColor: theme.color.accent,
-    },
-    unitChipPressed: {
-      opacity: 0.85,
-    },
-    unitChipText: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      fontWeight: theme.type.weight.medium,
-    },
-    unitChipTextActive: {
-      color: theme.color.accent,
-    },
-    saveButton: {
-      marginTop: theme.space["2xl"],
-      height: theme.component.button.height,
-      borderRadius: theme.component.button.radius,
-      backgroundColor: theme.color.accent,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    saveButtonPressed: {
-      opacity: 0.85,
-    },
-    saveButtonDisabled: {
-      opacity: 0.45,
-    },
-    saveButtonText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.bold,
-    },
-  });
-
-export { UNIT_OPTIONS, DEFAULT_UNIT };
+const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
+  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.52)" },
+  backdropPad: { flex: 1 },
+  sheet: { maxHeight: "86%", paddingHorizontal: theme.space.xl, paddingTop: theme.space.sm, paddingBottom: theme.space["2xl"], gap: theme.space.lg, borderTopLeftRadius: theme.radius.xl, borderTopRightRadius: theme.radius.xl, backgroundColor: theme.color.surface },
+  content: { gap: theme.space.lg, paddingBottom: theme.space.sm },
+  handle: { width: 42, height: 5, alignSelf: "center", borderRadius: theme.radius.full, backgroundColor: theme.color.border },
+  header: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  closeButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.full, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  headerSpacer: { width: 44 },
+  title: { color: theme.color.ink, fontSize: theme.type.size.h2, fontWeight: theme.type.weight.bold },
+  mealIdentity: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.md, paddingHorizontal: theme.space.lg },
+  mealEmoji: { fontSize: 34 },
+  mealName: { flexShrink: 1, color: theme.color.ink, fontSize: theme.type.size.h1, fontWeight: theme.type.weight.bold, textAlign: "center" },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.color.border },
+  section: { gap: theme.space.sm },
+  sectionLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, textTransform: "uppercase", letterSpacing: 0.8 },
+  helper: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
+  stepper: { minHeight: 92, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: theme.space.lg },
+  stepButton: { width: 58, height: 58, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.full, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.accent, backgroundColor: theme.color.surfaceAlt },
+  amount: { minWidth: 150, color: theme.color.ink, fontSize: theme.type.size.h1, fontWeight: theme.type.weight.bold, textAlign: "center" },
+  dateRow: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: theme.space.md, paddingHorizontal: theme.space.lg, borderRadius: theme.radius.lg, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  dateText: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
+  datePickerWrap: { alignItems: "center", padding: theme.space.sm, borderRadius: theme.radius.lg, backgroundColor: theme.color.surfaceAlt },
+  primaryButton: { minHeight: theme.component.button.height, marginTop: theme.space.md, alignItems: "center", justifyContent: "center", borderRadius: theme.component.button.radius, backgroundColor: theme.color.accent },
+  primaryText: { color: "#FFFFFF", fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+  disabled: { opacity: 0.45 },
+  pressed: { opacity: 0.78 },
+});

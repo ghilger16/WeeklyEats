@@ -24,6 +24,7 @@ export type MealSortOption = {
   label: string;
   defaultDirection?: MealSortDirection;
   badgeType?: MealSortBadgeType;
+  directions?: Array<{ value: MealSortDirection; label: string }>;
 };
 
 export type MealSortSelection = {
@@ -45,6 +46,7 @@ type MealSearchInputProps = {
   sortTitle?: string;
   onSortChange?: (selection: MealSortSelection | null) => void;
   onFilterPress?: () => void;
+  cuisineOptions?: Array<{ value: MealSortDirection; label: string }>;
 };
 
 const DEFAULT_SORT_OPTIONS: MealSortOption[] = [
@@ -95,6 +97,7 @@ const MealSearchInputComponent = ({
   sortTitle = "Sort by",
   onSortChange,
   onFilterPress,
+  cuisineOptions = [],
 }: MealSearchInputProps) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -110,8 +113,23 @@ const MealSearchInputComponent = ({
   } | null>(null);
   const containerRef = useRef<View | null>(null);
 
-  const options =
-    sortOptions && sortOptions.length > 0 ? sortOptions : DEFAULT_SORT_OPTIONS;
+  const options = useMemo(() => {
+    const baseOptions =
+      sortOptions && sortOptions.length > 0
+        ? sortOptions
+        : DEFAULT_SORT_OPTIONS;
+    if (!cuisineOptions.length) return baseOptions;
+    return [
+      ...baseOptions,
+      {
+        id: "cuisine",
+        label: "Cuisine",
+        defaultDirection: cuisineOptions[0].value,
+        badgeType: "cuisine" as const,
+        directions: cuisineOptions,
+      },
+    ];
+  }, [cuisineOptions, sortOptions]);
 
   useEffect(() => {
     const initial = options.find((option) => option.id === "dateAdded");
@@ -130,6 +148,18 @@ const MealSearchInputComponent = ({
     if (!nextOption) {
       setSelectedSort(null);
       onSortChange?.(null);
+      return;
+    }
+    const nextDirections = nextOption.directions?.map(
+      (direction) => direction.value,
+    );
+    if (
+      nextDirections?.length &&
+      !nextDirections.includes(selectedSort.direction)
+    ) {
+      const direction = nextDirections[0];
+      setSelectedSort({ option: nextOption, direction });
+      onSortChange?.({ id: nextOption.id, direction });
       return;
     }
     if (nextOption !== selectedSort.option) {
@@ -177,6 +207,9 @@ const MealSearchInputComponent = ({
 
   const getOptionCycle = useCallback(
     (option: MealSortOption): MealSortDirection[] => {
+      if (option.directions?.length) {
+        return option.directions.map((direction) => direction.value);
+      }
       if (option.badgeType === "difficulty") {
         return ["easy", "medium", "hard"];
       }
@@ -242,7 +275,11 @@ const MealSearchInputComponent = ({
     if (!selectedSort) {
       return null;
     }
-    return selectedSort.option.label;
+    return (
+      selectedSort.option.directions?.find(
+        (direction) => direction.value === selectedSort.direction,
+      )?.label ?? selectedSort.option.label
+    );
   }, [selectedSort]);
 
   return (

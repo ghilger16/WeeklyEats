@@ -72,13 +72,12 @@ export default function TabParent({
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-
   const resolvedBackground = backgroundColor ?? theme.color.bg;
 
   return (
     <SafeAreaView
       style={[styles.safe, { backgroundColor: resolvedBackground }]}
-      edges={["top", "left", "right", "bottom"]}
+      edges={["top", "left", "right"]}
     >
       <View style={[styles.header, headerStyle]}>
         <View style={styles.headerRow}>

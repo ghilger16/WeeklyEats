@@ -1,6 +1,7 @@
 import { Meal } from "../../../types/meals";
 import { DayPinsState, EffortOption } from "../../../types/dayPins";
 import { SuggestionBannerContext } from "./suggestionBanners";
+import { hasFullFreezerMeal } from "../../../utils/freezerMealAmount";
 
 type DifficultyKey = "easy" | "medium" | "hard";
 
@@ -34,9 +35,7 @@ const effortToDifficultySet = (effort: EffortOption | null | undefined) => {
 };
 
 const hasFreezerInventory = (meal: Meal) => {
-  const amount = meal.freezerAmount?.trim();
-  const quantity = meal.freezerQuantity?.trim();
-  return Boolean(amount || quantity || meal.freezerAddedAt);
+  return hasFullFreezerMeal(meal);
 };
 
 const getExpenseTier = (meal: Meal): number => {

@@ -5,6 +5,8 @@ import { CuisineType } from "../../types/cuisine";
 export const getBeenAwhileMeals = (
   meals: Meal[],
   history: ServedMealEntry[],
+  minimumWeeks?: number,
+  now = Date.now(),
 ): Meal[] => {
   const latestServed = new Map<string, number>();
   history.forEach((entry) => {
@@ -16,10 +18,30 @@ export const getBeenAwhileMeals = (
       Math.max(latestServed.get(entry.mealId) ?? 0, servedAt),
     );
   });
-  return [...meals].sort(
-    (left, right) =>
-      (latestServed.get(left.id) ?? 0) - (latestServed.get(right.id) ?? 0),
-  );
+  return [...meals]
+    .filter((meal) => {
+      if (minimumWeeks === undefined) return true;
+      const lastServedAt = latestServed.get(meal.id);
+      const createdAt = meal.createdAt
+        ? new Date(meal.createdAt).getTime()
+        : NaN;
+      const referenceTime = lastServedAt ?? createdAt;
+      return (
+        Number.isFinite(referenceTime) &&
+        now - referenceTime >= minimumWeeks * 7 * 24 * 60 * 60 * 1000
+      );
+    })
+    .sort((left, right) => {
+      const leftCreatedAt = new Date(left.createdAt ?? "").getTime();
+      const rightCreatedAt = new Date(right.createdAt ?? "").getTime();
+      const leftReference =
+        latestServed.get(left.id) ??
+        (Number.isFinite(leftCreatedAt) ? leftCreatedAt : 0);
+      const rightReference =
+        latestServed.get(right.id) ??
+        (Number.isFinite(rightCreatedAt) ? rightCreatedAt : 0);
+      return leftReference - rightReference;
+    });
 };
 
 export const getRecentlyAddedUnservedMeals = (

@@ -31,6 +31,7 @@ import { getFamilyRatingSummary } from "../../utils/familyRatings";
 import FamilyRatingRow from "../meals/FamilyRatingRow";
 import FreezerAmountModal from "../meals/FreezerAmountModal";
 import RatingStars from "../meals/RatingStars";
+import MealEmoji from "../emoji/MealEmoji";
 import { RatingDisplayMode } from "../../hooks/useRatingDisplayMode";
 
 const EAT_OUT_MESSAGES = [
@@ -53,7 +54,7 @@ type TodayCardProps = {
   onChangePlans?: () => void;
   onChangeFamilyRating?: (memberId: string, rating: FamilyRatingValue) => void;
   isGalaxyMeal?: boolean;
-  onSaveFreezer?: (amount: string, unit: string, addedAt: string) => void;
+  onSaveFreezer?: (mealAmount: number, addedAt: string) => void;
   onRemoveFreezer?: () => void;
   onSavePrepNotes?: (notes: string) => void;
   ratingMode?: RatingDisplayMode;
@@ -146,16 +147,20 @@ export default function TodayCard({
     [meal.familyRatings, memberIds],
   );
   const isFamilyStar = !useRatingStars && Boolean(familySummary?.isUnanimousHeart);
+  const initialCarouselOrder = useMemo<CarouselPage[]>(
+    () =>
+      ratingsNeeded
+        ? ["served", "ratings", "freezer", "notes"]
+        : ["served", "freezer", "notes", "ratings"],
+    [ratingsNeeded],
+  );
 
   const initializeCarousel = useCallback(() => {
     if (carouselOrder) return;
-    const order: CarouselPage[] = ratingsNeeded
-      ? ["served", "ratings", "freezer", "notes"]
-      : ["served", "freezer", "notes", "ratings"];
     setRatingsWereNeeded(ratingsNeeded);
-    setCarouselOrder(order);
+    setCarouselOrder(initialCarouselOrder);
     setActivePage(0);
-  }, [carouselOrder, ratingsNeeded]);
+  }, [carouselOrder, initialCarouselOrder, ratingsNeeded]);
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach(clearTimeout);
@@ -301,6 +306,7 @@ export default function TodayCard({
     if (page === "served") {
       return (
         <View style={styles.carouselPageContent}>
+          <Text style={styles.carouselDate}>{dateLabel.toUpperCase()}</Text>
           <MaterialCommunityIcons name="check-circle" size={62} color={theme.color.accent} />
           <Text style={styles.carouselPrompt}>Served!</Text>
           <Text style={styles.carouselMealTitle}>{meal.title}</Text>
@@ -360,7 +366,8 @@ export default function TodayCard({
   };
 
   const isCelebrating = phase !== "idle" && phase !== "carousel" && !isEatOut && !isFlexNight;
-  const showCarousel = isServed && !isEatOut && !isFlexNight && (phase === "carousel" || phase === "idle") && Boolean(carouselOrder);
+  const visibleCarouselOrder = carouselOrder ?? (isServed ? initialCarouselOrder : null);
+  const showCarousel = isServed && !isEatOut && !isFlexNight && (phase === "carousel" || phase === "idle") && Boolean(visibleCarouselOrder);
 
   return (
     <View style={[
@@ -398,11 +405,15 @@ export default function TodayCard({
               onMomentumScrollEnd={handleCarouselMomentumEnd}
               keyboardShouldPersistTaps="handled"
             >
-              {carouselOrder?.map((page) => <View key={page} style={[styles.carouselPage, { width: carouselWidth }]}>{renderCarouselPage(page)}</View>)}
+              {visibleCarouselOrder?.map((page) => <View key={page} style={[styles.carouselPage, { width: carouselWidth }]}>{renderCarouselPage(page)}</View>)}
             </ScrollView>
+          ) : visibleCarouselOrder?.[0] ? (
+            <View style={styles.carouselPage}>
+              {renderCarouselPage(visibleCarouselOrder[0])}
+            </View>
           ) : null}
           <View style={styles.pageIndicators}>
-            {carouselOrder?.map((page, index) => (
+            {visibleCarouselOrder?.map((page, index) => (
               <Pressable key={page} onPress={() => scrollToPage(index)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Show ${page} card`}>
                 <View style={[styles.pageDot, index === activePage && styles.pageDotActive]} />
               </Pressable>
@@ -472,7 +483,7 @@ export default function TodayCard({
       ) : (
         <>
           <View style={[styles.mealRow, !hasPrepNotes && styles.mealRowCentered]}>
-            <Text style={styles.emoji}>{meal.emoji || "🍽️"}</Text>
+            <MealEmoji value={meal.emoji} size={48} />
             <View style={[styles.mealText, !hasPrepNotes && styles.mealTextCentered]}>
               <Text style={[styles.title, !hasPrepNotes && styles.mealTitleCentered]}>{meal.title}</Text>
               {isFlexNight ? <Text style={styles.meta}>Keep tonight flexible</Text> : null}
@@ -524,11 +535,10 @@ export default function TodayCard({
         visible={isFreezerModalVisible}
         initialMeal={meal}
         initialAmount={meal.freezerAmount ?? meal.freezerQuantity ?? ""}
-        initialUnit={meal.freezerUnit}
         initialAddedAt={meal.freezerAddedAt}
         onDismiss={() => setFreezerModalVisible(false)}
-        onComplete={(_meal, amount, unit, addedAt) => {
-          onSaveFreezer?.(amount, unit, addedAt);
+        onComplete={(_meal, mealAmount, addedAt) => {
+          onSaveFreezer?.(mealAmount, addedAt);
           setFreezerModalVisible(false);
         }}
       />
@@ -587,6 +597,7 @@ const createStyles = (theme: WeeklyTheme) =>
     carouselShell: { flex: 1, width: "100%", overflow: "hidden" },
     carouselPage: { height: 191, justifyContent: "center", paddingHorizontal: theme.space.xs },
     carouselPageContent: { flex: 1, alignItems: "center", justifyContent: "center", gap: theme.space.sm, paddingVertical: theme.space.xs },
+    carouselDate: { position: "absolute", top: theme.space.xs, left: 0, color: theme.color.accent, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
     ratingsPageContent: { paddingVertical: 0 },
     freezerPageContent: { gap: theme.space.md },
     notesPageContent: { gap: 10, paddingVertical: 0 },

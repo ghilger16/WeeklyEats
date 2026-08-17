@@ -7,6 +7,7 @@ import { WeekPlanDay } from "../../hooks/useCurrentWeekPlan";
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
 import { startOfDay } from "../../utils/weekDays";
 import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
+import MealEmoji from "../emoji/MealEmoji";
 
 type Props = {
   days: WeekPlanDay[];
@@ -103,6 +104,7 @@ export default function ThisWeekList({
                 pressed && styles.pressed,
               ]}
             >
+              <Text style={[styles.day, isToday && !isServed && styles.todayText]}>{day.label}</Text>
               <View style={styles.statusIcon}>
                 {isEatOut ? (
                   <MaterialCommunityIcons
@@ -123,10 +125,9 @@ export default function ThisWeekList({
                 ) : isPending ? (
                   <MaterialCommunityIcons name="clock-outline" size={17} color={theme.color.warning} />
                 ) : (
-                  <Text style={styles.emoji}>{day.meal?.emoji ?? "·"}</Text>
+                  <MealEmoji value={day.meal?.emoji} size={22} fallback="·" />
                 )}
               </View>
-              <Text style={[styles.day, isToday && !isServed && styles.todayText]}>{day.label}</Text>
               <View style={styles.mealCopy}>
                 <View style={styles.titleRow}>
                   <Text style={[styles.title, isCompleted && styles.servedText]} numberOfLines={1}>

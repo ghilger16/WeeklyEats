@@ -1,9 +1,4 @@
-import {
-  getCurrentWeekPlan,
-  getCurrentWeekSides,
-  setCurrentWeekPlan,
-  setCurrentWeekSides,
-} from "../stores/weekPlanStorage";
+import { getCurrentWeekPlan } from "../stores/weekPlanStorage";
 import {
   PLANNED_WEEK_DISPLAY_NAMES,
   PlannedWeekDayKey,
@@ -59,26 +54,4 @@ export const getActivePlannedMealOccurrences = async ({
         dayLabel: PLANNED_WEEK_DISPLAY_NAMES[dayKey],
       })),
   );
-};
-
-export const resolvePlannedMealOccurrence = async ({
-  occurrence,
-  replacementMealId,
-}: {
-  occurrence: PlannedMealOccurrence;
-  replacementMealId: string | null;
-}): Promise<void> => {
-  const plan = await getCurrentWeekPlan(occurrence.weekStartISO);
-  await setCurrentWeekPlan(occurrence.weekStartISO, {
-    ...plan,
-    [occurrence.dayKey]: replacementMealId,
-  });
-
-  if (replacementMealId === null) {
-    const sides = await getCurrentWeekSides(occurrence.weekStartISO);
-    await setCurrentWeekSides(occurrence.weekStartISO, {
-      ...sides,
-      [occurrence.dayKey]: [],
-    });
-  }
 };

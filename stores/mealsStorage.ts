@@ -32,12 +32,12 @@ const sanitizeFamilyRatings = (
   );
 };
 
-const sanitizeSuggestedSides = (value: unknown): string[] | undefined => {
+const sanitizePreferredSides = (value: unknown): string[] | undefined => {
   if (!Array.isArray(value)) return undefined;
   const seen = new Set<string>();
   const sides: string[] = [];
   value.forEach((item) => {
-    if (typeof item !== "string" || sides.length >= 6) return;
+    if (typeof item !== "string") return;
     const side = item.trim().replace(/\s+/g, " ");
     const key = side.toLocaleLowerCase();
     if (!side || seen.has(key)) return;
@@ -47,22 +47,35 @@ const sanitizeSuggestedSides = (value: unknown): string[] | undefined => {
   return sides.length ? sides : undefined;
 };
 
-const applyMealDefaults = (meal: Meal): Meal => ({
-  ...meal,
+const applyMealDefaults = (meal: Meal): Meal => {
+  const legacyMeal = meal as Meal & { suggestedSides?: unknown };
+  const { suggestedSides: _legacySuggestedSides, ...mealWithoutLegacySides } =
+    legacyMeal;
+  return {
+  ...mealWithoutLegacySides,
   servedCount:
     typeof meal.servedCount === "number" && meal.servedCount >= 0
       ? meal.servedCount
       : 0,
   showServedCount: Boolean(meal.showServedCount),
   familyRatings: sanitizeFamilyRatings(meal.familyRatings),
-  suggestedSides: sanitizeSuggestedSides(meal.suggestedSides),
+  preferredSides: sanitizePreferredSides(
+    meal.preferredSides ?? legacyMeal.suggestedSides,
+  ),
+  freezerMealAmount:
+    typeof meal.freezerMealAmount === "number" &&
+    Number.isFinite(meal.freezerMealAmount) &&
+    meal.freezerMealAmount > 0
+      ? Math.max(0.5, Math.round(meal.freezerMealAmount * 2) / 2)
+      : undefined,
   cuisine:
     meal.cuisine === null
       ? null
       : isCuisineType(meal.cuisine)
       ? meal.cuisine
       : undefined,
-});
+  };
+};
 
 const parseMeals = (raw: string | null): Meal[] => {
   if (!raw) {

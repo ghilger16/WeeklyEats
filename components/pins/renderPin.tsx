@@ -44,8 +44,18 @@ const renderSortPin = ({
   color,
   theme,
 }: SortPinConfig) => {
+  if (badgeType === "cuisine") {
+    return (
+      <MaterialCommunityIcons
+        name="silverware-fork-knife"
+        size={size === "badge" ? 14 : 16}
+        color={color}
+      />
+    );
+  }
+
   if (badgeType === "difficulty") {
-    const difficultyColors: Record<MealSortDirection, string> = {
+    const difficultyColors: Partial<Record<MealSortDirection, string>> = {
       easy: theme.color.success,
       medium: theme.color.warning,
       hard: theme.color.danger,
@@ -71,7 +81,7 @@ const renderSortPin = ({
   }
 
   if (badgeType === "expense") {
-    const costLabels: Record<MealSortDirection, string> = {
+    const costLabels: Partial<Record<MealSortDirection, string>> = {
       cheap: "$",
       mediumCost: "$$",
       expensive: "$$$",

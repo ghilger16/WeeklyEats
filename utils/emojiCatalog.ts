@@ -1,4 +1,17 @@
+import {
+  BEEF_STIR_FRY_EMOJI_TOKEN,
+  CHILI_EMOJI_TOKEN,
+  MAC_AND_CHEESE_EMOJI_TOKEN,
+  MEATLOAF_EMOJI_TOKEN,
+  PIGS_IN_A_BLANKET_EMOJI_TOKEN,
+} from "../components/emoji/customEmojiRegistry";
+
 export const DEFAULT_MEAL_EMOJI = "🍽️";
+export const CHILI_MEAL_EMOJI = CHILI_EMOJI_TOKEN;
+export const PIGS_IN_A_BLANKET_MEAL_EMOJI = PIGS_IN_A_BLANKET_EMOJI_TOKEN;
+export const MEATLOAF_MEAL_EMOJI = MEATLOAF_EMOJI_TOKEN;
+export const MAC_AND_CHEESE_MEAL_EMOJI = MAC_AND_CHEESE_EMOJI_TOKEN;
+export const BEEF_STIR_FRY_MEAL_EMOJI = BEEF_STIR_FRY_EMOJI_TOKEN;
 
 export type EmojiCatalogEntry = {
   emoji: string;
@@ -9,6 +22,11 @@ export type EmojiCatalogEntry = {
 // Extended food + drink catalog (hundreds of options) to give broader meal icon choices.
 const FOOD_AND_DRINK_CATALOG: EmojiCatalogEntry[] = [
   // Meals & mains
+  { emoji: CHILI_MEAL_EMOJI, label: "Chili Bowl", keywords: ["chili", "chilli", "beans", "stew", "soup"] },
+  { emoji: PIGS_IN_A_BLANKET_MEAL_EMOJI, label: "Pigs in a Blanket", keywords: ["pigs in a blanket", "pig in a blanket", "crescent dog", "crescent roll", "hot dog", "sausage", "appetizer", "party food"] },
+  { emoji: MEATLOAF_MEAL_EMOJI, label: "Meatloaf", keywords: ["meatloaf", "meat loaf", "beef loaf", "ground beef", "comfort food", "loaf"] },
+  { emoji: MAC_AND_CHEESE_MEAL_EMOJI, label: "Mac and Cheese", keywords: ["mac and cheese", "macaroni and cheese", "macaroni", "cheesy pasta", "pasta", "comfort food"] },
+  { emoji: BEEF_STIR_FRY_MEAL_EMOJI, label: "Beef Stir Fry", keywords: ["beef stir fry", "stir fry", "beef", "broccoli beef", "vegetables", "asian", "wok"] },
   { emoji: "🍕", label: "Pizza", keywords: ["pizza", "pepperoni", "margherita"] },
   { emoji: "🍔", label: "Burger", keywords: ["burger", "cheeseburger", "hamburger", "sliders"] },
   { emoji: "🌭", label: "Hot Dog", keywords: ["hotdog", "hot dog", "sausage", "brat"] },

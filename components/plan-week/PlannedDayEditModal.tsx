@@ -119,7 +119,7 @@ export default function PlannedDayEditModal({
   return (
     <Modal
       transparent
-      animationType="slide"
+      animationType="fade"
       presentationStyle="overFullScreen"
       visible={visible}
       onRequestClose={onDismiss}

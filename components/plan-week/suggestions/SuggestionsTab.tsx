@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import MealEmoji from "../../emoji/MealEmoji";
 import {
   Animated,
   Pressable,
@@ -13,6 +14,7 @@ import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 import { Meal } from "../../../types/meals";
 import SuggestionBanner from "./SuggestionBanner";
+import { formatFreezerAvailability, getFreezerMealAmount } from "../../../utils/freezerMealAmount";
 
 type DifficultyKey = "easy" | "medium" | "hard";
 
@@ -64,24 +66,14 @@ const SuggestionsTab = ({
     if (!meal) {
       return false;
     }
-    const amount = meal.freezerAmount?.trim();
-    const quantity = meal.freezerQuantity?.trim();
-    return Boolean(amount || quantity || meal.freezerAddedAt);
+    return getFreezerMealAmount(meal) !== null;
   }, [meal]);
   const freezerPortionLabel = useMemo(() => {
     if (!isFreezerMeal || !meal) {
       return "";
     }
-    const quantity = (meal.freezerQuantity ?? "").trim();
-    const amount = (meal.freezerAmount ?? "").trim();
-    const unit = (meal.freezerUnit ?? "").trim();
-    if (amount) {
-      return `Portions left: ${amount}${unit ? ` ${unit}` : ""}`;
-    }
-    if (quantity) {
-      return `Portions left: ${quantity}`;
-    }
-    return "Portions left in freezer";
+    const amount = getFreezerMealAmount(meal);
+    return amount ? formatFreezerAvailability(amount) : "In freezer";
   }, [isFreezerMeal, meal]);
 
   const freezerDateLabel = useMemo(() => {
@@ -122,7 +114,7 @@ const SuggestionsTab = ({
             />
           ) : null}
           <View style={styles.mealHeroContent}>
-            <Text style={styles.mealEmoji}>{meal?.emoji ?? "🍽️"}</Text>
+            <MealEmoji value={meal?.emoji} size={44} />
             <View style={styles.mealHeroDetails}>
               {isFreezerMeal ? (
                 <View style={styles.freezerInfo}>

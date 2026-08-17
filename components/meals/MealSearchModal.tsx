@@ -19,6 +19,7 @@ import {
   normalizeDayPinsState,
 } from "../../types/dayPins";
 import { buildMealSuggestions } from "../plan-week/suggestions/suggestionMatcher";
+import MealEmoji from "../emoji/MealEmoji";
 
 type Props = {
   visible: boolean;
@@ -141,7 +142,7 @@ export default function MealSearchModal({
   return (
     <Modal
       transparent
-      animationType="slide"
+      animationType="fade"
       presentationStyle="overFullScreen"
       visible={visible}
       onRequestClose={onDismiss}
@@ -176,9 +177,7 @@ export default function MealSearchModal({
                 </View>
 
                 <View style={styles.selectedMeal}>
-                  <Text style={styles.selectedEmoji}>
-                    {selectedMeal?.emoji ?? "🍽️"}
-                  </Text>
+                  <MealEmoji value={selectedMeal?.emoji} size={40} />
                   <Text style={styles.selectedTitle} numberOfLines={1}>
                     {selectedMeal?.title}
                   </Text>
@@ -336,9 +335,7 @@ export default function MealSearchModal({
                           pressed && styles.rowPressed,
                         ]}
                       >
-                        <Text style={styles.rowEmoji}>
-                          {item.emoji ?? "🍽️"}
-                        </Text>
+                        <MealEmoji value={item.emoji} size={32} />
                         <Text style={styles.rowTitle} numberOfLines={1}>
                           {item.title}
                         </Text>
@@ -354,7 +351,7 @@ export default function MealSearchModal({
                           <MaterialCommunityIcons
                             name="plus"
                             size={18}
-                            color={theme.color.ink}
+                            color={theme.color.accent}
                           />
                         </Pressable>
                       </Pressable>

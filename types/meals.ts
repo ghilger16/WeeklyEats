@@ -43,10 +43,11 @@ export type Meal = {
   freezerQuantity?: string;
   freezerAmount?: string;
   freezerUnit?: string;
+  freezerMealAmount?: number;
   freezerAddedAt?: string;
   recipeUrl?: string;
   ingredients?: MealIngredient[];
-  suggestedSides?: string[];
+  preferredSides?: string[];
   difficulty?: number;
   expense?: number;
   cuisine?: CuisineType | null;

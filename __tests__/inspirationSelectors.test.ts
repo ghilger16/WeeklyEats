@@ -34,6 +34,24 @@ describe("inspiration selectors", () => {
     ]);
   });
 
+  it("only returns Been Awhile meals that have waited at least three weeks", () => {
+    const now = new Date("2026-08-17T12:00:00.000Z").getTime();
+    const meals = [
+      meal("two-weeks"),
+      meal("three-weeks"),
+      meal("never-old", { createdAt: "2026-07-01T12:00:00.000Z" }),
+      meal("never-new", { createdAt: "2026-08-10T12:00:00.000Z" }),
+    ];
+    const history = [
+      { id: "1", dayKey: "mon" as const, mealId: "two-weeks", servedAtISO: "2026-08-03T12:00:00.000Z", outcome: "served" as const },
+      { id: "2", dayKey: "mon" as const, mealId: "three-weeks", servedAtISO: "2026-07-27T12:00:00.000Z", outcome: "served" as const },
+    ];
+
+    expect(
+      getBeenAwhileMeals(meals, history, 3, now).map((item) => item.id),
+    ).toEqual(["never-old", "three-weeks"]);
+  });
+
   it("filters easy and budget meals using existing fields", () => {
     const meals = [
       meal("easy-budget", { difficulty: 2, expense: 1 }),

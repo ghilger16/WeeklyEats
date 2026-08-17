@@ -31,6 +31,7 @@ import {
   getSuggestionBanner,
 } from "./suggestionBanners";
 import SuggestionsTab from "./SuggestionsTab";
+import { hasFullFreezerMeal } from "../../../utils/freezerMealAmount";
 
 type DifficultyKey = "easy" | "medium" | "hard";
 
@@ -181,8 +182,7 @@ export default function SuggestionsContainer({
     }
     if (
       pins.freezerNight ||
-      Boolean(meal?.freezerQuantity) ||
-      Boolean(meal?.freezerAmount)
+      hasFullFreezerMeal(meal)
     ) {
       return "freezer";
     }

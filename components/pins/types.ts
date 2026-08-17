@@ -1,3 +1,5 @@
+import type { CuisineType } from "../../types/cuisine";
+
 export type MealSortDirection =
   | "asc"
   | "desc"
@@ -6,7 +8,11 @@ export type MealSortDirection =
   | "hard"
   | "cheap"
   | "mediumCost"
-  | "expensive";
+  | "expensive"
+  | CuisineType;
 
-export type MealSortBadgeType = "default" | "difficulty" | "expense";
-
+export type MealSortBadgeType =
+  | "default"
+  | "difficulty"
+  | "expense"
+  | "cuisine";

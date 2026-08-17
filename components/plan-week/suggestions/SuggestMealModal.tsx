@@ -31,6 +31,7 @@ import InlineDaySearch from "../inline/InlineDaySearch";
 import InlineSideEditor from "../inline/InlineSideEditor";
 import InlineEatOutEditor from "../inline/InlineEatOutEditor";
 import ChangeMealIdentity from "../../week-dashboard/ChangeMealIdentity";
+import MealEmoji from "../../emoji/MealEmoji";
 
 type Props = {
   visible: boolean;
@@ -44,6 +45,7 @@ type Props = {
   onDismiss: () => void;
   onAddMeal: (meal: Meal, side?: string) => void;
   onAddMealWithSides?: (meal: Meal, sides: string[]) => void;
+  onPreferredSidesChange?: (meal: Meal, sides: string[]) => void;
   onSuggestAnother: () => void;
   meals?: Meal[];
   onSelectSearchMeal?: (meal: Meal, side?: string) => void;
@@ -118,6 +120,7 @@ export default function SuggestMealModal({
   onDismiss,
   onAddMeal,
   onAddMealWithSides,
+  onPreferredSidesChange,
   onSuggestAnother,
   meals = [],
   onSelectSearchMeal,
@@ -185,6 +188,7 @@ export default function SuggestMealModal({
   const isHistoricalLoggingMode = flowMode === "recordPastDinner";
   const isDinnerEditMode = isChangeDinnerMode || isHistoricalLoggingMode;
   const canShowFilterToggle =
+    !isChangeDinnerMode &&
     !isHistoricalLoggingMode &&
     (mode === "suggest" || mode === "search") &&
     !selectedSideMeal;
@@ -434,7 +438,7 @@ export default function SuggestMealModal({
   return (
     <Modal
       transparent
-      animationType="slide"
+      animationType="fade"
       presentationStyle="overFullScreen"
       visible={visible}
       onRequestClose={onDismiss}
@@ -565,6 +569,7 @@ export default function SuggestMealModal({
                   onViewDetails={() => {}}
                   onRemove={() => {}}
                   onExpandedLayout={() => {}}
+                  autoFocus={false}
                 />
               </ScrollView>
             ) : selectedSideMeal &&
@@ -576,6 +581,12 @@ export default function SuggestMealModal({
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
+                <View style={styles.inlineSelectedMeal}>
+                  <Text style={styles.replacingLabel}>Selected Meal</Text>
+                  <View style={styles.selectedMealCard}>
+                    <ChangeMealIdentity meal={selectedSideMeal} />
+                  </View>
+                </View>
                 <InlineSideEditor
                   key={`${dayKey}:${selectedSideMeal.id}`}
                   day={dayKey}
@@ -591,6 +602,9 @@ export default function SuggestMealModal({
                     onAddMeal(selectedSideMeal);
                   }}
                   onSelectedSidesChange={() => {}}
+                  onPreferredSidesChange={(preferredSides) =>
+                    onPreferredSidesChange?.(selectedSideMeal, preferredSides)
+                  }
                   onChangeMeal={handleBackFromSideScreen}
                   onExpandedLayout={() => {}}
                 />
@@ -954,7 +968,7 @@ export default function SuggestMealModal({
             ) : meal && !isHistoricalLoggingMode ? (
               <>
                 <View style={styles.card}>
-                  <Text style={styles.emoji}>{meal.emoji ?? "🍽️"}</Text>
+                  <MealEmoji value={meal.emoji} size={34} />
                   <Text style={styles.mealTitle} numberOfLines={2}>
                     {meal.title}
                   </Text>
@@ -1274,6 +1288,11 @@ const createStyles = (theme: WeeklyTheme) =>
       borderColor: theme.color.cardOutline,
       backgroundColor: theme.color.surfaceAlt,
       padding: theme.space.md,
+    },
+    inlineSelectedMeal: {
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.sm,
+      marginBottom: theme.space.md,
     },
     eatOutPlanDayLabel: {
       position: "absolute",

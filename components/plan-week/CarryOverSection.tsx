@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { Meal } from "../../types/meals";
+import MealEmoji from "../emoji/MealEmoji";
 import {
   CurrentPlannedWeek,
   PLANNED_WEEK_LABELS,
@@ -64,7 +65,7 @@ export default function CarryOverSection({
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.emoji}>{meal.emoji ?? "🍽️"}</Text>
+              <MealEmoji value={meal.emoji} size={25} />
               <Text style={styles.mealTitle} numberOfLines={1}>
                 {meal.title}
               </Text>

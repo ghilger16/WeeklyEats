@@ -79,7 +79,7 @@ export default function DisplayOnCardsSheet({
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="fade"
       presentationStyle="overFullScreen"
       onRequestClose={onClose}
     >

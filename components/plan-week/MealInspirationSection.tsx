@@ -20,8 +20,16 @@ import {
 } from "../../types/weekPlan";
 import { Meal } from "../../types/meals";
 import { CUISINE_OPTIONS, CuisineType, getCuisineLabel } from "../../types/cuisine";
+import { formatFreezerAvailability, getFreezerMealAmount } from "../../utils/freezerMealAmount";
+import MealEmoji from "../emoji/MealEmoji";
+import {
+  IngredientOverlap,
+  formatSharedIngredientPreview,
+} from "../../utils/ingredientOverlap";
 
 export type MealPoolId =
+  | "suggestedByYou"
+  | "ingredients"
   | "beenAwhile"
   | "recentlyAdded"
   | "familyStars"
@@ -39,6 +47,7 @@ export type MealPool = {
   chipIcon?: string;
   emptyText: string;
   meals: Meal[];
+  ingredientOverlapByMealId?: Record<string, IngredientOverlap>;
   cycle?: "difficulty" | "expense" | "cuisine" | "beenAwhile";
 };
 
@@ -70,11 +79,11 @@ type Props = {
 const CAROUSEL_GAP = 12;
 type DifficultyMode = "easy" | "medium" | "hard";
 type ExpenseMode = 1 | 2 | 3;
-type BeenAwhileMode = 2 | 3 | 4;
+type BeenAwhileMode = 3 | 4 | 5;
 
 const DIFFICULTY_MODES: DifficultyMode[] = ["easy", "medium", "hard"];
 const EXPENSE_MODES: ExpenseMode[] = [1, 2, 3];
-const BEEN_AWHILE_MODES: BeenAwhileMode[] = [2, 3, 4];
+const BEEN_AWHILE_MODES: BeenAwhileMode[] = [3, 4, 5];
 
 export default function MealInspirationSection({
   pools,
@@ -109,7 +118,7 @@ export default function MealInspirationSection({
   const [difficultyMode, setDifficultyMode] =
     useState<DifficultyMode>("easy");
   const [expenseMode, setExpenseMode] = useState<ExpenseMode>(1);
-  const [beenAwhileMode, setBeenAwhileMode] = useState<BeenAwhileMode>(2);
+  const [beenAwhileMode, setBeenAwhileMode] = useState<BeenAwhileMode>(3);
   const [cuisineMode, setCuisineMode] = useState<CuisineType>("american");
   const [isDiscoveryExpanded, setDiscoveryExpanded] = useState(false);
   const [isPlanTransitioning, setPlanTransitioning] = useState(false);
@@ -296,20 +305,27 @@ export default function MealInspirationSection({
       };
     }
     if (sourceActivePool.cycle === "beenAwhile") {
+      const modeLabel = beenAwhileMode === 5 ? "5+ Weeks" : `${beenAwhileMode} Weeks`;
       return {
         ...sourceActivePool,
-        title: `${beenAwhileMode}W`,
-        subtitle: `Not served for at least ${beenAwhileMode} weeks.`,
-        emptyText: `No meals waiting ${beenAwhileMode} weeks yet.`,
+        title: modeLabel,
+        subtitle:
+          beenAwhileMode === 5
+            ? "Not served for at least 5 weeks."
+            : `Last served ${beenAwhileMode} weeks ago.`,
+        emptyText: `No meals in the ${modeLabel.toLowerCase()} range.`,
         meals: sourceActivePool.meals.filter((meal) => {
           const lastServedISO = getLastServedISO?.(meal.id);
           const referenceISO = lastServedISO ?? meal.createdAt;
-          if (!referenceISO) return true;
+          if (!referenceISO) return false;
           const lastServedAt = new Date(referenceISO).getTime();
-          return (
-            !Number.isFinite(lastServedAt) ||
-            Date.now() - lastServedAt >= beenAwhileMode * 7 * 24 * 60 * 60 * 1000
+          if (!Number.isFinite(lastServedAt)) return false;
+          const weeksSinceServed = Math.floor(
+            (Date.now() - lastServedAt) / (7 * 24 * 60 * 60 * 1000),
           );
+          return beenAwhileMode === 5
+            ? weeksSinceServed >= 5
+            : weeksSinceServed === beenAwhileMode;
         }),
       };
     }
@@ -521,7 +537,7 @@ export default function MealInspirationSection({
                   ? autoPlanThinkingIcons
                   : ["🌮", "🍚", "🍝", "🥗"]
                 ).slice(0, 4).map((icon, index) => (
-                  <Animated.Text
+                  <Animated.View
                     key={`${icon}-${index}`}
                     style={[
                       styles.thinkingFoodIcon,
@@ -548,8 +564,8 @@ export default function MealInspirationSection({
                       },
                     ]}
                   >
-                    {icon}
-                  </Animated.Text>
+                    <MealEmoji value={icon} size={24} />
+                  </Animated.View>
                 ))
               : null}
           </View>
@@ -614,11 +630,17 @@ export default function MealInspirationSection({
                             key={mode}
                             accessibilityRole="tab"
                             accessibilityState={{ selected: isSelected }}
-                            accessibilityLabel={`Not served for ${mode} weeks`}
+                            accessibilityLabel={
+                              mode === 5
+                                ? "Not served for 5 or more weeks"
+                                : `Not served for ${mode} weeks`
+                            }
                             onPress={() => applyCycleSelection(() => setBeenAwhileMode(mode), isSelected)}
                             style={({ pressed }) => [styles.tab, isSelected && styles.tabActive, pressed && styles.pressed]}
                           >
-                            <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{mode}W</Text>
+                            <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>
+                              {mode === 5 ? "5+" : `${mode} Weeks`}
+                            </Text>
                           </Pressable>
                         );
                       })
@@ -685,7 +707,6 @@ export default function MealInspirationSection({
             isPlanTransitioning ? contentStyle : null,
           ]}
         >
-          <Text style={styles.discoverySectionLabel}>Need Help Deciding?</Text>
           <View style={styles.discoveryGrid}>
             {hasPlanItForMe ? (
               <Pressable
@@ -816,16 +837,40 @@ export default function MealInspirationSection({
                 );
                 const difficultyColor = getDifficultyColor(meal, theme);
                 const lastServedISO = getLastServedISO?.(meal.id) ?? null;
+                const ingredientOverlap =
+                  activePool.ingredientOverlapByMealId?.[meal.id];
+                const ingredientReason = ingredientOverlap
+                  ? `🥕 Shares ${ingredientOverlap.sharedCount} ${
+                      ingredientOverlap.sharedCount === 1
+                        ? "ingredient"
+                        : "ingredients"
+                    } with your week`
+                  : null;
+                const ingredientPreview = ingredientOverlap
+                  ? formatSharedIngredientPreview(
+                      ingredientOverlap.sharedIngredients,
+                    )
+                  : null;
+                const mealReason =
+                  ingredientReason ??
+                  getMealReason(
+                    meal,
+                    activePool.id,
+                    plannedDay,
+                    lastServedISO,
+                  );
                 return (
                   <Pressable
                     key={meal.id}
                     accessibilityRole="button"
-                    accessibilityLabel={getMealAccessibilityLabel(
+                    accessibilityLabel={`${getMealAccessibilityLabel(
                       meal,
                       activePool.id,
                       plannedDay,
                       lastServedISO,
-                    ) + (isSelected ? ". Selected. Choose a day." : "")}
+                    )}${ingredientReason ? `, ${ingredientReason}, ${ingredientPreview}` : ""}${
+                      isSelected ? ". Selected. Choose a day." : ""
+                    }`}
                     onPress={() => onSelectMeal(meal, activePool.id)}
                     style={({ pressed }) => [
                       styles.carouselCard,
@@ -857,9 +902,10 @@ export default function MealInspirationSection({
                         ) : null}
                       </View>
                     ) : null}
-                    <Text style={styles.carouselEmoji}>
-                      {meal.emoji ?? activePool.chipIcon ?? "🍽️"}
-                    </Text>
+                    <MealEmoji
+                      value={meal.emoji ?? activePool.chipIcon}
+                      size={52}
+                    />
                     <Text style={styles.carouselTitle} numberOfLines={2}>
                       {getMealDisplayTitle(meal)}
                     </Text>
@@ -881,19 +927,17 @@ export default function MealInspirationSection({
                         {"$".repeat(getExpenseTier(meal))}
                       </Text>
                     </View>
-                    {getMealReason(
-                      meal,
-                      activePool.id,
-                      plannedDay,
-                      lastServedISO,
-                    ) ? (
+                    {mealReason ? (
                       <Text style={styles.carouselReason} numberOfLines={2}>
-                        {getMealReason(
-                          meal,
-                          activePool.id,
-                          plannedDay,
-                          lastServedISO,
-                        )}
+                        {mealReason}
+                      </Text>
+                    ) : null}
+                    {ingredientPreview ? (
+                      <Text
+                        style={styles.carouselIngredientPreview}
+                        numberOfLines={1}
+                      >
+                        {ingredientPreview}
                       </Text>
                     ) : null}
                   </Pressable>
@@ -931,6 +975,8 @@ export default function MealInspirationSection({
 }
 
 const getPoolIcon = (poolId: MealPoolId) => {
+  if (poolId === "suggestedByYou") return "💡";
+  if (poolId === "ingredients") return "🥕";
   if (poolId === "beenAwhile") return "🕒";
   if (poolId === "recentlyAdded") return "🕐";
   if (poolId === "familyStars") return "⭐";
@@ -949,6 +995,8 @@ const getPoolTabLabel = (
   difficultyMode: DifficultyMode = "easy",
   cuisineMode: CuisineType = "american",
 ) => {
+  if (poolId === "suggestedByYou") return "Suggested by You";
+  if (poolId === "ingredients") return "Ingredients";
   if (poolId === "beenAwhile") return "Been Awhile";
   if (poolId === "recentlyAdded") return "Recently Added";
   if (poolId === "familyStars") return "Family Star";
@@ -1024,9 +1072,9 @@ const getMealReason = (
 ) => {
   if (plannedDay) return `Planned ${PLANNED_WEEK_DISPLAY_NAMES[plannedDay]}`;
   if (poolId === "freezerMeals") {
-    const amount = meal.freezerAmount?.trim() || meal.freezerQuantity?.trim();
+    const amount = getFreezerMealAmount(meal);
     return amount
-      ? `In your freezer: ${amount}${meal.freezerUnit ? ` ${meal.freezerUnit}` : ""}`
+      ? formatFreezerAvailability(amount)
       : "In your freezer";
   }
   if (poolId === "familyStars" || poolId === "beenAwhile") {
@@ -1077,6 +1125,10 @@ const formatLastServed = (servedAtISO?: string | null) => {
 };
 
 const getPoolEmptyText = (poolId: MealPoolId, fallback: string) => {
+  if (poolId === "suggestedByYou") {
+    return "No meals suggested for this planning session.";
+  }
+  if (poolId === "ingredients") return "No strong ingredient matches right now.";
   if (poolId === "beenAwhile") return "No meal history yet.";
   if (poolId === "recentlyAdded") return "No unserved meals added recently.";
   if (poolId === "freezerMeals") return "Your freezer is empty.";
@@ -1209,7 +1261,6 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     thinkingFoodIcon: {
       position: "absolute",
-      fontSize: 20,
     },
     thinkingFoodIcon0: {
       left: 5,
@@ -1452,6 +1503,11 @@ const createStyles = (theme: WeeklyTheme) =>
     carouselReason: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
+      textAlign: "center",
+    },
+    carouselIngredientPreview: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
       textAlign: "center",
     },
     bookmarkButton: {

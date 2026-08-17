@@ -5,9 +5,13 @@ jest.mock(
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  addWeekPlanHistory,
   getCurrentWeekPlan,
   getCurrentWeekSides,
+  getWeekPlanHistory,
+  getWeekPlanStreak,
   setWeekPlanDataBatch,
+  updateWeekPlanStreak,
 } from "../weekPlanStorage";
 import {
   createEmptyCurrentPlannedWeek,
@@ -71,5 +75,78 @@ describe("setWeekPlanDataBatch", () => {
     await expect(getCurrentWeekSides("2026-07-19")).resolves.toMatchObject({
       mon: ["Rice"],
     });
+  });
+});
+
+describe("week plan history snapshots", () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+  });
+
+  it("preserves the planned meal display data and celebration summary", async () => {
+    const plan = createEmptyCurrentPlannedWeek({
+      weekStartISO: "2026-08-16",
+      weekedPlanned: true,
+    });
+    plan.sun = "tacos";
+    plan.mon = "tacos";
+
+    await addWeekPlanHistory(plan, {
+      meals: [
+        {
+          id: "tacos",
+          title: "Chicken Tacos",
+          emoji: "🌮",
+          rating: 5,
+          familyRatings: {},
+          servedCount: 0,
+          showServedCount: false,
+          plannedCostTier: 1,
+          locked: false,
+          isFavorite: false,
+          difficulty: 1,
+          expense: 1,
+        },
+      ],
+      servedMealIds: new Set(),
+    });
+
+    const [entry] = await getWeekPlanHistory();
+    expect(entry.mealSnapshots?.tacos).toMatchObject({
+      title: "Chicken Tacos",
+      emoji: "🌮",
+    });
+    expect(entry.summary).toMatchObject({ dinnerCount: 2 });
+    expect(entry.summary?.stats.map((stat) => stat.id)).toEqual(
+      expect.arrayContaining(["familyStars", "newMeals", "effort", "expense"]),
+    );
+  });
+});
+
+describe("week planning streak", () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+  });
+
+  it("uses the first planned week as a baseline and starts at the next consecutive week", async () => {
+    await expect(
+      updateWeekPlanStreak(new Date("2026-08-16T12:00:00.000Z")),
+    ).resolves.toMatchObject({ count: 0 });
+    await expect(
+      updateWeekPlanStreak(new Date("2026-08-23T12:00:00.000Z")),
+    ).resolves.toMatchObject({ count: 1 });
+    await expect(
+      updateWeekPlanStreak(new Date("2026-08-30T12:00:00.000Z")),
+    ).resolves.toMatchObject({ count: 2 });
+  });
+
+  it("does not increment twice for the same week and resets after a gap", async () => {
+    const week = new Date("2026-08-16T12:00:00.000Z");
+    await updateWeekPlanStreak(week);
+    await expect(updateWeekPlanStreak(week)).resolves.toMatchObject({ count: 0 });
+    await expect(
+      updateWeekPlanStreak(new Date("2026-08-30T12:00:00.000Z")),
+    ).resolves.toMatchObject({ count: 0 });
+    await expect(getWeekPlanStreak()).resolves.toMatchObject({ count: 0 });
   });
 });

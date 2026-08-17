@@ -89,22 +89,43 @@ jest.mock("../../../../components/meals/MealTabs", () => {
 });
 jest.mock("../../../../components/meals/MealSearchInput", () => {
   const React = require("react");
-  const { TextInput } = require("react-native");
+  const { Pressable, Text, TextInput, View } = require("react-native");
   return function MockMealSearchInput({
     value,
     onChangeText,
     onSubmitEditing,
+    onSortChange,
+    cuisineOptions = [],
   }: {
     value: string;
     onChangeText: (value: string) => void;
     onSubmitEditing?: () => void;
+    onSortChange?: (selection: { id: string; direction: string }) => void;
+    cuisineOptions?: Array<{ value: string; label: string }>;
   }) {
-    return React.createElement(TextInput, {
-      placeholder: "Search meals",
-      value,
-      onChangeText,
-      onSubmitEditing,
-    });
+    return React.createElement(
+      View,
+      null,
+      React.createElement(TextInput, {
+        placeholder: "Search meals",
+        value,
+        onChangeText,
+        onSubmitEditing,
+      }),
+      React.createElement(
+        Text,
+        { testID: "available-cuisines" },
+        cuisineOptions.map((option) => option.label).join(", "),
+      ),
+      React.createElement(
+        Pressable,
+        {
+          accessibilityLabel: "Filter Italian cuisine",
+          onPress: () => onSortChange?.({ id: "cuisine", direction: "italian" }),
+        },
+        React.createElement(Text, null, "Cuisine"),
+      ),
+    );
   };
 });
 jest.mock("../../../../components/tab-parent/TabParent", () => {
@@ -316,5 +337,29 @@ describe("MealsScreen", () => {
     expect(getByText("Chicken Fajitas")).toBeTruthy();
     expect(getByText("Garden Salad")).toBeTruthy();
     expect(queryByText("Chickpeas")).toBeNull();
+  });
+
+  it("offers only cuisines represented by meals and filters by cuisine", () => {
+    const cuisineMeals: Meal[] = [
+      { ...mockMeals[0], cuisine: "mexican" },
+      { ...mockMeals[1], cuisine: "italian" },
+      { ...mockMeals[0], id: "burger", title: "Burger", cuisine: "american" },
+    ];
+    mockUseMeals.mockReturnValue(
+      createHookReturn({ meals: cuisineMeals, favorites: cuisineMeals }),
+    );
+
+    const { getByLabelText, getByTestId, getByText, queryByText } = render(
+      <MealsScreen />,
+    );
+
+    expect(getByTestId("available-cuisines").props.children).toBe(
+      "American, Italian, Mexican",
+    );
+    fireEvent.press(getByLabelText("Filter Italian cuisine"));
+
+    expect(getByText("Pizza")).toBeTruthy();
+    expect(queryByText("Tacos")).toBeNull();
+    expect(queryByText("Burger")).toBeNull();
   });
 });

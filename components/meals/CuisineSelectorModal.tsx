@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useMemo } from "react";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
+import MealEmoji from "../emoji/MealEmoji";
 import { CUISINE_OPTIONS, CuisineType } from "../../types/cuisine";
 
 type Props = {
@@ -20,7 +21,7 @@ export default function CuisineSelectorModal({ visible, selected, mealTitle, mea
   const styles = useMemo(() => createStyles(theme), [theme]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close cuisine selector" />
         <SafeAreaView edges={["bottom"]} style={styles.sheet}>
@@ -33,7 +34,7 @@ export default function CuisineSelectorModal({ visible, selected, mealTitle, mea
           </View>
           <View style={styles.mealHeader}>
             <View style={styles.mealEmojiContainer}>
-              <Text style={styles.mealEmoji}>{mealEmoji || "🍽️"}</Text>
+              <MealEmoji value={mealEmoji} size={30} />
             </View>
             <Text style={styles.mealTitle} numberOfLines={2}>{mealTitle || "Untitled meal"}</Text>
           </View>

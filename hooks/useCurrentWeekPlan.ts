@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Meal } from "../types/meals";
 import { getSpecialMealById } from "../types/specialMeals";
 import { useWeekStartController } from "../providers/week-start/WeekStartController";
@@ -76,6 +76,7 @@ export const useCurrentWeekPlan = (
   const [plan, setPlan] = useState<CurrentPlannedWeek>(createEmptyCurrentPlannedWeek());
   const [sides, setSides] = useState<CurrentWeekSides>(createEmptyCurrentWeekSides());
   const [isLoading, setLoading] = useState(true);
+  const hasHydratedRef = useRef(false);
   const effectiveToday = options.today ?? new Date();
   const effectiveTodayTime = effectiveToday.getTime();
   const effectiveWeekStart = useMemo(
@@ -91,7 +92,9 @@ export const useCurrentWeekPlan = (
   );
 
   const hydrate = useCallback(async () => {
-    setLoading(true);
+    if (!hasHydratedRef.current) {
+      setLoading(true);
+    }
     const [storedPlan, storedSides] = await Promise.all([
       getCurrentWeekPlan(effectiveWeekStartISO),
       getCurrentWeekSides(effectiveWeekStartISO),
@@ -100,6 +103,7 @@ export const useCurrentWeekPlan = (
       setPlan(storedPlan);
     }
     setSides(storedSides);
+    hasHydratedRef.current = true;
     setLoading(false);
   }, [effectiveWeekStartISO]);
 

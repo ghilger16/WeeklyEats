@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AddServedMealInput,
   ServedMealEntry,
@@ -18,11 +18,15 @@ export type UseServedMealsResult = {
 export const useServedMeals = (): UseServedMealsResult => {
   const [entries, setEntries] = useState<ServedMealEntry[]>([]);
   const [isLoading, setLoading] = useState(true);
+  const hasHydratedRef = useRef(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasHydratedRef.current) {
+      setLoading(true);
+    }
     const stored = await getServedMeals();
     setEntries(stored);
+    hasHydratedRef.current = true;
     setLoading(false);
   }, []);
 

@@ -6,16 +6,17 @@ export type SideOption = {
   isCustom: boolean;
 };
 
-const normalize = (value: string) => value.trim().toLowerCase();
+const normalize = (value: string) =>
+  value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 
 export const promoteSavedSides = (
   savedSides: string[],
-  suggestedSides: string[] = [],
+  preferredSides: string[] = [],
 ): string[] => {
   const seen = new Set<string>();
   const next: string[] = [];
-  [...savedSides, ...suggestedSides].forEach((name) => {
-    if (typeof name !== "string" || next.length >= 6) return;
+  [...preferredSides, ...savedSides].forEach((name) => {
+    if (typeof name !== "string") return;
     const trimmed = name.trim();
     const key = normalize(trimmed);
     if (!trimmed || seen.has(key)) return;
@@ -31,10 +32,10 @@ export const getSideOptionsForMeal = (
 ): SideOption[] => {
   const seen = new Set<string>();
   const options: SideOption[] = [];
-  const savedMealSides = Array.isArray(meal.suggestedSides)
-    ? meal.suggestedSides
+  const preferredSides = Array.isArray(meal.preferredSides)
+    ? meal.preferredSides
     : [];
-  const savedSides = [...existingSides, ...savedMealSides].filter(
+  const savedSides = [...preferredSides, ...existingSides].filter(
     (side): side is string => typeof side === "string" && Boolean(side.trim()),
   );
   const suggestedSides = getSideSuggestions({

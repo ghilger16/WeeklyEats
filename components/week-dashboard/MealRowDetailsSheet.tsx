@@ -1,14 +1,19 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Animated,
+  Dimensions,
+  LayoutAnimation,
   Linking,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  UIManager,
   View,
 } from "react-native";
 import { useThemeController } from "../../providers/theme/ThemeController";
@@ -21,6 +26,36 @@ import { setFamilyRatingValue } from "../../utils/familyRatings";
 import FreezerAmountModal from "../meals/FreezerAmountModal";
 import FamilyRatingRow from "../meals/FamilyRatingRow";
 import { EAT_OUT_MEAL_ID } from "../../types/specialMeals";
+import { IngredientType, MealIngredient } from "../../types/meals";
+import MealEmoji from "../emoji/MealEmoji";
+
+const SHEET_HIDDEN_TRANSLATE = Dimensions.get("window").height;
+
+type ReadOnlyIngredient = {
+  name: string;
+  ingredientType: IngredientType;
+};
+
+const normalizeIngredient = (
+  ingredient: MealIngredient,
+): ReadOnlyIngredient | null => {
+  if (typeof ingredient === "string") {
+    const name = ingredient.trim();
+    return name ? { name, ingredientType: "keyIngredient" } : null;
+  }
+  const name = ingredient.name?.trim();
+  if (!name) return null;
+  return {
+    name,
+    ingredientType:
+      ingredient.ingredientType === "pantryStaple"
+        ? "pantryStaple"
+        : "keyIngredient",
+  };
+};
+
+const formatIngredientName = (name: string) =>
+  name.replace(/\b\p{L}/gu, (character) => character.toLocaleUpperCase());
 
 type Props = {
   day: WeekPlanDay | null;
@@ -51,15 +86,91 @@ export default function MealRowDetailsSheet({
   const { updateMeal } = useMeals();
   const { members } = useFamilyMembers();
   const [isFreezerVisible, setFreezerVisible] = useState(false);
-  const translateY = useRef(new Animated.Value(0)).current;
-  const dismiss = () => {
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const translateY = useRef(
+    new Animated.Value(SHEET_HIDDEN_TRANSLATE),
+  ).current;
+  const isDismissingRef = useRef(false);
+  const ingredients = useMemo(
+    () =>
+      (day?.meal?.ingredients ?? [])
+        .map(normalizeIngredient)
+        .filter((ingredient): ingredient is ReadOnlyIngredient =>
+          Boolean(ingredient),
+        ),
+    [day?.meal?.ingredients],
+  );
+  const keyIngredients = useMemo(
+    () =>
+      ingredients.filter(
+        (ingredient) => ingredient.ingredientType === "keyIngredient",
+      ),
+    [ingredients],
+  );
+  const pantryStaples = useMemo(
+    () =>
+      ingredients.filter(
+        (ingredient) => ingredient.ingredientType === "pantryStaple",
+      ),
+    [ingredients],
+  );
+  const hasIngredients = ingredients.length > 0;
+  const shouldAutoExpandIngredients =
+    day?.status === "today" &&
+    servedEntry?.outcome !== "served" &&
+    hasIngredients;
+  const [ingredientsExpanded, setIngredientsExpanded] = useState(
+    shouldAutoExpandIngredients,
+  );
+
+  useEffect(() => {
+    if (
+      Platform.OS === "android" &&
+      UIManager.setLayoutAnimationEnabledExperimental
+    ) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion,
+    );
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    setIngredientsExpanded(shouldAutoExpandIngredients);
+  }, [day?.key, day?.mealId, shouldAutoExpandIngredients]);
+
+  useEffect(() => {
+    translateY.stopAnimation();
+    isDismissingRef.current = false;
+    if (!day?.meal) {
+      translateY.setValue(SHEET_HIDDEN_TRANSLATE);
+      return;
+    }
+    translateY.setValue(SHEET_HIDDEN_TRANSLATE);
     Animated.timing(translateY, {
-      toValue: 520,
-      duration: 180,
+      toValue: 0,
+      duration: reduceMotion ? 0 : 240,
+      useNativeDriver: true,
+    }).start();
+  }, [day?.key, day?.mealId, translateY]);
+
+  const closeSheet = () => {
+    setIngredientsExpanded(false);
+    onClose();
+  };
+
+  const dismiss = () => {
+    if (isDismissingRef.current) return;
+    isDismissingRef.current = true;
+    Animated.timing(translateY, {
+      toValue: SHEET_HIDDEN_TRANSLATE,
+      duration: reduceMotion ? 0 : 220,
       useNativeDriver: true,
     }).start(() => {
-      translateY.setValue(0);
-      onClose();
+      closeSheet();
     });
   };
   const panResponder = useMemo(
@@ -82,6 +193,19 @@ export default function MealRowDetailsSheet({
   );
   if (!day?.meal) return null;
   const meal = day.meal;
+  const isEatOut = day.mealId === EAT_OUT_MEAL_ID;
+  const mealDisplayTitle = isEatOut ? "Eat Out" : meal.title;
+  const mealHeaderIcon = isEatOut ? (
+    <View style={styles.emojiIconSlot}>
+      <MaterialCommunityIcons
+        name="silverware-fork-knife"
+        size={34}
+        color={theme.color.accent}
+      />
+    </View>
+  ) : (
+    <MealEmoji value={meal.emoji} size={52} />
+  );
   const isServed = servedEntry?.outcome === "served";
   const isPending =
     day.status === "past" &&
@@ -94,7 +218,25 @@ export default function MealRowDetailsSheet({
   });
   const act = (callback: (value: WeekPlanDay) => void) => {
     callback(day);
-    onClose();
+    closeSheet();
+  };
+  const toggleIngredients = () => {
+    if (!hasIngredients) return;
+    if (!reduceMotion) {
+      LayoutAnimation.configureNext({
+        duration: 240,
+        create: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+        delete: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+      });
+    }
+    setIngredientsExpanded((current) => !current);
   };
   const action = (
     label: string,
@@ -121,7 +263,7 @@ export default function MealRowDetailsSheet({
     </Pressable>
   );
   return (
-    <Modal transparent visible animationType="slide" onRequestClose={dismiss}>
+    <Modal transparent visible animationType="fade" onRequestClose={dismiss}>
       <View style={styles.root}>
         <Pressable style={styles.backdrop} onPress={dismiss} accessibilityLabel="Close meal details" />
         <Animated.View
@@ -139,13 +281,76 @@ export default function MealRowDetailsSheet({
               <MaterialCommunityIcons name="close" size={25} color={theme.color.ink} />
             </Pressable>
           </View>
-          <View style={styles.mealHeader}>
-            <Text style={styles.emoji}>{meal.emoji || "🍽️"}</Text>
-            <View style={styles.mealCopy}>
-              <Text style={styles.title}>{meal.title}</Text>
-              {meal.prepNotes?.trim() ? <Text style={styles.description}>{meal.prepNotes.trim()}</Text> : null}
+          {hasIngredients ? (
+            <Pressable
+              onPress={toggleIngredients}
+              accessibilityRole="button"
+              accessibilityLabel={`${mealDisplayTitle} ingredients`}
+              accessibilityHint={`${ingredientsExpanded ? "Collapse" : "Expand"} ingredient list`}
+              accessibilityState={{ expanded: ingredientsExpanded }}
+              style={({ pressed }) => [
+                styles.mealHeader,
+                pressed && styles.headerPressed,
+              ]}
+            >
+              {mealHeaderIcon}
+              <View style={styles.mealCopy}>
+                <Text style={styles.title}>{mealDisplayTitle}</Text>
+                {meal.prepNotes?.trim() ? <Text style={styles.description}>{meal.prepNotes.trim()}</Text> : null}
+              </View>
+              <MaterialCommunityIcons
+                name={ingredientsExpanded ? "chevron-up" : "chevron-down"}
+                size={24}
+                color={theme.color.subtleInk}
+              />
+            </Pressable>
+          ) : (
+            <View style={styles.mealHeader}>
+              {mealHeaderIcon}
+              <View style={styles.mealCopy}>
+                <Text style={styles.title}>{mealDisplayTitle}</Text>
+                {meal.prepNotes?.trim() ? <Text style={styles.description}>{meal.prepNotes.trim()}</Text> : null}
+              </View>
             </View>
-          </View>
+          )}
+          {ingredientsExpanded ? (
+            <View style={styles.ingredientSection}>
+              {keyIngredients.length ? (
+                <View style={styles.ingredientGroup}>
+                  <Text style={styles.ingredientGroupLabel}>KEY INGREDIENTS</Text>
+                  <View style={styles.ingredientRows}>
+                    {keyIngredients.map((ingredient, index) => (
+                      <View
+                        key={`key-${ingredient.name.toLocaleLowerCase()}-${index}`}
+                        style={styles.ingredientRow}
+                      >
+                        <Text style={styles.ingredientText}>
+                          {formatIngredientName(ingredient.name)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+              {pantryStaples.length ? (
+                <View style={styles.ingredientGroup}>
+                  <Text style={styles.ingredientGroupLabel}>PANTRY STAPLES</Text>
+                  <View style={styles.ingredientRows}>
+                    {pantryStaples.map((ingredient, index) => (
+                      <View
+                        key={`pantry-${ingredient.name.toLocaleLowerCase()}-${index}`}
+                        style={styles.ingredientRow}
+                      >
+                        <Text style={styles.ingredientText}>
+                          {formatIngredientName(ingredient.name)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
           {isServed ? (
             <View style={styles.servedStatus}>
               <MaterialCommunityIcons name="check-circle" size={32} color={theme.color.success} />
@@ -199,7 +404,11 @@ export default function MealRowDetailsSheet({
                   )
                 : null}
               {isServed ? null : action("Change Meal", "swap-horizontal", () => act(onChangeMeal))}
-              {isServed ? null : action("Eat Out Instead", "silverware-fork-knife", () => act(onEatOut))}
+              {isServed || isEatOut
+                ? null
+                : action("Eat Out Instead", "silverware-fork-knife", () =>
+                    act(onEatOut),
+                  )}
             </View>
           </View>
           {!isServed ? <View style={styles.divider} /> : null}
@@ -216,7 +425,7 @@ export default function MealRowDetailsSheet({
             <Pressable
               onPress={async () => {
                 await onUndoServed(day, servedEntry);
-                onClose();
+                closeSheet();
               }}
               style={({ pressed }) => [styles.undoAction, pressed && styles.pressed]}
               accessibilityRole="button"
@@ -232,15 +441,16 @@ export default function MealRowDetailsSheet({
           visible={isFreezerVisible}
           initialMeal={meal}
           initialAmount={meal.freezerAmount ?? meal.freezerQuantity ?? ""}
-          initialUnit={meal.freezerUnit}
           initialAddedAt={meal.freezerAddedAt}
           onDismiss={() => setFreezerVisible(false)}
-          onComplete={(targetMeal, amount, unit, addedAt) => {
+          onComplete={(targetMeal, mealAmount, addedAt) => {
             updateMeal({
               id: targetMeal.id,
               isFavorite: true,
-              freezerAmount: amount,
-              freezerUnit: unit,
+              freezerMealAmount: mealAmount,
+              freezerAmount: "",
+              freezerQuantity: "",
+              freezerUnit: "",
               freezerAddedAt: addedAt,
               updatedAt: new Date().toISOString(),
             });
@@ -262,10 +472,18 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   date: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold, letterSpacing: 0.9 },
   close: { width: 44, height: 44, borderRadius: theme.radius.full, backgroundColor: theme.color.surface, alignItems: "center", justifyContent: "center" },
   mealHeader: { flexDirection: "row", alignItems: "center", gap: theme.space.lg },
+  headerPressed: { opacity: 0.82 },
   emoji: { fontSize: 46 },
+  emojiIconSlot: { width: 50, alignItems: "center", justifyContent: "center" },
   mealCopy: { flex: 1, gap: theme.space.xs },
   title: { color: theme.color.ink, fontSize: theme.type.size.h2, fontWeight: theme.type.weight.bold },
   description: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, lineHeight: 20 },
+  ingredientSection: { gap: theme.space.lg },
+  ingredientGroup: { gap: theme.space.sm },
+  ingredientGroupLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
+  ingredientRows: { gap: theme.space.xs },
+  ingredientRow: { minHeight: 38, flexDirection: "row", alignItems: "center", paddingHorizontal: theme.space.sm, paddingVertical: theme.space.xs },
+  ingredientText: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base },
   servedStatus: { minHeight: 70, borderRadius: theme.radius.lg, paddingHorizontal: theme.space.lg, flexDirection: "row", alignItems: "center", gap: theme.space.md, backgroundColor: theme.mode === "dark" ? "rgba(0,255,156,0.08)" : "rgba(16,185,129,0.08)" },
   servedStatusText: { color: theme.color.success, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
   section: { gap: theme.space.md },

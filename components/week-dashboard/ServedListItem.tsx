@@ -104,6 +104,11 @@ export default function ServedListItem({
     updateMeal({
       id: meal.id,
       isFavorite: false,
+      freezerMealAmount: undefined,
+      freezerAmount: "",
+      freezerQuantity: "",
+      freezerUnit: "",
+      freezerAddedAt: undefined,
     });
   }, [inFreezer, meal, updateMeal]);
 
@@ -112,15 +117,17 @@ export default function ServedListItem({
   }, []);
 
   const handleFreezerModalSave = useCallback(
-    (targetMeal: Meal, amount: string, unit: string, addedAt: string) => {
+    (targetMeal: Meal, mealAmount: number, addedAt: string) => {
       if (!targetMeal) {
         return;
       }
       updateMeal({
         id: targetMeal.id,
         isFavorite: true,
-        freezerAmount: amount,
-        freezerUnit: unit,
+        freezerMealAmount: mealAmount,
+        freezerAmount: "",
+        freezerQuantity: "",
+        freezerUnit: "",
         freezerAddedAt: addedAt,
       });
       setInFreezer(true);
@@ -281,7 +288,6 @@ export default function ServedListItem({
         visible={isFreezerModalVisible}
         initialMeal={meal}
         initialAmount={meal?.freezerAmount ?? meal?.freezerQuantity ?? ""}
-        initialUnit={meal?.freezerUnit}
         initialAddedAt={meal?.freezerAddedAt}
         onDismiss={handleFreezerModalClose}
         onComplete={handleFreezerModalSave}

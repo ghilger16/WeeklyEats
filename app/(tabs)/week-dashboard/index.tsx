@@ -83,6 +83,9 @@ import { getGalaxyMealId } from "../../../utils/galaxyMeal";
 import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
 import { promoteSavedSides } from "../../../components/plan-week/inline/sideOptions";
 import { getSmartLevel } from "../../../utils/smartLevel";
+import WeekPlanSavedCelebration from "../../../components/week-dashboard/WeekPlanSavedCelebration";
+import type { WeekPlanCelebrationPayload } from "../../../utils/weekPlanCelebration";
+import { getFreezerUpdateAfterServing } from "../../../utils/freezerMealAmount";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>(
@@ -155,6 +158,8 @@ export default function WeekDashboardScreen() {
     createInitialSuggestionIndex
   );
   const [streakCount, setStreakCount] = useState(0);
+  const [weekPlanCelebration, setWeekPlanCelebration] =
+    useState<WeekPlanCelebrationPayload | null>(null);
   const [plannedWeeksCount, setPlannedWeeksCount] = useState(0);
   const [isStreakModalOpen, setStreakModalOpen] = useState(false);
   const dashboardAnim = useRef(new Animated.Value(0)).current;
@@ -275,6 +280,7 @@ export default function WeekDashboardScreen() {
     plan?.weekedPlanned === true;
   const {
     entries: servedEntries,
+    isLoading: areServedMealsLoading,
     logServedMeal,
     undoServedMeal,
     refresh: refreshServedMeals,
@@ -287,6 +293,19 @@ export default function WeekDashboardScreen() {
     setStreakCount(streak.count ?? 0);
     setPlannedWeeksCount(history.length);
   }, []);
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      "weekPlanSavedCelebration",
+      (payload: WeekPlanCelebrationPayload) => {
+        setStreakCount(payload.streakCount);
+        setWeekPlanCelebration(payload);
+        refreshWeekPlan();
+        refreshNextWeekPlan();
+      },
+    );
+    return () => subscription.remove();
+  }, [refreshNextWeekPlan, refreshWeekPlan]);
   const smartLevel = useMemo(
     () => getSmartLevel({ meals, servedEntries, plannedWeeksCount }),
     [meals, plannedWeeksCount, servedEntries],
@@ -505,6 +524,7 @@ export default function WeekDashboardScreen() {
         if (currentMeal) {
           updateMeal({
             id: currentMeal.id,
+            ...getFreezerUpdateAfterServing(currentMeal),
             servedCount:
               (typeof currentMeal.servedCount === "number"
                 ? currentMeal.servedCount
@@ -554,13 +574,15 @@ export default function WeekDashboardScreen() {
   }, [meals, members, today?.mealId]);
 
   const handleTodaySaveFreezer = useCallback(
-    (amount: string, unit: string, addedAt: string) => {
+    (mealAmount: number, addedAt: string) => {
       if (!today?.mealId) return;
       updateMeal({
         id: today.mealId,
         isFavorite: true,
-        freezerAmount: amount,
-        freezerUnit: unit,
+        freezerMealAmount: mealAmount,
+        freezerAmount: "",
+        freezerQuantity: "",
+        freezerUnit: "",
         freezerAddedAt: addedAt,
         updatedAt: new Date().toISOString(),
       });
@@ -570,7 +592,7 @@ export default function WeekDashboardScreen() {
 
   const handleTodayRemoveFreezer = useCallback(() => {
     if (!today?.mealId) return;
-    updateMeal({ id: today.mealId, isFavorite: false, updatedAt: new Date().toISOString() });
+    updateMeal({ id: today.mealId, isFavorite: false, freezerMealAmount: undefined, freezerAmount: "", freezerQuantity: "", freezerUnit: "", freezerAddedAt: undefined, updatedAt: new Date().toISOString() });
   }, [today?.mealId, updateMeal]);
 
   const handleTodaySavePrepNotes = useCallback(
@@ -643,9 +665,9 @@ export default function WeekDashboardScreen() {
     (meal: Meal, selectedSides: string[]) => {
       updateMeal({
         id: meal.id,
-        suggestedSides: promoteSavedSides(
+        preferredSides: promoteSavedSides(
           selectedSides,
-          meal.suggestedSides,
+          meal.preferredSides,
         ),
         updatedAt: new Date().toISOString(),
       });
@@ -1195,6 +1217,7 @@ export default function WeekDashboardScreen() {
         if (currentMeal) {
           updateMeal({
             id: currentMeal.id,
+            ...getFreezerUpdateAfterServing(currentMeal),
             servedCount:
               (typeof currentMeal.servedCount === "number"
                 ? currentMeal.servedCount
@@ -1259,6 +1282,7 @@ export default function WeekDashboardScreen() {
         if (currentMeal) {
           updateMeal({
             id: currentMeal.id,
+            ...getFreezerUpdateAfterServing(currentMeal),
             servedCount:
               (typeof currentMeal.servedCount === "number"
                 ? currentMeal.servedCount
@@ -1633,7 +1657,7 @@ export default function WeekDashboardScreen() {
   );
 
   const todayCard = useMemo(() => {
-    if (isLoading) {
+    if (isLoading || areServedMealsLoading) {
       return (
         <View style={styles.loadingCard}>
           <ActivityIndicator color={theme.color.accent} />
@@ -1681,6 +1705,7 @@ export default function WeekDashboardScreen() {
     handleTodaySavePrepNotes,
     handleTodayChangePlans,
     handleTodayAlternateOutcome,
+    areServedMealsLoading,
     isLoading,
     styles,
     theme.color.accent,
@@ -1830,6 +1855,12 @@ export default function WeekDashboardScreen() {
           </ScrollView>
         </TabParent>
       </Animated.View>
+      {weekPlanCelebration ? (
+        <WeekPlanSavedCelebration
+          payload={weekPlanCelebration}
+          onComplete={() => setWeekPlanCelebration(null)}
+        />
+      ) : null}
       <MealRowDetailsSheet
         day={resolvedSelectedDashboardDay}
         servedEntry={selectedDashboardServedEntry}
@@ -1876,7 +1907,7 @@ export default function WeekDashboardScreen() {
       </Modal>
       <Modal
         transparent
-        animationType="slide"
+        animationType="fade"
         visible={isTodayPlanMealVisible}
         onRequestClose={handleDismissTodayPlanMeal}
       >
@@ -1911,7 +1942,7 @@ export default function WeekDashboardScreen() {
                 <View style={styles.swapConfirmationMeals}>
                   <View style={styles.swapConfirmationMeal}>
                     <Text style={styles.swapConfirmationDay}>
-                      {activeChangePlanDay.displayName}
+                      {activeChangePlanDay.label}
                     </Text>
                     <ChangeMealIdentity meal={activeChangePlanDay.meal} />
                   </View>
@@ -1923,7 +1954,7 @@ export default function WeekDashboardScreen() {
                   />
                   <View style={styles.swapConfirmationMeal}>
                     <Text style={styles.swapConfirmationDay}>
-                      {selectedSwapOption.displayName}
+                      {selectedSwapOption.label}
                     </Text>
                     {selectedSwapOption.meal ? (
                       <ChangeMealIdentity meal={selectedSwapOption.meal} />
@@ -2049,6 +2080,13 @@ export default function WeekDashboardScreen() {
         onDismiss={handleDismissBrowseMeals}
         onAddMeal={handleSelectReplacementMeal}
         onAddMealWithSides={handleSelectReplacementMealWithSides}
+        onPreferredSidesChange={(meal, preferredSides) =>
+          updateMeal({
+            id: meal.id,
+            preferredSides,
+            updatedAt: new Date().toISOString(),
+          })
+        }
         onSuggestAnother={handleSuggestAnotherTodayMeal}
         meals={sortedMeals}
         onSelectSearchMeal={handleSelectReplacementMeal}
@@ -2063,7 +2101,7 @@ export default function WeekDashboardScreen() {
       />
       <Modal
         transparent
-        animationType="slide"
+        animationType="fade"
         visible={Boolean(pendingReplacement && !displacedMealStep)}
         onRequestClose={handleCancelReplacement}
       >
@@ -2100,6 +2138,12 @@ export default function WeekDashboardScreen() {
                       <ChangeMealIdentity meal={today.meal} />
                     </View>
                   </View>
+                  <MaterialCommunityIcons
+                    name="swap-vertical"
+                    size={24}
+                    color={theme.color.accent}
+                    style={styles.swapConfirmationIcon}
+                  />
                   <View>
                     <Text style={styles.swapReplaceSectionLabel}>
                       Replace With
@@ -2151,7 +2195,7 @@ export default function WeekDashboardScreen() {
       </Modal>
       <Modal
         transparent
-        animationType="slide"
+        animationType="fade"
         visible={Boolean(pendingReplacement && displacedMealStep)}
         onRequestClose={handleCancelReplacement}
       >

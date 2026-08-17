@@ -34,7 +34,8 @@ export const GENERIC_SIDE_SUGGESTIONS = [
   "Fruit",
 ] as const;
 
-const normalize = (value: string) => value.trim().toLocaleLowerCase();
+const normalize = (value: string) =>
+  value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 
 type SideSuggestionOptions = {
   cuisine?: CuisineType | null;

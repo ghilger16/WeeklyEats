@@ -51,6 +51,9 @@ declare module "@react-native-community/datetimepicker" {
   export interface DateTimePickerProps extends ViewProps {
     mode?: "date" | "time" | "datetime";
     display?: "default" | "spinner" | "calendar" | "clock";
+    textColor?: string;
+    accentColor?: string;
+    themeVariant?: "dark" | "light";
     value: Date;
     onChange?: (event: DateTimePickerEvent, date?: Date) => void;
   }

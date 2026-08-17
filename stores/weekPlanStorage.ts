@@ -9,6 +9,10 @@ import {
   PLANNED_WEEK_ORDER,
 } from "../types/weekPlan";
 import { Meal } from "../types/meals";
+import {
+  buildWeekPlanCelebration,
+  WeekPlanCelebrationStat,
+} from "../utils/weekPlanCelebration";
 
 const LEGACY_PLAN_KEY = "@weeklyeats/weekPlan";
 const LEGACY_PLAN_SIDES_KEY = "@weeklyeats/weekPlanSides";
@@ -20,11 +24,13 @@ const WEEK_PLAN_HISTORY_KEY = "@weeklyeats/weekPlanHistory";
 export type WeekPlanStreak = {
   count: number;
   lastCompletedWeekStartIso: string | null;
+  calculationVersion?: 2;
 };
 
 const defaultStreak: WeekPlanStreak = {
   count: 0,
   lastCompletedWeekStartIso: null,
+  calculationVersion: 2,
 };
 
 const isValidDayKey = (value: unknown): value is PlannedWeekDayKey =>
@@ -37,6 +43,24 @@ export type WeekPlanHistoryEntry = {
   completedAtISO: string;
   plan: CurrentPlannedWeek;
   mealTitles?: Record<string, string>;
+  mealSnapshots?: Record<
+    string,
+    Pick<
+      Meal,
+      | "id"
+      | "title"
+      | "emoji"
+      | "rating"
+      | "familyRatings"
+      | "servedCount"
+      | "difficulty"
+      | "expense"
+    >
+  >;
+  summary?: {
+    dinnerCount: number;
+    stats: WeekPlanCelebrationStat[];
+  };
 };
 
 const isValidISODateString = (value: unknown): value is string =>
@@ -513,12 +537,19 @@ export const getWeekPlanStreak = async (): Promise<WeekPlanStreak> => {
     ) {
       return defaultStreak;
     }
+    const isCurrentCalculation = parsed.calculationVersion === 2;
     return {
-      count: parsed.count ?? 0,
+      // The original calculation counted the baseline week as streak 1.
+      // Normalize existing data so a streak begins with the next consecutive
+      // planned week instead.
+      count: isCurrentCalculation
+        ? Math.max(0, parsed.count ?? 0)
+        : Math.max(0, (parsed.count ?? 0) - 1),
       lastCompletedWeekStartIso:
         typeof parsed.lastCompletedWeekStartIso === "string"
           ? parsed.lastCompletedWeekStartIso
           : null,
+      calculationVersion: 2,
     };
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to get plan streak", error);
@@ -536,19 +567,21 @@ export const updateWeekPlanStreak = async (
   let nextCount = current.count ?? 0;
 
   if (!lastStartIso) {
-    nextCount = 1;
+    nextCount = 0;
   } else if (lastStartIso === nextStartIso) {
-    nextCount = current.count || 1;
+    nextCount = current.count;
   } else {
-    const last = new Date(lastStartIso);
-    const diffMs = weekStartDate.getTime() - last.getTime();
+    const last = new Date(`${lastStartIso.slice(0, 10)}T00:00:00.000Z`);
+    const nextStart = new Date(`${nextStartIso}T00:00:00.000Z`);
+    const diffMs = nextStart.getTime() - last.getTime();
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-    nextCount = diffDays === 7 ? (current.count || 0) + 1 : 1;
+    nextCount = diffDays === 7 ? current.count + 1 : 0;
   }
 
   const next: WeekPlanStreak = {
     count: nextCount,
     lastCompletedWeekStartIso: nextStartIso,
+    calculationVersion: 2,
   };
 
   try {
@@ -593,6 +626,17 @@ const getWeekPlanHistoryInternal = async (): Promise<WeekPlanHistoryEntry[]> => 
             maybe.mealTitles && typeof maybe.mealTitles === "object"
               ? maybe.mealTitles
               : undefined,
+          mealSnapshots:
+            maybe.mealSnapshots && typeof maybe.mealSnapshots === "object"
+              ? maybe.mealSnapshots
+              : undefined,
+          summary:
+            maybe.summary &&
+            typeof maybe.summary === "object" &&
+            typeof maybe.summary.dinnerCount === "number" &&
+            Array.isArray(maybe.summary.stats)
+              ? maybe.summary
+              : undefined,
         } as WeekPlanHistoryEntry;
       })
       .filter(Boolean) as WeekPlanHistoryEntry[];
@@ -614,9 +658,14 @@ const saveWeekPlanHistoryInternal = async (
 
 export const addWeekPlanHistory = async (
   plan: CurrentPlannedWeek,
-  options: { maxEntries?: number } = {}
+  options: {
+    maxEntries?: number;
+    meals?: Meal[];
+    servedMealIds?: Set<string>;
+  } = {}
 ): Promise<void> => {
-  const { maxEntries = 12 } = options;
+  const { maxEntries = 100, meals = [], servedMealIds = new Set<string>() } =
+    options;
   const startISO = plan.weekStartISO;
   if (!startISO || !isValidISODateString(startISO) || !plan.weekedPlanned) {
     return;
@@ -626,10 +675,45 @@ export const addWeekPlanHistory = async (
   const deduped = existing.filter(
     (entry) => entry.weekStartISO !== startISO.slice(0, 10)
   );
+  const plannedMealIds = PLANNED_WEEK_ORDER.map((day) => plan[day]).filter(
+    (mealId): mealId is string => typeof mealId === "string",
+  );
+  const plannedMealIdSet = new Set(plannedMealIds);
+  const plannedMeals = meals.filter((meal) => plannedMealIdSet.has(meal.id));
+  const mealSnapshots = plannedMeals.reduce<
+    NonNullable<WeekPlanHistoryEntry["mealSnapshots"]>
+  >((snapshots, meal) => {
+    snapshots[meal.id] = {
+      id: meal.id,
+      title: meal.title,
+      emoji: meal.emoji,
+      rating: meal.rating,
+      familyRatings: meal.familyRatings,
+      servedCount: meal.servedCount,
+      difficulty: meal.difficulty,
+      expense: meal.expense,
+    };
+    return snapshots;
+  }, {});
+  const celebration = buildWeekPlanCelebration({
+    plan,
+    meals: plannedMeals,
+    servedMealIds,
+    streakCount: 0,
+  });
   deduped.unshift({
     weekStartISO: startISO.slice(0, 10),
     completedAtISO,
     plan,
+    mealTitles: plannedMeals.reduce<Record<string, string>>((titles, meal) => {
+      titles[meal.id] = meal.title;
+      return titles;
+    }, {}),
+    mealSnapshots,
+    summary: {
+      dinnerCount: celebration.dinnerCount,
+      stats: celebration.stats,
+    },
   });
   deduped.sort(
     (a, b) =>

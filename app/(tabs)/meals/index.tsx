@@ -64,9 +64,17 @@ import {
 } from "../../../utils/mealCompletion";
 import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
 import { getGalaxyMealId } from "../../../utils/galaxyMeal";
+import { getFamilyRatingSummary } from "../../../utils/familyRatings";
+import { CUISINE_OPTIONS } from "../../../types/cuisine";
 
-const getMealRatingValue = (meal: Meal) =>
-  typeof meal.rating === "number" ? meal.rating : 0;
+const getMealRatingValue = (meal: Meal, familyMemberIds: string[]) => {
+  const calculatedRating =
+    familyMemberIds.length > 1
+      ? getFamilyRatingSummary(meal.familyRatings, familyMemberIds)
+      : null;
+  if (calculatedRating) return calculatedRating.average;
+  return typeof meal.rating === "number" ? meal.rating : 0;
+};
 
 const getMealCostTier = (meal: Meal) => {
   if (typeof meal.expense === "number") {
@@ -296,6 +304,10 @@ export default function MealsScreen() {
     : requestedMealIdParam;
   const { theme } = useThemeController();
   const { members } = useFamilyMembers();
+  const familyMemberIds = useMemo(
+    () => members.map((member) => member.id),
+    [members],
+  );
   const { mode: ratingDisplayMode, setMode: setRatingDisplayMode } = useRatingDisplayMode();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { startDay, orderedDays } = useWeekStartController();
@@ -335,6 +347,14 @@ export default function MealsScreen() {
     id: "dateAdded",
     direction: "desc",
   });
+  const availableCuisineSortOptions = useMemo(() => {
+    const availableCuisines = new Set(
+      meals.flatMap((meal) => (meal.cuisine ? [meal.cuisine] : [])),
+    );
+    return CUISINE_OPTIONS.filter((option) =>
+      availableCuisines.has(option.value),
+    ).map((option) => ({ value: option.value, label: option.label }));
+  }, [meals]);
   const [freezerModalMeal, setFreezerModalMeal] = useState<Meal | null>(null);
   const [isMealPickerVisible, setMealPickerVisible] = useState(false);
   const [selectedFreezerMeal, setSelectedFreezerMeal] = useState<Meal | null>(
@@ -445,9 +465,14 @@ export default function MealsScreen() {
         }
       };
 
+      const filterByCuisine = (meal: Meal) =>
+        sortSelection?.id !== "cuisine" ||
+        meal.cuisine === sortSelection.direction;
+
       const filteredList = list
         .filter(filterByExpense)
-        .filter(filterByDifficulty);
+        .filter(filterByDifficulty)
+        .filter(filterByCuisine);
 
       const sorted = [...filteredList].sort((a, b) => {
         switch (sortSelection.id) {
@@ -456,8 +481,8 @@ export default function MealsScreen() {
               ? a.title.localeCompare(b.title)
               : b.title.localeCompare(a.title);
           case "rating": {
-            const ratingA = getMealRatingValue(a);
-            const ratingB = getMealRatingValue(b);
+            const ratingA = getMealRatingValue(a, familyMemberIds);
+            const ratingB = getMealRatingValue(b, familyMemberIds);
             if (ratingA === ratingB) {
               return a.title.localeCompare(b.title);
             }
@@ -553,13 +578,15 @@ export default function MealsScreen() {
               ? servedA - servedB
               : servedB - servedA;
           }
+          case "cuisine":
+            return a.title.localeCompare(b.title);
           default:
             return 0;
         }
       });
       return sorted;
     },
-    [sortSelection]
+    [familyMemberIds, sortSelection]
   );
 
   const sortedAllMeals = useMemo(
@@ -660,7 +687,6 @@ export default function MealsScreen() {
 
   const onOpenMeal = useCallback((meal: Meal) => {
     Keyboard.dismiss();
-    console.log("[Weekly Eats] Meal list item selected", meal);
     setModalMode("edit");
     setSelectedMealId(meal.id);
     setModalVisible(true);
@@ -762,11 +788,13 @@ export default function MealsScreen() {
   }, []);
 
   const handleFreezerModalSave = useCallback(
-    (meal: Meal, amount: string, unit: string, addedAt: string) => {
+    (meal: Meal, mealAmount: number, addedAt: string) => {
       updateMeal({
         id: meal.id,
-        freezerAmount: amount,
-        freezerUnit: unit,
+        freezerMealAmount: mealAmount,
+        freezerAmount: "",
+        freezerQuantity: "",
+        freezerUnit: "",
         freezerAddedAt: addedAt,
         isFavorite: true,
       });
@@ -782,6 +810,7 @@ export default function MealsScreen() {
         id: mealId,
         isFavorite: false,
         freezerAmount: "",
+        freezerMealAmount: undefined,
         freezerUnit: "",
         freezerQuantity: "",
         freezerAddedAt: undefined,
@@ -824,12 +853,6 @@ export default function MealsScreen() {
     },
     [deleteMealNormally, meals, orderedDays, startDay],
   );
-
-  const handleDeleteResolvedMeal = useCallback(async () => {
-    if (!plannedMealDeletion) return;
-    await deleteMealNormally(plannedMealDeletion.meal.id);
-    setPlannedMealDeletion(null);
-  }, [deleteMealNormally, plannedMealDeletion]);
 
   const handleSuggestNextWeek = useCallback(
     (meal: Meal) => {
@@ -1295,6 +1318,7 @@ export default function MealsScreen() {
             activeTab={activeTab}
             onChange={handleTabChange}
             incompleteCount={incompleteMeals.length}
+            freezerCount={favorites.length}
           />
         </View>
         {isFreezerTab ? (
@@ -1375,6 +1399,7 @@ export default function MealsScreen() {
                     onChangeText={handleSearchQueryChange}
                     onSubmitEditing={handleSubmitSearch}
                     onSortChange={handleSortChange}
+                    cuisineOptions={availableCuisineSortOptions}
                   />
                   {isSearchSubmitted && searchQuery.trim() && !activeIngredientFilter ? (
                     <View style={styles.activeIngredientFilterRow}>
@@ -1587,7 +1612,6 @@ export default function MealsScreen() {
           freezerAmountMeal?.freezerQuantity ??
           ""
         }
-        initialUnit={freezerAmountMeal?.freezerUnit}
         initialAddedAt={freezerAmountMeal?.freezerAddedAt}
         onDismiss={handleFreezerModalClose}
         onComplete={handleFreezerModalSave}
@@ -1608,11 +1632,7 @@ export default function MealsScreen() {
       <PlannedMealDeletionModal
         meal={plannedMealDeletion?.meal ?? null}
         occurrences={plannedMealDeletion?.occurrences ?? []}
-        replacementMeals={meals.filter(
-          (meal) => meal.id !== plannedMealDeletion?.meal.id,
-        )}
-        onCancel={() => setPlannedMealDeletion(null)}
-        onDelete={handleDeleteResolvedMeal}
+        onClose={() => setPlannedMealDeletion(null)}
       />
       <Modal
         visible={Boolean(pendingSuggestMeal)}

@@ -43,6 +43,7 @@ import {
   setGroceryListForWeek,
   setGroceryListViewMode,
 } from "../../stores/groceryListStorage";
+import MealEmoji from "../emoji/MealEmoji";
 
 type Props = {
   visible: boolean;
@@ -912,9 +913,7 @@ export function GroceryListContent({
                   </View>
                   <View style={styles.mealPlanMeal}>
                     {group.mealEmoji ? (
-                      <Text style={styles.mealPlanEmoji}>
-                        {group.mealEmoji}
-                      </Text>
+                      <MealEmoji value={group.mealEmoji} size={28} />
                     ) : null}
                     <Text
                       style={styles.mealPlanTitle}
@@ -1127,7 +1126,7 @@ export default function GroceryListSheet({
   return (
     <Modal
       transparent
-      animationType="slide"
+      animationType="fade"
       presentationStyle="overFullScreen"
       visible={visible}
       onRequestClose={onDismiss}

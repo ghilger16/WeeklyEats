@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import MealEmoji from "../emoji/MealEmoji";
 import { LinearGradient } from "expo-linear-gradient";
 import { memo, useMemo, useRef } from "react";
 import {
@@ -23,6 +24,7 @@ import { FlexGrid } from "../../styles/flex-grid";
 import RatingStars from "./RatingStars";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 import { getFamilyRatingSummary } from "../../utils/familyRatings";
+import { formatFreezerAvailability, getFreezerMealAmount } from "../../utils/freezerMealAmount";
 
 type Props = {
   meal: Meal;
@@ -85,12 +87,10 @@ const MealListItem = memo(function MealListItem({
   const swipeableRef = useRef<Swipeable | null>(null);
   const pressDuration = theme.motion.duration.fast;
 
-  const freezerAmountRaw = meal.freezerAmount ?? meal.freezerQuantity ?? "";
-  const freezerAmount = freezerAmountRaw.trim();
-  const freezerUnit = meal.freezerUnit ?? "";
-  const hasFreezerAmount = freezerAmount.length > 0;
-  const freezerDisplay = hasFreezerAmount
-    ? `${freezerAmount}${freezerUnit ? ` ${freezerUnit}` : ""}`
+  const freezerMealAmount = getFreezerMealAmount(meal);
+  const hasFreezerAmount = freezerMealAmount !== null;
+  const freezerDisplay = freezerMealAmount
+    ? formatFreezerAvailability(freezerMealAmount)
     : "";
 
   const formatFreezerDate = (iso?: string) => {
@@ -276,9 +276,7 @@ const MealListItem = memo(function MealListItem({
           <FlexGrid.Row alignItems="center" wrap={false}>
             {showEmoji ? (
               <FlexGrid.Col span={2} grow={0}>
-                <Text style={styles.emoji} accessible accessibilityRole="image">
-                  {meal.emoji ?? "🍽️"}
-                </Text>
+                <MealEmoji value={meal.emoji} size={36} />
               </FlexGrid.Col>
             ) : null}
             {isFreezer ? (

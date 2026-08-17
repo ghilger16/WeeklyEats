@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { useThemeController } from "../../../providers/theme/ThemeController";
+import MealEmoji from "../../emoji/MealEmoji";
 import { ServedMealEntry } from "../../../stores/servedMealsStorage";
 import { WeeklyTheme } from "../../../styles/theme";
 import { Meal } from "../../../types/meals";
@@ -26,12 +27,14 @@ type Props = {
   history: ServedMealEntry[];
   assignedMeal: Meal | null;
   onSelectMeal: (meal: Meal) => void;
+  onAddNewMeal?: () => void;
   onSelectEatOut: () => void;
   onSelectFlexNight: () => void;
   onEditSides: () => void;
   onViewDetails: () => void;
   onRemove: () => void;
   onExpandedLayout: () => void;
+  autoFocus?: boolean;
 };
 
 export default function InlineDaySearch({
@@ -40,12 +43,14 @@ export default function InlineDaySearch({
   history,
   assignedMeal,
   onSelectMeal,
+  onAddNewMeal,
   onSelectEatOut,
   onSelectFlexNight,
   onEditSides,
   onViewDetails,
   onRemove,
   onExpandedLayout,
+  autoFocus = true,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -54,9 +59,10 @@ export default function InlineDaySearch({
   const normalizedQuery = query.trim().toLowerCase();
 
   useEffect(() => {
+    if (!autoFocus) return;
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [day]);
+  }, [autoFocus, day]);
 
   const resultMeals = useMemo(
     () =>
@@ -132,6 +138,17 @@ export default function InlineDaySearch({
                 theme={theme}
               />
             ) : null}
+            {onAddNewMeal ? (
+              <QuickOption
+                icon="plus-circle-outline"
+                label="Add New Meal"
+                accessibilityLabel={`Add a new meal for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
+                onPress={onAddNewMeal}
+                accent
+                styles={styles}
+                theme={theme}
+              />
+            ) : null}
             <QuickOption
               icon="silverware-fork-knife"
               label="Eat Out"
@@ -171,14 +188,14 @@ export default function InlineDaySearch({
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.mealEmoji}>{meal.emoji || "🍽️"}</Text>
+              <MealEmoji value={meal.emoji} size={26} />
               <Text numberOfLines={1} style={styles.mealTitle}>
                 {meal.title}
               </Text>
               <MaterialCommunityIcons
                 name="plus"
                 size={24}
-                color={theme.color.subtleInk}
+                color={theme.color.accent}
               />
             </Pressable>
           ))}
@@ -196,6 +213,7 @@ function QuickOption({
   accessibilityLabel,
   onPress,
   destructive = false,
+  accent = false,
   styles,
   theme,
 }: {
@@ -204,11 +222,13 @@ function QuickOption({
     | "sync"
     | "food-variant"
     | "card-text-outline"
+    | "plus-circle-outline"
     | "delete-outline";
   label: string;
   accessibilityLabel?: string;
   onPress: () => void;
   destructive?: boolean;
+  accent?: boolean;
   styles: ReturnType<typeof createStyles>;
   theme: WeeklyTheme;
 }) {
@@ -226,12 +246,19 @@ function QuickOption({
       <MaterialCommunityIcons
         name={icon}
         size={27}
-        color={destructive ? theme.color.danger : theme.color.ink}
+        color={
+          destructive
+            ? theme.color.danger
+            : accent
+              ? theme.color.accent
+              : theme.color.ink
+        }
       />
       <Text
         style={[
           styles.quickOptionText,
           destructive && styles.quickOptionTextDestructive,
+          accent && styles.quickOptionTextAccent,
         ]}
       >
         {label}
@@ -250,6 +277,7 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   quickOptionDestructive: { borderColor: theme.color.danger },
   quickOptionText: { color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
   quickOptionTextDestructive: { color: theme.color.danger },
+  quickOptionTextAccent: { color: theme.color.accent },
   divider: { height: StyleSheet.hairlineWidth, marginTop: theme.space.xs, backgroundColor: theme.color.border },
   mealRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.border },
   mealEmoji: { width: 32, textAlign: "center", fontSize: 22 },

@@ -16,6 +16,7 @@ import { useThemeController } from "../../providers/theme/ThemeController";
 import { alpha, WeeklyTheme } from "../../styles/theme";
 import { Ingredient, Meal } from "../../types/meals";
 import CuisineSelectorModal from "./CuisineSelectorModal";
+import MealEmoji from "../emoji/MealEmoji";
 import { getCuisineLabel } from "../../types/cuisine";
 import {
   retryIngredientSuggestions,
@@ -45,7 +46,6 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
   const [detailCuisine, setDetailCuisine] = useState(meal.cuisine);
   const [isCuisineSelectorVisible, setCuisineSelectorVisible] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const celebrationOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
   const exitProgress = useRef(new Animated.Value(0)).current;
 
@@ -224,34 +224,19 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
         return;
       }
 
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(celebrationOpacity, {
-            toValue: 1,
-            duration: 320 * timingScale,
-            useNativeDriver: true,
-          }),
-          Animated.delay(840 * timingScale),
-          Animated.timing(celebrationOpacity, {
-            toValue: 0,
-            duration: 320 * timingScale,
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.timing(cardScale, {
-            toValue: 1.015,
-            duration: 360 * timingScale,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: false,
-          }),
-          Animated.timing(cardScale, {
-            toValue: 1,
-            duration: 360 * timingScale,
-            easing: Easing.inOut(Easing.quad),
-            useNativeDriver: false,
-          }),
-        ]),
+      Animated.sequence([
+        Animated.timing(cardScale, {
+          toValue: 1.015,
+          duration: 360 * timingScale,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: false,
+        }),
+        Animated.timing(cardScale, {
+          toValue: 1,
+          duration: 360 * timingScale,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: false,
+        }),
       ]).start();
 
       setTimeout(() => {
@@ -266,7 +251,7 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
         });
       }, 1520 * timingScale);
     },
-    [cardScale, celebrationOpacity, exitProgress, isCompleting, isLastIncomplete, reduceMotion]
+    [cardScale, exitProgress, isCompleting, isLastIncomplete, reduceMotion]
   );
 
   const handleApplyIngredients = useCallback(() => {
@@ -305,27 +290,9 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
     (cuisine: Meal["cuisine"]) => {
       setCuisineSelectorVisible(false);
       setDetailCuisine(cuisine);
-      if (
-        cuisine &&
-        typeof detailDifficulty === "number" &&
-        typeof detailExpense === "number"
-      ) {
-        finishMeal(() =>
-          onUpdateDetails({
-            cuisine,
-            difficulty: detailDifficulty,
-            expense: detailExpense,
-          })
-        );
-      }
     },
-    [detailDifficulty, detailExpense, finishMeal, onUpdateDetails]
+    []
   );
-
-  const sparkleOffsets = [
-    [-24, -16], [-10, -24], [8, -22], [24, -12],
-    [-22, 8], [-6, 14], [12, 12], [26, 5],
-  ] as const;
 
   return (
     <Animated.View
@@ -350,29 +317,13 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, isLastIn
     >
     <View style={[styles.card, isCompleting && styles.cardComplete]}>
       <View style={styles.header}>
-        <View style={styles.emojiWrap}><Text style={styles.emoji}>{meal.emoji}</Text></View>
+        <View style={styles.emojiWrap}><MealEmoji value={meal.emoji} size={38} /></View>
         <View style={styles.headerText}>
           <Text style={styles.title}>{meal.title}</Text>
           <View style={styles.statusRow}>
             {isCompleting ? (
               <View style={styles.completionAnchor}>
                 <MaterialCommunityIcons name="check" size={17} color={theme.color.success} />
-                {sparkleOffsets.map(([x, y], index) => (
-                  <Animated.Text
-                    key={`${x}-${y}`}
-                    style={[
-                      styles.sparkle,
-                      {
-                        left: x,
-                        top: y,
-                        opacity: celebrationOpacity,
-                        color: index % 3 === 0 ? theme.color.accent : index % 3 === 1 ? "#F2D15B" : theme.color.ink,
-                      },
-                    ]}
-                  >
-                    ✦
-                  </Animated.Text>
-                ))}
               </View>
             ) : <View style={styles.statusDot} />}
             <Text style={[styles.status, isCompleting && styles.statusComplete]} numberOfLines={1}>
@@ -531,7 +482,6 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   status: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
   statusComplete: { color: theme.color.success, fontWeight: theme.type.weight.bold },
   completionAnchor: { width: 17, height: 17, alignItems: "center", justifyContent: "center" },
-  sparkle: { position: "absolute", fontSize: 8 },
   suggestionRow: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: theme.space.sm, paddingTop: theme.space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.color.border },
   suggestionEmoji: { fontSize: 18 },
   suggestionLabel: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
