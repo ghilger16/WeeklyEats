@@ -229,7 +229,18 @@ export default function WeekPlanSavedCelebration({
                       { opacity: statOpacities[index], transform: [{ translateY: statOpacities[index].interpolate({ inputRange: [0, 1], outputRange: [7, 0] }) }] },
                     ]}
                   >
-                    <Text style={styles.statValue}>{stat.icon} {stat.value}</Text>
+                    <View style={styles.statValueRow}>
+                      {stat.id === "fiveStars" ? (
+                        <MaterialCommunityIcons
+                          name="star"
+                          size={17}
+                          color={theme.color.accent}
+                        />
+                      ) : (
+                        <Text style={styles.statValue}>{stat.icon}</Text>
+                      )}
+                      <Text style={styles.statValue}>{stat.value}</Text>
+                    </View>
                     <Text style={styles.statLabel}>{stat.label}</Text>
                   </Animated.View>
                 ))}
@@ -309,6 +320,7 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   statsRow: { flexDirection: "row", alignItems: "stretch" },
   stat: { flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.space.xs },
   statDivider: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: theme.color.border },
+  statValueRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
   statValue: { color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold, textAlign: "center" },
   statLabel: { color: theme.color.subtleInk, fontSize: 11, textAlign: "center", marginTop: 3 },
   streak: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.xl },

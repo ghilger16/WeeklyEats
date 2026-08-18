@@ -1,9 +1,37 @@
 import { ServedMealEntry } from "../../../stores/servedMealsStorage";
+import { WeekPlanHistoryEntry } from "../../../stores/weekPlanStorage";
 import { Meal } from "../../../types/meals";
 import { PlannedWeekDayKey } from "../../../types/weekPlan";
 import { isSpecialMealId } from "../../../types/specialMeals";
 
 const MAX_USUAL_MEALS = 5;
+const MAX_RECENT_COMPLETED_WEEKS = 4;
+
+export const getRecentCompletedWeekMealsForDay = (
+  day: PlannedWeekDayKey,
+  meals: Meal[],
+  completedWeeks: WeekPlanHistoryEntry[],
+): Meal[] => {
+  const mealById = new Map(meals.map((meal) => [meal.id, meal]));
+  const seen = new Set<Meal["id"]>();
+
+  return [...completedWeeks]
+    .sort(
+      (left, right) =>
+        new Date(right.weekStartISO).getTime() -
+        new Date(left.weekStartISO).getTime(),
+    )
+    .slice(0, MAX_RECENT_COMPLETED_WEEKS)
+    .map((entry) => entry.plan[day])
+    .filter((mealId): mealId is string => Boolean(mealId))
+    .map((mealId) => mealById.get(mealId))
+    .filter((meal): meal is Meal => {
+      if (!meal || isSpecialMealId(meal.id) || seen.has(meal.id)) return false;
+      seen.add(meal.id);
+      return true;
+    })
+    .slice(0, MAX_RECENT_COMPLETED_WEEKS);
+};
 
 export const getUsualMealsForDay = (
   day: PlannedWeekDayKey,

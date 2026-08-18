@@ -3,6 +3,7 @@ import MealEmoji from "../emoji/MealEmoji";
 import * as Haptics from "expo-haptics";
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Linking,
@@ -16,7 +17,10 @@ import {
   View,
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  initialWindowMetrics,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { alpha, WeeklyTheme } from "../../styles/theme";
 import { FlexGrid } from "../../styles/flex-grid";
@@ -152,11 +156,12 @@ const triggerMealSaveHaptic = () => {
 
 type AutoFillPreviewDraft = {
   title: string;
-  ingredients: IngredientValue[];
+  ingredients: Ingredient[];
   cuisine?: CuisineType | null;
   difficulty?: number;
   expense?: number;
   prepNotes: string;
+  preferredSides?: string[];
 };
 
 const getIngredientName = (ingredient: IngredientValue) => {
@@ -272,11 +277,23 @@ export default function MealCard({
 }: MealCardProps) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const safeAreaInsets = useSafeAreaInsets();
+  const stableTopInset = Math.max(
+    safeAreaInsets.top,
+    initialWindowMetrics?.insets.top ?? 0,
+  );
+  const stableBottomInset = Math.max(
+    safeAreaInsets.bottom,
+    initialWindowMetrics?.insets.bottom ?? 0,
+  );
   const scrollRef = useRef<ScrollView | null>(null);
   const autoFillScrollRef = useRef<ScrollView | null>(null);
   const notesSectionOffsetRef = useRef(0);
   const autoFillNotesSectionOffsetRef = useRef(0);
   const detailIngredientInputRef = useRef<TextInput>(null);
+  const detailScrollOffsetRef = useRef(0);
+  const detailKeyboardTopRef = useRef<number | null>(null);
+  const autoFillIngredientInputRef = useRef<TextInput>(null);
   const prevMealKeyRef = useRef<string | undefined>(undefined);
   const prevMealIdentityRef = useRef<string | undefined>(undefined);
   const [form, setForm] = useState<MealFormValues>(() =>
@@ -315,7 +332,6 @@ export default function MealCard({
     useState(false);
   const [autoFillDraft, setAutoFillDraft] =
     useState<AutoFillPreviewDraft | null>(null);
-  const [autoFillKeyboardHeight, setAutoFillKeyboardHeight] = useState(0);
   const [newAutoFillIngredient, setNewAutoFillIngredient] = useState("");
   const [
     isAutoFillIngredientDeleteMode,
@@ -342,24 +358,6 @@ export default function MealCard({
   const [detailNotesDraft, setDetailNotesDraft] = useState(
     () => form.prepNotes ?? ""
   );
-
-  useEffect(() => {
-    const showEvent =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, (event) => {
-      setAutoFillKeyboardHeight(event.endCoordinates.height);
-    });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setAutoFillKeyboardHeight(0);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
 
   const suggestedEmoji = useMemo(
     () => suggestEmojiForTitle(form.title),
@@ -461,6 +459,28 @@ export default function MealCard({
     },
     []
   );
+
+  const handleManualTitleChange = useCallback((value: string) => {
+    const formattedValue = capitalizeMealTitleWords(value);
+    if (formattedValue.trim()) setShowTitleRequiredError(false);
+    setForm((current) => {
+      const previousSuggestion = suggestEmojiForTitle(current.title);
+      const nextSuggestion = suggestEmojiForTitle(formattedValue);
+      const currentEmoji = current.emoji ?? DEFAULT_MEAL_EMOJI;
+      const canApplySuggestion =
+        currentEmoji === DEFAULT_MEAL_EMOJI ||
+        (Boolean(previousSuggestion) && currentEmoji === previousSuggestion);
+
+      return {
+        ...current,
+        title: formattedValue,
+        ...(canApplySuggestion
+          ? { emoji: nextSuggestion ?? DEFAULT_MEAL_EMOJI }
+          : {}),
+      };
+    });
+    return formattedValue;
+  }, []);
 
   const handleFamilyRatingChange = useCallback(
     (memberId: string, rating: FamilyRatingValue) => {
@@ -631,6 +651,7 @@ export default function MealCard({
       difficulty: normalizedDifficulty,
       expense: normalizedExpense,
       prepNotes: outcome.data.prepNotes?.trim() ?? "",
+      preferredSides: outcome.data.suggestedSides ?? [],
     });
     setNewAutoFillIngredient("");
     setIsAutoFillIngredientDeleteMode(false);
@@ -741,6 +762,9 @@ export default function MealCard({
       nextForm.prepNotes = autoFillDraft.prepNotes.trim();
       nextPrepNotesDraft = autoFillDraft.prepNotes.trim();
     }
+    if (autoFillDraft.preferredSides?.length) {
+      nextForm.preferredSides = autoFillDraft.preferredSides;
+    }
 
     if (!isEditMode) {
       if (!createMealFromValues(nextForm, nextPrepNotesDraft)) {
@@ -802,6 +826,21 @@ export default function MealCard({
         : form.emoji,
     [autoFillDraft?.title, form.emoji]
   );
+  const autoFillDifficultyLevel = DIFFICULTY_LEVELS.find(
+    (level) => level.value === autoFillDraft?.difficulty,
+  );
+  const autoFillDifficultyLabel = autoFillDifficultyLevel?.label ?? "Not set";
+  const autoFillDifficultyColor = autoFillDifficultyLevel
+    ? theme.color[autoFillDifficultyLevel.colorKey]
+    : undefined;
+  const autoFillExpenseLabel =
+    typeof autoFillDraft?.expense === "number"
+      ? "$".repeat(
+          autoFillDraft.expense >= 4 ? 3 : autoFillDraft.expense <= 2 ? 1 : 2,
+        )
+      : "Not set";
+  const autoFillCuisineLabel =
+    getCuisineLabel(autoFillDraft?.cuisine) ?? "Not set";
   const autoFillIngredientEntries = useMemo(
     () =>
       (autoFillDraft?.ingredients ?? [])
@@ -844,9 +883,30 @@ export default function MealCard({
     []
   );
 
+  const openAutoFillCuisineSelector = useCallback(() => {
+    Keyboard.dismiss();
+    setAutoFillCuisineSelectorVisible(true);
+  }, []);
+
+  const closeAutoFillCuisineSelector = useCallback(() => {
+    setAutoFillCuisineSelectorVisible(false);
+  }, []);
+
   const handleAddAutoFillIngredient = useCallback(async () => {
     const trimmed = newAutoFillIngredient.trim();
     if (!trimmed) {
+      return;
+    }
+    const normalizedName = normalizeIngredientClassificationName(trimmed);
+    const duplicate = (autoFillDraft?.ingredients ?? []).some(
+      (ingredient) =>
+        normalizeIngredientClassificationName(
+          getIngredientName(ingredient as IngredientValue),
+        ) === normalizedName,
+    );
+    if (duplicate) {
+      setNewAutoFillIngredient("");
+      requestAnimationFrame(() => autoFillIngredientInputRef.current?.focus());
       return;
     }
     const ingredientType = await classifyIngredientType(trimmed);
@@ -862,8 +922,8 @@ export default function MealCard({
         : prev
     );
     setNewAutoFillIngredient("");
-    setIsAutoFillIngredientDeleteMode(false);
-  }, [newAutoFillIngredient]);
+    requestAnimationFrame(() => autoFillIngredientInputRef.current?.focus());
+  }, [autoFillDraft?.ingredients, newAutoFillIngredient]);
 
   const handleRemoveAutoFillIngredient = useCallback((index: number) => {
     setAutoFillDraft((prev) =>
@@ -958,6 +1018,38 @@ export default function MealCard({
     [form.ingredients, persistDetailIngredients]
   );
 
+  const ensureDetailIngredientInputVisible = useCallback(() => {
+    const keyboardTop = detailKeyboardTopRef.current;
+    if (keyboardTop === null || !detailIngredientInputRef.current?.isFocused()) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      detailIngredientInputRef.current?.measureInWindow((_x, y, _width, height) => {
+        const overlap = y + height + 16 - keyboardTop;
+        if (overlap > 0) {
+          scrollRef.current?.scrollTo({
+            y: Math.max(0, detailScrollOffsetRef.current + overlap),
+            animated: true,
+          });
+        }
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener("keyboardDidShow", (event) => {
+      detailKeyboardTopRef.current = event.endCoordinates.screenY;
+      ensureDetailIngredientInputVisible();
+    });
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => {
+      detailKeyboardTopRef.current = null;
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [ensureDetailIngredientInputVisible]);
+
   const handleAddDetailIngredient = useCallback(async () => {
     const name = detailIngredientDraft.trim();
     if (!name) return;
@@ -970,7 +1062,10 @@ export default function MealCard({
     );
     if (duplicate) {
       setDetailIngredientDraft("");
-      requestAnimationFrame(() => detailIngredientInputRef.current?.focus());
+      requestAnimationFrame(() => {
+        detailIngredientInputRef.current?.focus();
+        ensureDetailIngredientInputVisible();
+      });
       return;
     }
     const existing = (form.ingredients ?? [])
@@ -982,8 +1077,28 @@ export default function MealCard({
       createManualIngredient(name, ingredientType),
     ]);
     setDetailIngredientDraft("");
-    requestAnimationFrame(() => detailIngredientInputRef.current?.focus());
-  }, [detailIngredientDraft, form.ingredients, persistDetailIngredients]);
+    requestAnimationFrame(() => {
+      detailIngredientInputRef.current?.focus();
+      setTimeout(ensureDetailIngredientInputVisible, 50);
+    });
+  }, [
+    detailIngredientDraft,
+    ensureDetailIngredientInputVisible,
+    form.ingredients,
+    persistDetailIngredients,
+  ]);
+
+  useEffect(() => {
+    if (!isDetailIngredientsEditing || !detailIngredientInputRef.current?.isFocused()) {
+      return;
+    }
+    const timeout = setTimeout(ensureDetailIngredientInputVisible, 50);
+    return () => clearTimeout(timeout);
+  }, [
+    ensureDetailIngredientInputVisible,
+    form.ingredients?.length,
+    isDetailIngredientsEditing,
+  ]);
 
   const handleMoveDetailIngredient = useCallback(
     (index: number) => {
@@ -1125,6 +1240,22 @@ export default function MealCard({
     });
   }, [form.expense, persistDetailPatch]);
 
+  const handleCloseManualCreate = useCallback(() => {
+    if (!isCreateDirty) {
+      onClose();
+      return;
+    }
+    Keyboard.dismiss();
+    Alert.alert(
+      "Discard this meal?",
+      "This meal and the information you entered won’t be saved.",
+      [
+        { text: "Keep Editing", style: "cancel" },
+        { text: "Discard", style: "destructive", onPress: onClose },
+      ],
+    );
+  }, [isCreateDirty, onClose]);
+
   const handleHeaderBack = useCallback(() => {
     if (!isEditMode && addMealStep === "manual") {
       setAddMealStep("entry");
@@ -1204,7 +1335,7 @@ export default function MealCard({
             accessibilityLabel={
               isManualCreate ? "Close without saving" : "Back"
             }
-            onPress={isManualCreate ? onClose : handleHeaderBack}
+            onPress={isManualCreate ? handleCloseManualCreate : handleHeaderBack}
             style={styles.backButton}
           >
             <MaterialCommunityIcons
@@ -1247,6 +1378,10 @@ export default function MealCard({
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
           contentContainerStyle={styles.detailContent}
+          onScroll={({ nativeEvent }) => {
+            detailScrollOffsetRef.current = nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
           onTouchStart={() => {
             if (isDetailIngredientsEditing) {
               endDetailIngredientEditing();
@@ -1268,12 +1403,10 @@ export default function MealCard({
                 <TextInput
                   value={detailTitleDraft}
                   onChangeText={(value) => {
-                    const formattedValue = capitalizeMealTitleWords(value);
+                    const formattedValue = isManualCreate
+                      ? handleManualTitleChange(value)
+                      : capitalizeMealTitleWords(value);
                     setDetailTitleDraft(formattedValue);
-                    if (isManualCreate) {
-                      setForm((current) => ({ ...current, title: formattedValue }));
-                      if (formattedValue.trim()) setShowTitleRequiredError(false);
-                    }
                   }}
                   onBlur={handleSaveDetailTitle}
                   onSubmitEditing={() => Keyboard.dismiss()}
@@ -1437,6 +1570,10 @@ export default function MealCard({
                   onFocus={() => {
                     setDetailIngredientsExpanded(true);
                     setDetailIngredientsEditing(true);
+                    setTimeout(
+                      ensureDetailIngredientInputVisible,
+                      Platform.OS === "ios" ? 280 : 140,
+                    );
                   }}
                   placeholder="Add Ingredient"
                   placeholderTextColor={theme.color.subtleInk}
@@ -1972,13 +2109,7 @@ export default function MealCard({
                 showTitleRequiredError && styles.inputError,
               ]}
               value={form.title}
-              onChangeText={(value) => {
-                const formattedValue = capitalizeMealTitleWords(value);
-                if (showTitleRequiredError && formattedValue.trim()) {
-                  setShowTitleRequiredError(false);
-                }
-                updateField("title", formattedValue);
-              }}
+              onChangeText={handleManualTitleChange}
             />
             {showTitleRequiredError ? (
               <Text style={styles.fieldErrorText} accessibilityRole="alert">
@@ -2320,23 +2451,23 @@ export default function MealCard({
         <Modal
           transparent
           animationType="fade"
+          presentationStyle="overFullScreen"
           visible={isAutoFillPreviewVisible && Boolean(autoFillDraft)}
           onRequestClose={closeAutoFillPreview}
         >
-          <KeyboardAvoidingView
-            style={styles.autoFillModalBackdrop}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
-          >
-            <SafeAreaView
-              edges={["top", "bottom"]}
-              style={styles.autoFillModalContent}
+          <View style={styles.autoFillModalBackdrop}>
+            <View
+              style={[
+                styles.autoFillModalContent,
+                {
+                  paddingTop: stableTopInset + theme.space.md,
+                  paddingBottom: stableBottomInset,
+                },
+              ]}
             >
               <View style={styles.autoFillModalHeader}>
                 <View style={styles.autoFillEmojiPreview}>
-                  <Text style={styles.autoFillEmojiGlyph}>
-                    {autoFillPreviewEmoji}
-                  </Text>
+                  <MealEmoji value={autoFillPreviewEmoji} size={46} />
                 </View>
                 <View style={styles.autoFillHeaderText}>
                   <Text style={styles.autoFillEyebrow}>RECIPE FOUND ✨</Text>
@@ -2358,257 +2489,280 @@ export default function MealCard({
               <ScrollView
                 ref={autoFillScrollRef}
                 style={styles.autoFillModalScroll}
-                contentContainerStyle={[
-                  styles.autoFillModalScrollContent,
-                  autoFillKeyboardHeight > 0 && {
-                    paddingBottom:
-                      autoFillKeyboardHeight + theme.space["2xl"],
-                  },
-                ]}
+                contentContainerStyle={styles.autoFillModalScrollContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                automaticallyAdjustKeyboardInsets
               >
                 <View style={styles.detailSection}>
-                  <View style={styles.detailSectionHeader}>
-                    <Text style={styles.detailSectionLabel}>Key Ingredients</Text>
-                    <Pressable
-                      onPress={() =>
-                        setIsAutoFillIngredientDeleteMode((current) => !current)
-                      }
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        isAutoFillIngredientDeleteMode
-                          ? "Finish editing ingredients"
-                          : "Edit ingredients"
-                      }
-                    >
-                      <Text style={styles.detailEditText}>
-                        {isAutoFillIngredientDeleteMode ? "Done" : "Edit"}
-                      </Text>
-                    </Pressable>
-                  </View>
-                  {autoFillKeyIngredientEntries.length ? (
-                    <View style={styles.detailIngredientsGrid}>
-                      {autoFillKeyIngredientEntries.map(({ ingredient, index }) => (
-                        <View
-                          key={`${ingredient.name}-${index}`}
-                          style={[
-                            styles.detailChip,
-                            isAutoFillIngredientDeleteMode && styles.detailChipEditing,
-                          ]}
+                  <Text style={styles.detailSectionLabel}>Key Ingredients</Text>
+                  <View style={styles.detailIngredientList}>
+                    {autoFillKeyIngredientEntries.map(({ ingredient, index }) => (
+                      <View key={`${ingredient.name}-${index}`} style={styles.detailIngredientListRow}>
+                        <Pressable
+                          disabled={!isAutoFillIngredientDeleteMode}
+                          onPress={() => handleRemoveAutoFillIngredient(index)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${ingredient.name}`}
+                          hitSlop={6}
+                          style={styles.detailIngredientDeleteTarget}
                         >
+                          <MaterialCommunityIcons
+                            name={isAutoFillIngredientDeleteMode ? "minus-circle-outline" : "checkbox-blank-circle-outline"}
+                            size={18}
+                            color={theme.color.accent}
+                          />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => {
+                            if (isAutoFillIngredientDeleteMode) {
+                              Keyboard.dismiss();
+                              setIsAutoFillIngredientDeleteMode(false);
+                              setNewAutoFillIngredient("");
+                              return;
+                            }
+                            setIsAutoFillIngredientDeleteMode(true);
+                            requestAnimationFrame(() => autoFillIngredientInputRef.current?.focus());
+                          }}
+                          style={styles.detailIngredientTextTarget}
+                        >
+                          <Text style={styles.detailIngredientListText} numberOfLines={1}>
+                            {capitalizeMealTitleWords(ingredient.name)}
+                          </Text>
+                        </Pressable>
+                        {isAutoFillIngredientDeleteMode && autoFillPantryStapleEntries.length > 0 ? (
                           <Pressable
-                            style={styles.autoFillIngredientMoveTarget}
                             onPress={() => handleToggleAutoFillIngredientType(index)}
-                            disabled={!isAutoFillIngredientDeleteMode}
                             accessibilityRole="button"
                             accessibilityLabel={`Move ${ingredient.name} to Pantry Staples`}
+                            hitSlop={6}
+                            style={styles.detailIngredientSwapTarget}
                           >
-                            <View style={styles.detailChipDot} />
-                            <Text style={styles.detailChipText} numberOfLines={1}>
-                              {capitalizeMealTitleWords(ingredient.name)}
-                            </Text>
+                            <MaterialCommunityIcons name="arrow-down" size={19} color={theme.color.accent} />
                           </Pressable>
-                          {isAutoFillIngredientDeleteMode ? (
-                            <Pressable
-                              onPress={() => handleRemoveAutoFillIngredient(index)}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Remove ${ingredient.name}`}
-                              hitSlop={6}
-                            >
-                              <MaterialCommunityIcons
-                                name="trash-can-outline"
-                                size={15}
-                                color={theme.color.subtleInk}
-                              />
-                            </Pressable>
-                          ) : null}
+                        ) : null}
+                      </View>
+                    ))}
+                    {isAutoFillIngredientDeleteMode || autoFillKeyIngredientEntries.length === 0 ? (
+                      <View style={[styles.detailAddIngredientRow, styles.detailInlineIngredientRow]}>
+                        <View style={styles.detailAddIngredientBulletSlot}>
+                          <View style={styles.detailAddIngredientDot} />
                         </View>
-                      ))}
-                    </View>
-                  ) : (
-                    <Text style={styles.detailEmptyText}>No key ingredients added yet</Text>
-                  )}
+                        <TextInput
+                          ref={autoFillIngredientInputRef}
+                          placeholder="Add Ingredient"
+                          placeholderTextColor={theme.color.subtleInk}
+                          style={[styles.detailAddIngredientInput, styles.detailAddIngredientInputWithDot]}
+                          value={newAutoFillIngredient}
+                          onChangeText={setNewAutoFillIngredient}
+                          onSubmitEditing={handleAddAutoFillIngredient}
+                          onFocus={() => setIsAutoFillIngredientDeleteMode(true)}
+                          onBlur={() => {
+                            setTimeout(() => {
+                              if (!autoFillIngredientInputRef.current?.isFocused()) {
+                                setIsAutoFillIngredientDeleteMode(false);
+                                setNewAutoFillIngredient("");
+                              }
+                            }, 100);
+                          }}
+                          autoCapitalize="words"
+                          returnKeyType="next"
+                          blurOnSubmit={false}
+                        />
+                        {newAutoFillIngredient.trim() ? (
+                          <Pressable
+                            onPress={handleAddAutoFillIngredient}
+                            accessibilityRole="button"
+                            accessibilityLabel="Add ingredient"
+                            style={[styles.detailAddIngredientButton, styles.detailInlineIngredientButton]}
+                          >
+                            <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
 
-                  {isAutoFillIngredientDeleteMode ? (
-                    <View style={styles.detailAddIngredientRow}>
-                      <TextInput
-                        placeholder="Add ingredient"
-                        placeholderTextColor={theme.color.subtleInk}
-                        style={styles.detailAddIngredientInput}
-                        value={newAutoFillIngredient}
-                        onChangeText={setNewAutoFillIngredient}
-                        onSubmitEditing={handleAddAutoFillIngredient}
-                        returnKeyType="done"
-                      />
-                      <Pressable
-                        onPress={handleAddAutoFillIngredient}
-                        accessibilityRole="button"
-                        accessibilityLabel="Add ingredient"
-                        style={styles.detailAddIngredientButton}
-                      >
-                        <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
-                      </Pressable>
-                    </View>
-                  ) : null}
-
-                  {(isAutoFillIngredientDeleteMode || autoFillPantryStapleEntries.length > 0) ? (
+                  {autoFillPantryStapleEntries.length > 0 ? (
                     <View style={styles.detailPantrySection}>
                       <Text style={styles.detailSectionLabel}>Pantry Staples</Text>
-                      {autoFillPantryStapleEntries.length ? (
-                        <View style={styles.detailIngredientsGrid}>
+                        <View style={styles.detailIngredientList}>
                           {autoFillPantryStapleEntries.map(({ ingredient, index }) => (
-                            <View
-                              key={`${ingredient.name}-${index}`}
-                              style={[
-                                styles.detailChip,
-                                styles.detailPantryChip,
-                                isAutoFillIngredientDeleteMode && styles.detailChipEditing,
-                              ]}
-                            >
+                            <View key={`${ingredient.name}-${index}`} style={styles.detailIngredientListRow}>
                               <Pressable
-                                style={styles.autoFillIngredientMoveTarget}
-                                onPress={() => handleToggleAutoFillIngredientType(index)}
                                 disabled={!isAutoFillIngredientDeleteMode}
+                                onPress={() => handleRemoveAutoFillIngredient(index)}
                                 accessibilityRole="button"
-                                accessibilityLabel={`Move ${ingredient.name} to Key Ingredients`}
+                                accessibilityLabel={`Remove ${ingredient.name}`}
+                                hitSlop={6}
+                                style={styles.detailIngredientDeleteTarget}
                               >
-                                <View style={styles.detailChipDot} />
-                                <Text
-                                  style={[styles.detailChipText, styles.detailPantryChipText]}
-                                  numberOfLines={1}
-                                >
+                                <MaterialCommunityIcons
+                                  name={isAutoFillIngredientDeleteMode ? "minus-circle-outline" : "checkbox-blank-circle-outline"}
+                                  size={18}
+                                  color={theme.color.accent}
+                                />
+                              </Pressable>
+                              <Pressable
+                                onPress={() => {
+                                  if (isAutoFillIngredientDeleteMode) {
+                                    Keyboard.dismiss();
+                                    setIsAutoFillIngredientDeleteMode(false);
+                                    setNewAutoFillIngredient("");
+                                    return;
+                                  }
+                                  setIsAutoFillIngredientDeleteMode(true);
+                                  requestAnimationFrame(() => autoFillIngredientInputRef.current?.focus());
+                                }}
+                                style={styles.detailIngredientTextTarget}
+                              >
+                                <Text style={[styles.detailIngredientListText, styles.detailPantryChipText]} numberOfLines={1}>
                                   {capitalizeMealTitleWords(ingredient.name)}
                                 </Text>
                               </Pressable>
                               {isAutoFillIngredientDeleteMode ? (
                                 <Pressable
-                                  onPress={() => handleRemoveAutoFillIngredient(index)}
+                                  onPress={() => handleToggleAutoFillIngredientType(index)}
                                   accessibilityRole="button"
-                                  accessibilityLabel={`Remove ${ingredient.name}`}
+                                  accessibilityLabel={`Move ${ingredient.name} to Key Ingredients`}
                                   hitSlop={6}
+                                  style={styles.detailIngredientSwapTarget}
                                 >
-                                  <MaterialCommunityIcons
-                                    name="trash-can-outline"
-                                    size={15}
-                                    color={theme.color.subtleInk}
-                                  />
+                                  <MaterialCommunityIcons name="arrow-up" size={19} color={theme.color.accent} />
                                 </Pressable>
                               ) : null}
                             </View>
                           ))}
                         </View>
-                      ) : (
-                        <Text style={styles.detailEmptyText}>No pantry staples added yet</Text>
-                      )}
                     </View>
                   ) : null}
                 </View>
 
-                <View style={styles.autoFillEditorSection}>
-                  <Text style={styles.autoFillFieldLabel}>Cuisine</Text>
-                  <Pressable
-                    onPress={() => setAutoFillCuisineSelectorVisible(true)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Imported cuisine, ${getCuisineLabel(autoFillDraft?.cuisine) ?? "not set"}`}
-                    style={({ pressed }) => [
-                      styles.autoFillFieldRow,
-                      pressed && { opacity: 0.7 },
-                    ]}
-                  >
-                    <Text style={styles.autoFillFieldValue}>
-                      {getCuisineLabel(autoFillDraft?.cuisine) ?? "Not set"}
-                    </Text>
-                    <MaterialCommunityIcons
-                      name="chevron-right"
-                      size={22}
-                      color={theme.color.accent}
-                    />
-                  </Pressable>
-                </View>
-
-                <View style={styles.autoFillEditorSection}>
-                  <Text style={styles.autoFillFieldLabel}>Difficulty</Text>
-                  <View style={styles.levelChipRow}>
-                    {DIFFICULTY_LEVELS.map(({ label, value }) => {
-                      const isSelected = autoFillDraft?.difficulty === value;
-                      return (
-                        <Pressable
-                          key={label}
-                          style={[
-                            styles.levelChip,
-                            styles.autoFillLevelChip,
-                            isSelected && styles.autoFillLevelChipSelected,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: isSelected }}
-                          accessibilityLabel={`Set imported difficulty to ${label}`}
-                          onPress={() =>
-                            updateAutoFillDraft("difficulty", value)
-                          }
-                        >
-                          <View style={styles.levelChipContent}>
-                            <Text
-                              style={[
-                                styles.levelChipText,
-                                isSelected &&
-                                  styles.autoFillLevelChipTextSelected,
-                              ]}
-                            >
-                              {label}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <View style={styles.autoFillEditorSection}>
-                  <Text style={styles.autoFillFieldLabel}>Expense</Text>
-                  <View style={styles.levelChipRow}>
-                    {EXPENSE_LEVELS.map(({ label, value }) => {
-                      const isSelected = autoFillDraft?.expense === value;
-                      return (
-                        <Pressable
-                          key={label}
-                          style={[
-                            styles.levelChip,
-                            styles.autoFillLevelChip,
-                            isSelected && styles.autoFillLevelChipSelected,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: isSelected }}
-                          accessibilityLabel={`Set imported expense to ${label}`}
-                          onPress={() => updateAutoFillDraft("expense", value)}
-                        >
-                          <Text
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailSectionLabel}>Details</Text>
+                  <View style={styles.detailGrid}>
+                    <Pressable
+                      onPress={() =>
+                        updateAutoFillDraft(
+                          "difficulty",
+                          typeof autoFillDraft?.difficulty !== "number"
+                            ? 1
+                            : autoFillDraft.difficulty <= 1
+                              ? 3
+                              : autoFillDraft.difficulty <= 3
+                                ? 5
+                                : 1,
+                        )
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel={`Difficulty, ${autoFillDifficultyLabel}`}
+                      accessibilityHint="Double tap to change difficulty"
+                      style={({ pressed }) => [
+                        styles.detailTile,
+                        pressed && styles.detailPressed,
+                      ]}
+                    >
+                      <Text style={styles.detailTileLabel}>Difficulty</Text>
+                      <View style={styles.detailDifficultyValueRow}>
+                        {autoFillDifficultyColor ? (
+                          <View
                             style={[
-                              styles.levelChipText,
-                              isSelected &&
-                                styles.autoFillLevelChipTextSelected,
+                              styles.detailDifficultyDot,
+                              { backgroundColor: autoFillDifficultyColor },
                             ]}
-                          >
-                            {label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
+                          />
+                        ) : null}
+                        <Text
+                          style={[
+                            styles.detailTileValue,
+                            !autoFillDifficultyLevel && styles.detailTileValueUnset,
+                          ]}
+                        >
+                          {autoFillDifficultyLabel}
+                        </Text>
+                        {!autoFillDifficultyLevel ? (
+                          <Text style={styles.detailTileAdd}>+</Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      onPress={() =>
+                        updateAutoFillDraft(
+                          "expense",
+                          typeof autoFillDraft?.expense !== "number"
+                            ? 1
+                            : autoFillDraft.expense <= 1
+                              ? 3
+                              : autoFillDraft.expense <= 3
+                                ? 5
+                                : 1,
+                        )
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel={`Expense, ${autoFillExpenseLabel}`}
+                      accessibilityHint="Double tap to change expense"
+                      style={({ pressed }) => [
+                        styles.detailTile,
+                        pressed && styles.detailPressed,
+                      ]}
+                    >
+                      <Text style={styles.detailTileLabel}>Expense</Text>
+                      <View style={styles.detailTileValueRow}>
+                        <Text
+                          style={[
+                            styles.detailTileValue,
+                            typeof autoFillDraft?.expense !== "number" &&
+                              styles.detailTileValueUnset,
+                          ]}
+                        >
+                          {autoFillExpenseLabel}
+                        </Text>
+                        {typeof autoFillDraft?.expense !== "number" ? (
+                          <Text style={styles.detailTileAdd}>+</Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      onPress={openAutoFillCuisineSelector}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Cuisine, ${autoFillCuisineLabel}`}
+                      accessibilityHint="Double tap to choose a cuisine"
+                      style={({ pressed }) => [
+                        styles.detailTile,
+                        pressed && styles.detailPressed,
+                      ]}
+                    >
+                      <Text style={styles.detailTileLabel}>Cuisine</Text>
+                      <View style={styles.detailTileValueRow}>
+                        <Text
+                          style={[
+                            styles.detailTileValue,
+                            !autoFillDraft?.cuisine && styles.detailTileValueUnset,
+                          ]}
+                        >
+                          {autoFillCuisineLabel}
+                        </Text>
+                        {!autoFillDraft?.cuisine ? (
+                          <Text style={styles.detailTileAdd}>+</Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
                   </View>
                 </View>
 
                 <View
-                  style={styles.autoFillEditorSection}
+                  style={styles.detailSection}
                   onLayout={({ nativeEvent }) => {
                     autoFillNotesSectionOffsetRef.current =
                       nativeEvent.layout.y;
                   }}
                 >
-                  <Text style={styles.autoFillFieldLabel}>Prep Notes</Text>
+                  <Text style={styles.detailSectionLabel}>Prep Notes</Text>
                   <TextInput
                     placeholder="Add reminders or prep steps"
                     placeholderTextColor={theme.color.subtleInk}
-                    style={styles.autoFillNotesInput}
+                    style={styles.detailNotesInput}
                     multiline
                     value={autoFillDraft?.prepNotes ?? ""}
                     onChangeText={(value) =>
@@ -2652,8 +2806,20 @@ export default function MealCard({
                   </Text>
                 </Pressable>
               </View>
-            </SafeAreaView>
-          </KeyboardAvoidingView>
+            </View>
+            <CuisineSelectorModal
+              embedded
+              visible={isAutoFillCuisineSelectorVisible}
+              selected={autoFillDraft?.cuisine}
+              mealTitle={autoFillDraft?.title ?? form.title}
+              mealEmoji={autoFillPreviewEmoji}
+              onSelect={(cuisine) => {
+                updateAutoFillDraft("cuisine", cuisine);
+                closeAutoFillCuisineSelector();
+              }}
+              onClose={closeAutoFillCuisineSelector}
+            />
+          </View>
         </Modal>
         <EmojiPickerModal
           visible={isEmojiPickerVisible}
@@ -2661,17 +2827,6 @@ export default function MealCard({
           suggestedEmoji={showEmojiSuggestion ? suggestedEmoji : undefined}
           onPick={handlePickEmoji}
           onClose={handleCloseEmojiPicker}
-        />
-        <CuisineSelectorModal
-          visible={isAutoFillCuisineSelectorVisible}
-          selected={autoFillDraft?.cuisine}
-          mealTitle={autoFillDraft?.title ?? form.title}
-          mealEmoji={autoFillPreviewEmoji}
-          onSelect={(cuisine) => {
-            updateAutoFillDraft("cuisine", cuisine);
-            setAutoFillCuisineSelectorVisible(false);
-          }}
-          onClose={() => setAutoFillCuisineSelectorVisible(false)}
         />
       </KeyboardAvoidingView>
     </View>
@@ -2759,7 +2914,7 @@ const createStyles = (theme: WeeklyTheme) =>
     detailHeroText: { flex: 1, gap: theme.space.xs },
     detailTitle: { color: theme.color.ink, fontSize: theme.type.size.h1, fontWeight: theme.type.weight.bold },
     detailTitleInput: { color: theme.color.ink, fontSize: theme.type.size.h1, fontWeight: theme.type.weight.bold, padding: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.accent },
-    detailTitlePlaceholder: { fontSize: theme.type.size.h1 * 0.9 },
+    detailTitlePlaceholder: { fontSize: theme.type.size.title },
     detailRatingText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
     familyStarTitle: { color: "#FEC107", fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
     galaxyMealTitleRow: { flexDirection: "row", alignItems: "center", gap: theme.space.xs },
@@ -3248,8 +3403,8 @@ const createStyles = (theme: WeeklyTheme) =>
       width: "100%",
       flex: 1,
       backgroundColor: theme.color.bg,
-      paddingTop: theme.space["2xl"],
-      gap: theme.space.lg,
+      paddingTop: theme.space.md,
+      gap: theme.space.md,
     },
     autoFillModalHeader: {
       flexDirection: "row",
@@ -3267,9 +3422,6 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.cardOutline,
-    },
-    autoFillEmojiGlyph: {
-      fontSize: 46,
     },
     autoFillHeaderText: {
       flex: 1,
@@ -3296,7 +3448,8 @@ const createStyles = (theme: WeeklyTheme) =>
       lineHeight: 19,
     },
     autoFillModalScroll: {
-      flexGrow: 0,
+      flex: 1,
+      minHeight: 0,
     },
     autoFillModalScrollContent: {
       gap: theme.space.xl,
@@ -3304,79 +3457,12 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingTop: theme.space.sm,
       paddingBottom: theme.space.lg,
     },
-    autoFillEditorSection: {
-      gap: theme.space.md,
-      padding: theme.space.lg,
-      borderRadius: theme.radius.md,
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
-    },
-    autoFillIngredientMoveTarget: {
-      flex: 1,
-      minWidth: 0,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.sm,
-    },
-    autoFillLevelChip: {
-      backgroundColor: theme.color.surface,
-      borderColor: theme.color.border,
-    },
-    autoFillLevelChipSelected: {
-      backgroundColor: alpha(theme.color.accent, 0.14),
-      borderColor: theme.color.accent,
-    },
-    autoFillLevelChipTextSelected: {
-      color: theme.color.ink,
-      fontWeight: theme.type.weight.bold,
-    },
-    autoFillNotesInput: {
-      backgroundColor: theme.color.surface,
-      borderRadius: theme.radius.md,
-      paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.sm,
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      minHeight: 104,
-      textAlignVertical: "top",
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    autoFillFieldGroup: {
-      gap: theme.space.md,
-    },
-    autoFillFieldRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: theme.space.md,
-    },
-    autoFillFieldContent: {
-      flex: 1,
-      gap: theme.space.xs,
-    },
-    autoFillFieldLabel: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.xs,
-      fontWeight: theme.type.weight.medium,
-      textTransform: "uppercase",
-      letterSpacing: 0.7,
-    },
-    autoFillFieldValue: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      lineHeight: theme.type.size.base * 1.3,
-    },
-    autoFillSwitch: {
-      marginLeft: theme.space.sm,
-    },
     autoFillModalActions: {
       flexDirection: "row",
       gap: theme.space.md,
       paddingHorizontal: theme.space.xl,
-      paddingTop: theme.space.lg,
-      paddingBottom: theme.space.xl,
+      paddingTop: theme.space.sm,
+      paddingBottom: theme.space.md,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: theme.color.border,
       backgroundColor: theme.color.bg,

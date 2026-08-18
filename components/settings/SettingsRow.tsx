@@ -17,11 +17,12 @@ type Props = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   label: string;
   value?: string;
+  subtitle?: string;
   onPress?: (event: GestureResponderEvent) => void;
   style?: StyleProp<ViewStyle>;
 };
 
-const SettingsRow = ({ icon, label, value, onPress, style }: Props) => {
+const SettingsRow = ({ icon, label, value, subtitle, onPress, style }: Props) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const disabled = !onPress;
@@ -42,9 +43,15 @@ const SettingsRow = ({ icon, label, value, onPress, style }: Props) => {
               color={theme.color.ink}
             />
           </View>
-          <Text style={styles.label}>
-            {label} {value && `(${value})`}
-          </Text>
+          <View style={styles.textGroup}>
+            <Text style={styles.label}>{label}</Text>
+            {subtitle ? <Text style={styles.description}>{subtitle}</Text> : null}
+          </View>
+          {value ? (
+            <Text style={styles.value} numberOfLines={1}>
+              {value}
+            </Text>
+          ) : null}
           <FlexGrid.Row>
             {onPress ? (
               <MaterialCommunityIcons
@@ -78,12 +85,15 @@ const createStyles = (theme: WeeklyTheme) =>
       justifyContent: "center",
       backgroundColor: theme.color.surfaceAlt,
     },
+    textGroup: {
+      flex: 1,
+      paddingLeft: theme.space.sm,
+      gap: theme.space.xs,
+    },
     label: {
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.bold,
-      flex: 1,
-      paddingLeft: theme.space.sm,
     },
     description: {
       color: theme.color.subtleInk,
@@ -93,6 +103,9 @@ const createStyles = (theme: WeeklyTheme) =>
     value: {
       color: theme.color.subtleInk,
       fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+      textAlign: "right",
+      flexShrink: 1,
       marginRight: theme.space.sm,
     },
   });

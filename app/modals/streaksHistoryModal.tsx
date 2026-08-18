@@ -50,7 +50,7 @@ const getDinnerCount = (entry: WeekPlanHistoryEntry) =>
   PLANNED_WEEK_ORDER.filter((day) => typeof entry.plan[day] === "string").length;
 
 const formatCompactStat = (stat: WeekPlanCelebrationStat) => {
-  if (stat.id === "familyStars") {
+  if (stat.id === "familyStars" || stat.id === "fiveStars") {
     return `${stat.icon} ${stat.value} ${stat.value === "1" ? "Star" : "Stars"}`;
   }
   if (stat.id === "newMeals") return `${stat.icon} ${stat.value} New`;

@@ -14,6 +14,11 @@ import {
   useFeatureFlags,
 } from "../../../hooks/useFeatureFlags";
 import type { FeatureFlags } from "../../../config/featureFlags";
+import { useFamilyMembers } from "../../../hooks/useFamilyMembers";
+import {
+  isFamilyRatingsEligible,
+  useRatingDisplayMode,
+} from "../../../hooks/useRatingDisplayMode";
 
 const FEATURE_FLAG_LABELS: Record<keyof FeatureFlags, string> = {
   recipeAutoFillEnabled: "Recipe Auto-fill",
@@ -24,6 +29,8 @@ export default function MoreScreen() {
   const router = useRouter();
   const { theme, preference } = useThemeController();
   const { startDay } = useWeekStartController();
+  const { members } = useFamilyMembers();
+  const { mode: ratingDisplayMode } = useRatingDisplayMode();
   const featureFlags = useFeatureFlags();
   const featureFlagDefaults = getFeatureFlagDefaults();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -47,12 +54,19 @@ export default function MoreScreen() {
     router.push("/modals/family-members");
   };
 
+  const openRatingStyleSelector = () => {
+    router.push("/modals/rating-style");
+  };
+
   const resetOnboarding = async () => {
     await setOnboardingCompleted(false);
     router.replace("/onboarding");
   };
 
   const weekStartLabel = PLANNED_WEEK_DISPLAY_NAMES[startDay];
+  const canUseFamilyRatings = isFamilyRatingsEligible(members.length);
+  const ratingStyleLabel =
+    ratingDisplayMode === "family" ? "Family Ratings" : "Star Ratings";
   const featureFlagKeys = Object.keys(featureFlags) as Array<
     keyof FeatureFlags
   >;
@@ -95,6 +109,17 @@ export default function MoreScreen() {
             onPress={openFamilyModal}
           />
         </View>
+        {canUseFamilyRatings ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeading}>Ratings</Text>
+            <SettingsRow
+              icon="star-outline"
+              label="Rating Style"
+              value={ratingStyleLabel}
+              onPress={openRatingStyleSelector}
+            />
+          </View>
+        ) : null}
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>Feature Flags</Text>
           {featureFlagKeys.map((key) => (

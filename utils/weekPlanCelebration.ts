@@ -3,7 +3,7 @@ import { CurrentPlannedWeek, PLANNED_WEEK_ORDER } from "../types/weekPlan";
 import { isSpecialMealId } from "../types/specialMeals";
 
 export type WeekPlanCelebrationStat = {
-  id: "familyStars" | "newMeals" | "effort" | "expense";
+  id: "familyStars" | "fiveStars" | "newMeals" | "effort" | "expense";
   icon: string;
   value: string;
   label: string;
@@ -23,6 +23,8 @@ const hasFamilyStar = (meal: Meal) => {
     ? ratings.every((rating) => rating === 3)
     : (meal.rating ?? 0) >= 4.5;
 };
+
+const hasFiveStars = (meal: Meal) => (meal.rating ?? 0) >= 4.5;
 
 const hasEnoughKnownValues = (knownCount: number, totalCount: number) =>
   knownCount >= Math.max(1, Math.ceil(totalCount / 2));
@@ -48,11 +50,13 @@ export const buildWeekPlanCelebration = ({
   meals,
   servedMealIds,
   streakCount,
+  ratingStyle = "family",
 }: {
   plan: CurrentPlannedWeek;
   meals: Meal[];
   servedMealIds: Set<string>;
   streakCount: number;
+  ratingStyle?: "family" | "summary";
 }): WeekPlanCelebrationPayload => {
   const mealById = new Map(meals.map((meal) => [meal.id, meal]));
   const plannedIds = PLANNED_WEEK_ORDER.map((day) => plan[day]).filter(
@@ -64,13 +68,22 @@ export const buildWeekPlanCelebration = ({
     .filter((meal): meal is Meal => Boolean(meal));
 
   const stats: WeekPlanCelebrationStat[] = [];
-  const familyStarCount = plannedMeals.filter(hasFamilyStar).length;
-  if (familyStarCount > 0) {
+  const starCount = plannedMeals.filter(
+    ratingStyle === "summary" ? hasFiveStars : hasFamilyStar,
+  ).length;
+  if (starCount > 0) {
     stats.push({
-      id: "familyStars",
+      id: ratingStyle === "summary" ? "fiveStars" : "familyStars",
       icon: "⭐",
-      value: String(familyStarCount),
-      label: familyStarCount === 1 ? "Family Star" : "Family Stars",
+      value: String(starCount),
+      label:
+        ratingStyle === "summary"
+          ? starCount === 1
+            ? "Five Star"
+            : "Five Stars"
+          : starCount === 1
+            ? "Family Star"
+            : "Family Stars",
     });
   }
 

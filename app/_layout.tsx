@@ -59,6 +59,14 @@ function RootStack() {
         }}
       />
       <Stack.Screen
+        name="modals/rating-style"
+        options={{
+          presentation: "transparentModal",
+          animation: "fade",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
         name="modals/streaksHistoryModal"
         options={{
           presentation: "transparentModal",

@@ -198,7 +198,7 @@ export default function GroceryListTab() {
                     Missing ingredients
                   </Text>
                   <Text style={styles.missingIngredientsSubtitle}>
-                    {missingIngredientCount} planned {missingIngredientCount === 1 ? "meal doesn't" : "meals don't"} have ingredient
+                    {missingIngredientCount} planned {missingIngredientCount === 1 ? "meal doesn't" : "meals don't"} have ingredients
                   </Text>
                 </View>
                 <MaterialCommunityIcons

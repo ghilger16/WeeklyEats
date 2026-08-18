@@ -43,6 +43,7 @@ export const useServedMeals = (): UseServedMealsResult => {
   );
 
   const undoServedMeal = useCallback(async (id: ServedMealEntry["id"]) => {
+    setEntries((current) => current.filter((entry) => entry.id !== id));
     const next = await removeServedMeal(id);
     setEntries(next);
   }, []);

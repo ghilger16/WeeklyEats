@@ -14,15 +14,15 @@ type Props = {
   mealEmoji?: string;
   onSelect: (cuisine: CuisineType | null) => void;
   onClose: () => void;
+  embedded?: boolean;
 };
 
-export default function CuisineSelectorModal({ visible, selected, mealTitle, mealEmoji, onSelect, onClose }: Props) {
+export default function CuisineSelectorModal({ visible, selected, mealTitle, mealEmoji, onSelect, onClose, embedded = false }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+  const content = (
+      <View style={[styles.backdrop, embedded && styles.embeddedBackdrop]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close cuisine selector" />
         <SafeAreaView edges={["bottom"]} style={styles.sheet}>
           <View style={styles.handle} />
@@ -63,12 +63,22 @@ export default function CuisineSelectorModal({ visible, selected, mealTitle, mea
           </ScrollView>
         </SafeAreaView>
       </View>
+  );
+
+  if (embedded) {
+    return visible ? content : null;
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      {content}
     </Modal>
   );
 }
 
 const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.48)" },
+  embeddedBackdrop: { ...StyleSheet.absoluteFillObject, zIndex: 20, elevation: 20 },
   sheet: { maxHeight: "82%", paddingHorizontal: theme.space.xl, paddingTop: theme.space.md, backgroundColor: theme.color.surface, borderTopLeftRadius: theme.radius.xl, borderTopRightRadius: theme.radius.xl },
   handle: { width: 40, height: 4, alignSelf: "center", marginBottom: theme.space.lg, borderRadius: theme.radius.full, backgroundColor: theme.color.border },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: theme.space.lg },

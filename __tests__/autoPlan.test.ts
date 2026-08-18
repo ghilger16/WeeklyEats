@@ -51,4 +51,20 @@ describe("buildAutoPlan", () => {
 
     expect(assignments[0]?.meal.id).toBe("alternate");
   });
+
+  it("includes the first non-empty preferred side with an assignment", () => {
+    const assignments = buildAutoPlan({
+      days: ["mon"],
+      meals: [
+        meal("ramen", {
+          preferredSides: ["  ", "Cucumber Salad", "Edamame"],
+        }),
+      ],
+      plannedWeek: createEmptyCurrentPlannedWeek(),
+      dayPinsMap: createEmptyDayPinsMap(),
+      servedEntries: [],
+    });
+
+    expect(assignments[0]?.side).toBe("Cucumber Salad");
+  });
 });

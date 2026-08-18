@@ -8,6 +8,7 @@ import { ServedMealEntry } from "../../stores/servedMealsStorage";
 import { startOfDay } from "../../utils/weekDays";
 import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
 import MealEmoji from "../emoji/MealEmoji";
+import { hasFullFreezerMeal } from "../../utils/freezerMealAmount";
 
 type Props = {
   days: WeekPlanDay[];
@@ -88,6 +89,7 @@ export default function ThisWeekList({
           const isSkipped = entry?.outcome === "skipped";
           const isPending = !preview && day.status === "past" && Boolean(day.meal) && !entry && !isPastEatOut;
           const isToday = !preview && day.status === "today";
+          const isFreezerMeal = hasFullFreezerMeal(day.meal);
           const eatOutNote = isEatOut && day.meal?.title !== EAT_OUT_MEAL.title
             ? day.meal?.title.trim()
             : day.meal?.prepNotes?.trim();
@@ -147,6 +149,13 @@ export default function ThisWeekList({
                   <Text style={styles.tonight}>Tonight</Text>
                 ) : isPending ? (
                   <Text style={styles.pending}>Pending</Text>
+                ) : isFreezerMeal ? (
+                  <MaterialCommunityIcons
+                    name="snowflake"
+                    size={18}
+                    color={theme.color.accent}
+                    accessibilityLabel="Freezer meal"
+                  />
                 ) : null}
               </View>
               <MaterialCommunityIcons name="chevron-right" size={21} color={theme.color.subtleInk} />

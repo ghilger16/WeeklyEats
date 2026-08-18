@@ -48,8 +48,10 @@ import {
   setCurrentWeekPlan,
   setCurrentWeekSides,
   addWeekPlanHistory,
+  getWeekPlanHistory,
   getWeekPlanStreak,
   updateWeekPlanStreak,
+  WeekPlanHistoryEntry,
 } from "../../stores/weekPlanStorage";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
 import { buildMealSuggestions } from "../../components/plan-week/suggestions/suggestionMatcher";
@@ -290,6 +292,9 @@ export default function PlanWeekModal() {
     useState<PlannedWeekDayKey | null>(null);
   const [expandedDrawerDay, setExpandedDrawerDay] =
     useState<PlannedWeekDayKey | null>(null);
+  const [completedWeekHistory, setCompletedWeekHistory] = useState<
+    WeekPlanHistoryEntry[]
+  >([]);
   const previousExpandedDrawerDayRef = useRef<PlannedWeekDayKey | null>(null);
   const [pendingInlineMeal, setPendingInlineMeal] = useState<{
     day: PlannedWeekDayKey;
@@ -566,8 +571,10 @@ export default function PlanWeekModal() {
       Promise.all([
         refreshStoredPlan(),
         getWeekPlanDraft(planningWeekStartISO),
-      ]).then(([, draft]) => {
+        getWeekPlanHistory(),
+      ]).then(([, draft, weekHistory]) => {
         if (!isActive) return;
+        setCompletedWeekHistory(weekHistory);
         setResumeDraft(draft);
         setDraftChecked(true);
         const hasDraftMeals = Boolean(
@@ -1043,16 +1050,21 @@ export default function PlanWeekModal() {
 
     const ownedDays: AutoPlanSession["ownedDays"] = {};
     const nextPlan = { ...plannedWeek };
-    assignments.forEach(({ day, meal }) => {
+    const nextSides = { ...daySidesMap };
+    assignments.forEach(({ day, meal, side }) => {
       autoPlanRowAnimationsRef.current[day].setValue(0);
       nextPlan[day] = meal.id;
       ownedDays[day] = {
         mealId: meal.id,
         originalSides: [...(daySidesMap[day] ?? [])],
       };
+      if (!(nextSides[day] ?? []).length && side) {
+        nextSides[day] = [side];
+      }
     });
     nextPlan.weekedPlanned = false;
     setPlannedWeek(nextPlan);
+    resetSides(nextSides);
     setAutoPlanSession({
       mode: "fill",
       ownedDays,
@@ -1071,7 +1083,7 @@ export default function PlanWeekModal() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
       () => {},
     );
-  }, [autoPlanAnimationPhase, dayPinsMap, daySidesMap, isWeekComplete, meals, plannedWeek, runAutoPlanReveal, servedEntries, sessionDays]);
+  }, [autoPlanAnimationPhase, dayPinsMap, daySidesMap, isWeekComplete, meals, plannedWeek, resetSides, runAutoPlanReveal, servedEntries, sessionDays]);
 
   const handleTryAnotherAutoPlan = useCallback(() => {
     if (autoPlanAnimationPhase !== "result") return;
@@ -1126,11 +1138,11 @@ export default function PlanWeekModal() {
         {} as CurrentWeekSides,
       );
       const nextOwnedDays: AutoPlanSession["ownedDays"] = {};
-      assignments.forEach(({ day, meal }) => {
+      assignments.forEach(({ day, meal, side }) => {
         autoPlanRowAnimationsRef.current[day].setValue(0);
         nextPlan[day] = meal.id;
         delete nextSpecialMealTitles[day];
-        nextSides[day] = [];
+        nextSides[day] = side ? [side] : [];
         nextOwnedDays[day] = {
           mealId: meal.id,
           originalSides: [...snapshot.sides[day]],
@@ -1199,6 +1211,9 @@ export default function PlanWeekModal() {
     const nextSides = { ...daySidesMap };
     ownedEntries.forEach(([day, ownership]) => {
       nextSides[day] = [...ownership.originalSides];
+    });
+    assignments.forEach(({ day, side }) => {
+      nextSides[day] = side ? [side] : [];
     });
     setPlannedWeek(nextPlan);
     setAutoPlanThinkingIcons(
@@ -2128,6 +2143,7 @@ export default function PlanWeekModal() {
       meals,
       servedMealIds,
       streakCount: streak.count,
+      ratingStyle: ratingDisplayMode === "summary" ? "summary" : "family",
     });
     setIsCelebratingSave(false);
     return celebrationPayload;
@@ -2136,6 +2152,7 @@ export default function PlanWeekModal() {
     meals,
     plannedWeek,
     planningWeekStart,
+    ratingDisplayMode,
     isReduceMotionEnabled,
     servedEntries,
     sessionDays,
@@ -2873,6 +2890,7 @@ export default function PlanWeekModal() {
                             day={day}
                             meals={meals}
                             history={servedEntries}
+                            completedWeekHistory={completedWeekHistory}
                             assignedMeal={plannedMeal ?? null}
                             onSelectMeal={(meal) =>
                               beginInlineMealEditing(

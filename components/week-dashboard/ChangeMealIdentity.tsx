@@ -7,12 +7,19 @@ import { Meal } from "../../types/meals";
 import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
 import MealEmoji from "../emoji/MealEmoji";
 
-export default function ChangeMealIdentity({ meal }: { meal: Meal }) {
+export default function ChangeMealIdentity({
+  meal,
+  sides = [],
+}: {
+  meal: Meal;
+  sides?: string[];
+}) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const isEatOut = meal.id === EAT_OUT_MEAL_ID;
   const eatOutNote =
     isEatOut && meal.title !== EAT_OUT_MEAL.title ? meal.title.trim() : "";
+  const subtitle = eatOutNote || (!isEatOut ? sides.join(" · ") : "");
 
   return (
     <View style={styles.identity}>
@@ -31,9 +38,9 @@ export default function ChangeMealIdentity({ meal }: { meal: Meal }) {
         <Text style={styles.title} numberOfLines={1}>
           {isEatOut ? "Eat Out" : meal.title}
         </Text>
-        {eatOutNote ? (
+        {subtitle ? (
           <Text style={styles.subtitle} numberOfLines={1}>
-            {eatOutNote}
+            {subtitle}
           </Text>
         ) : null}
       </View>

@@ -28,6 +28,8 @@ import {
 import { PlannedWeekDayKey } from "../../../types/weekPlan";
 import { ServedMealEntry } from "../../../stores/servedMealsStorage";
 import InlineDaySearch from "../inline/InlineDaySearch";
+import InlineAddMealEditor from "../inline/InlineAddMealEditor";
+import { WeekPlanHistoryEntry } from "../../../stores/weekPlanStorage";
 import InlineSideEditor from "../inline/InlineSideEditor";
 import InlineEatOutEditor from "../inline/InlineEatOutEditor";
 import ChangeMealIdentity from "../../week-dashboard/ChangeMealIdentity";
@@ -38,8 +40,10 @@ type Props = {
   dayName: string;
   dayKey?: PlannedWeekDayKey;
   history?: ServedMealEntry[];
+  completedWeekHistory?: WeekPlanHistoryEntry[];
   mode?: "plan" | "changeDinner" | "recordPastDinner";
   currentMeal?: Meal | null;
+  currentMealSides?: string[];
   suggestion?: MealSuggestion;
   canSuggestAnother?: boolean;
   onDismiss: () => void;
@@ -49,18 +53,20 @@ type Props = {
   onSuggestAnother: () => void;
   meals?: Meal[];
   onSelectSearchMeal?: (meal: Meal, side?: string) => void;
+  onCreateMeal?: (title: string) => Meal;
   onEatOut?: (title?: string) => void;
   onFlexNight?: () => void;
   getLastServedISO?: (mealId: Meal["id"]) => string | null | undefined;
   sides?: string[];
   onAddSide?: (value: string) => void;
   onRemoveSide?: (index: number) => void;
+  onSelectedSidesChange?: (sides: string[]) => void;
   pins?: DayPinsState;
   onPinsChange?: (next: DayPinsState) => void;
 };
 
 type DifficultyKey = "easy" | "medium" | "hard";
-type PlanMealMode = "suggest" | "search" | "eatOut" | "flexNight";
+type PlanMealMode = "suggest" | "search" | "eatOut" | "flexNight" | "addMeal";
 
 const getDifficultyKey = (value?: number): DifficultyKey => {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -113,8 +119,10 @@ export default function SuggestMealModal({
   dayName,
   dayKey,
   history = [],
+  completedWeekHistory,
   mode: flowMode = "plan",
   currentMeal,
+  currentMealSides = [],
   suggestion,
   canSuggestAnother = true,
   onDismiss,
@@ -124,12 +132,14 @@ export default function SuggestMealModal({
   onSuggestAnother,
   meals = [],
   onSelectSearchMeal,
+  onCreateMeal,
   onEatOut,
   onFlexNight,
   getLastServedISO,
   sides = [],
   onAddSide,
   onRemoveSide,
+  onSelectedSidesChange,
   pins,
   onPinsChange,
 }: Props) {
@@ -508,7 +518,10 @@ export default function SuggestMealModal({
                       {currentMealContextLabel}
                     </Text>
                     <View style={styles.replacingMealRow}>
-                      <ChangeMealIdentity meal={currentMeal} />
+                      <ChangeMealIdentity
+                        meal={currentMeal}
+                        sides={currentMealSides}
+                      />
                     </View>
                   </View>
                 ) : null}
@@ -548,7 +561,17 @@ export default function SuggestMealModal({
               </View>
             ) : null}
 
-            {isChangeDinnerMode &&
+            {isChangeDinnerMode && mode === "addMeal" && dayKey ? (
+              <InlineAddMealEditor
+                day={dayKey}
+                onBack={() => switchMode("suggest")}
+                onSave={(title) => {
+                  const createdMeal = onCreateMeal?.(title);
+                  if (createdMeal) handleSelectSearchResult(createdMeal);
+                }}
+                onExpandedLayout={() => {}}
+              />
+            ) : isChangeDinnerMode &&
             mode === "suggest" &&
             !selectedSideMeal &&
             dayKey ? (
@@ -561,10 +584,18 @@ export default function SuggestMealModal({
                   day={dayKey}
                   meals={meals}
                   history={history}
-                assignedMeal={null}
-                onSelectMeal={handleSelectSearchResult}
-                onSelectEatOut={() => switchMode("eatOut")}
-                onSelectFlexNight={() => onFlexNight?.()}
+                  completedWeekHistory={completedWeekHistory}
+                  assignedMeal={null}
+                  onSelectMeal={handleSelectSearchResult}
+                  onAddNewMeal={onCreateMeal ? () => switchMode("addMeal") : undefined}
+                  onAddMealFromSearch={
+                    onCreateMeal
+                      ? (title) =>
+                          handleSelectSearchResult(onCreateMeal(title))
+                      : undefined
+                  }
+                  onSelectEatOut={() => switchMode("eatOut")}
+                  onSelectFlexNight={() => onFlexNight?.()}
                   onEditSides={() => {}}
                   onViewDetails={() => {}}
                   onRemove={() => {}}
@@ -584,7 +615,7 @@ export default function SuggestMealModal({
                 <View style={styles.inlineSelectedMeal}>
                   <Text style={styles.replacingLabel}>Selected Meal</Text>
                   <View style={styles.selectedMealCard}>
-                    <ChangeMealIdentity meal={selectedSideMeal} />
+                    <ChangeMealIdentity meal={selectedSideMeal} sides={sides} />
                   </View>
                 </View>
                 <InlineSideEditor
@@ -601,7 +632,9 @@ export default function SuggestMealModal({
                     }
                     onAddMeal(selectedSideMeal);
                   }}
-                  onSelectedSidesChange={() => {}}
+                  onSelectedSidesChange={(selectedSides) =>
+                    onSelectedSidesChange?.(selectedSides)
+                  }
                   onPreferredSidesChange={(preferredSides) =>
                     onPreferredSidesChange?.(selectedSideMeal, preferredSides)
                   }

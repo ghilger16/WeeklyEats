@@ -20,7 +20,13 @@ type AutoPlanArgs = {
 export type AutoPlanAssignment = {
   day: PlannedWeekDayKey;
   meal: Meal;
+  side?: string;
 };
+
+const getFirstPreferredSide = (meal: Meal) =>
+  meal.preferredSides
+    ?.map((side) => side.trim())
+    .find(Boolean);
 
 const getIngredientKeys = (meal: Meal) =>
   new Set(
@@ -104,7 +110,11 @@ export const buildAutoPlan = ({
 
     const choice = ranked[0]?.meal;
     if (!choice) return;
-    assignments.push({ day, meal: choice });
+    assignments.push({
+      day,
+      meal: choice,
+      side: getFirstPreferredSide(choice),
+    });
     occupiedMealIds.add(choice.id);
     selectedMeals.push(choice);
   });

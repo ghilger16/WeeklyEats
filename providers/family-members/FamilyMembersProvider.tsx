@@ -13,6 +13,10 @@ import {
   removeFamilyMember,
   updateFamilyMemberName,
 } from "../../stores/familyMembersStorage";
+import {
+  isFamilyRatingsEligible,
+  useRatingDisplayMode,
+} from "../../hooks/useRatingDisplayMode";
 
 type FamilyMembersContextValue = {
   members: FamilyMemberRecord[];
@@ -29,6 +33,7 @@ export const FamilyMembersContext =
 export function FamilyMembersProvider({ children }: PropsWithChildren) {
   const [members, setMembers] = useState<FamilyMemberRecord[]>([]);
   const [isLoading, setLoading] = useState(true);
+  const { setMode: setRatingDisplayMode } = useRatingDisplayMode();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -39,8 +44,14 @@ export function FamilyMembersProvider({ children }: PropsWithChildren) {
 
   const addMemberHandler = useCallback(async (name: string) => {
     const next = await addFamilyMember(name);
+    if (
+      !isFamilyRatingsEligible(members.length) &&
+      isFamilyRatingsEligible(next.length)
+    ) {
+      setRatingDisplayMode("family");
+    }
     setMembers(next);
-  }, []);
+  }, [members.length, setRatingDisplayMode]);
 
   const removeMemberHandler = useCallback(async (id: string) => {
     const next = await removeFamilyMember(id);

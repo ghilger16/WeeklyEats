@@ -62,12 +62,14 @@ import {
   isMealIncomplete,
   mergeConfirmedIngredients,
 } from "../../../utils/mealCompletion";
-import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
+import {
+  isFamilyRatingsEligible,
+  useRatingDisplayMode,
+} from "../../../hooks/useRatingDisplayMode";
 import { getGalaxyMealId } from "../../../utils/galaxyMeal";
 import { getFamilyRatingSummary } from "../../../utils/familyRatings";
 import { CUISINE_OPTIONS } from "../../../types/cuisine";
 import { mealHasIngredientInformation } from "../../../utils/missingPlannedIngredients";
-import { suggestEmojiForTitle } from "../../../utils/emojiCatalog";
 
 const getMealRatingValue = (meal: Meal, familyMemberIds: string[]) => {
   const calculatedRating =
@@ -318,6 +320,7 @@ export default function MealsScreen() {
     [members],
   );
   const { mode: ratingDisplayMode, setMode: setRatingDisplayMode } = useRatingDisplayMode();
+  const canUseFamilyRatings = isFamilyRatingsEligible(members.length);
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { startDay, orderedDays } = useWeekStartController();
   const {
@@ -1015,54 +1018,6 @@ export default function MealsScreen() {
               meal={item}
               onApply={handleApply}
               onUpdateDetails={handleUpdateDetails}
-              onAutoFill={(patch) => {
-                updateMeal({
-                  id: item.id,
-                  ...patch,
-                  ingredients: patch.ingredients
-                    ? mergeConfirmedIngredients(item.ingredients, patch.ingredients)
-                    : item.ingredients,
-                  updatedAt: new Date().toISOString(),
-                });
-              }}
-              onAddAutoFilledMeal={(title, patch) => {
-                const now = new Date().toISOString();
-                const expense = patch.expense;
-                addMeal({
-                  id: createMealId(),
-                  title,
-                  emoji: suggestEmojiForTitle(title) ?? "🍽️",
-                  rating: 0,
-                  familyRatings: {},
-                  servedCount: 0,
-                  showServedCount: false,
-                  plannedCostTier:
-                    typeof expense !== "number" ? 2 : expense <= 2 ? 1 : expense >= 4 ? 3 : 2,
-                  locked: false,
-                  isFavorite: false,
-                  freezerQuantity: "",
-                  freezerAmount: "",
-                  freezerUnit: "",
-                  ingredients: patch.ingredients ?? [],
-                  difficulty: patch.difficulty,
-                  expense: patch.expense,
-                  cuisine: patch.cuisine,
-                  prepNotes: patch.prepNotes,
-                  preferredSides: patch.preferredSides,
-                  recipeUrl: patch.recipeUrl,
-                  createdAt: now,
-                  updatedAt: now,
-                });
-              }}
-              onReplaceWithAutoFilledMeal={(title, patch) => {
-                updateMeal({
-                  id: item.id,
-                  title,
-                  ...patch,
-                  ingredients: patch.ingredients ?? item.ingredients,
-                  updatedAt: new Date().toISOString(),
-                });
-              }}
               onExpand={() => scrollCompletionMealToTop(item.id)}
               onManualIngredientFocus={() =>
                 scrollCompletionInputAboveKeyboard(item.id)
@@ -1182,7 +1137,6 @@ export default function MealsScreen() {
     () => meals.find((meal) => meal.id === selectedMealId),
     [meals, selectedMealId]
   );
-
   const freezerAmountMeal = freezerModalMeal ?? selectedFreezerMeal;
 
   const handleDismissModal = useCallback(() => {
@@ -1364,36 +1318,19 @@ export default function MealsScreen() {
     []
   );
 
-  const cycleRatingMode = useCallback(() => {
-    setDisplayOptions((prev) => {
-      const next =
-        members.length > 1
-          ? prev.ratingMode === "family"
-            ? "summary"
-            : prev.ratingMode === "summary"
-            ? "off"
-            : "family"
-          : prev.ratingMode === "off"
-          ? "summary"
-          : "off";
-      setRatingDisplayMode(next);
-      return { ...prev, ratingMode: next };
-    });
-  }, [members.length, setRatingDisplayMode]);
-
   useEffect(() => {
     setDisplayOptions((prev) => ({ ...prev, ratingMode: ratingDisplayMode }));
   }, [ratingDisplayMode]);
 
   useEffect(() => {
-    if (members.length <= 1) {
+    if (!canUseFamilyRatings) {
       setDisplayOptions((prev) =>
         prev.ratingMode === "family"
           ? (() => { setRatingDisplayMode("summary"); return { ...prev, ratingMode: "summary" as const }; })()
           : prev
       );
     }
-  }, [members.length, setRatingDisplayMode]);
+  }, [canUseFamilyRatings, setRatingDisplayMode]);
 
   const displayOptionList = useMemo(
     () => [
@@ -1410,17 +1347,6 @@ export default function MealsScreen() {
         onPress: () => toggleDisplayOption("showExpense"),
       },
       {
-        id: "ratings",
-        label:
-          displayOptions.ratingMode === "family" && members.length > 1
-            ? "Family Rating"
-            : displayOptions.ratingMode === "summary"
-            ? "Ratings Stars"
-            : "Ratings Off",
-        selected: displayOptions.ratingMode !== "off",
-        onPress: cycleRatingMode,
-      },
-      {
         id: "served",
         label: "Served Count",
         selected: displayOptions.showServed,
@@ -1433,7 +1359,7 @@ export default function MealsScreen() {
         onPress: () => toggleDisplayOption("showEmoji"),
       },
     ],
-    [cycleRatingMode, displayOptions, members.length, toggleDisplayOption]
+    [displayOptions, toggleDisplayOption]
   );
 
   const menuButtonConfig = useMemo(
@@ -1525,7 +1451,7 @@ export default function MealsScreen() {
                     </View>
                     <View style={styles.completeStatDivider} />
                     <View style={styles.completeStat}>
-                      <View style={[styles.completeStatIcon, styles.completeStatIconGold]}>
+                      <View style={[styles.completeStatIcon, styles.completeStatIconGreen]}>
                         <MaterialCommunityIcons name="check-circle-outline" size={22} color={theme.color.success} />
                       </View>
                       <View style={styles.completeStatDetails}>
@@ -2112,8 +2038,8 @@ const createStyles = (theme: WeeklyTheme) =>
     completeStatIconPink: {
       backgroundColor: theme.mode === "dark" ? "rgba(255, 75, 145, 0.14)" : "#FFF0F6",
     },
-    completeStatIconGold: {
-      backgroundColor: theme.mode === "dark" ? "rgba(245, 158, 11, 0.14)" : "#FFF7E6",
+    completeStatIconGreen: {
+      backgroundColor: theme.mode === "dark" ? "rgba(0, 255, 156, 0.14)" : "#E8F8F0",
     },
     completeStatNumber: {
       color: theme.color.ink,

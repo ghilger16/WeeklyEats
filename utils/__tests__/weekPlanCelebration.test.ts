@@ -77,4 +77,27 @@ describe("week plan celebration", () => {
     expect(payload.stats.some((stat) => stat.id === "effort")).toBe(false);
     expect(payload.stats.some((stat) => stat.id === "expense")).toBe(false);
   });
+
+  it("uses the simple rating for the Five Star stat in Star Ratings mode", () => {
+    const plan = createEmptyCurrentPlannedWeek();
+    plan.mon = "five-star";
+    plan.tue = "family-star-only";
+    const payload = buildWeekPlanCelebration({
+      plan,
+      meals: [
+        meal({ id: "five-star", rating: 5 }),
+        meal({ id: "family-star-only", rating: 0, familyRatings: { one: 3, two: 3 } }),
+      ],
+      servedMealIds: new Set(),
+      streakCount: 1,
+      ratingStyle: "summary",
+    });
+
+    expect(payload.stats).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "fiveStars", value: "1", label: "Five Star" }),
+      ]),
+    );
+    expect(payload.stats.some((stat) => stat.id === "familyStars")).toBe(false);
+  });
 });

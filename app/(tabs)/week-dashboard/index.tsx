@@ -60,6 +60,7 @@ import {
   getCurrentWeekSides,
   getWeekPlanStreak,
   getWeekPlanHistory,
+  WeekPlanHistoryEntry,
   setCurrentWeekPlan,
   setCurrentWeekSides,
   setWeekPlanDataBatch,
@@ -75,7 +76,7 @@ import { getRandomCelebrationMessage } from "../../../components/week-dashboard/
 import { getRemainingPlanningDays } from "../../../utils/remainingWeekPlanning";
 import useDayPins from "../../../hooks/plan-week/useDayPins";
 import { DayPinsState, normalizeDayPinsState } from "../../../types/dayPins";
-import { Meal } from "../../../types/meals";
+import { Meal, createEmptyMealDraft, createMealId } from "../../../types/meals";
 import { FamilyRatingValue } from "../../../types/meals";
 import { useFamilyMembers } from "../../../hooks/useFamilyMembers";
 import { setFamilyRatingValue } from "../../../utils/familyRatings";
@@ -83,6 +84,7 @@ import { getGalaxyMealId } from "../../../utils/galaxyMeal";
 import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
 import { promoteSavedSides } from "../../../components/plan-week/inline/sideOptions";
 import { getSmartLevel } from "../../../utils/smartLevel";
+import { suggestEmojiForTitle } from "../../../utils/emojiCatalog";
 import WeekPlanSavedCelebration from "../../../components/week-dashboard/WeekPlanSavedCelebration";
 import type { WeekPlanCelebrationPayload } from "../../../utils/weekPlanCelebration";
 import { getFreezerUpdateAfterServing } from "../../../utils/freezerMealAmount";
@@ -117,7 +119,7 @@ export default function WeekDashboardScreen() {
   const router = useRouter();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { meals, updateMeal } = useMeals();
+  const { meals, addMeal, updateMeal } = useMeals();
   const { members } = useFamilyMembers();
   const { mode: ratingDisplayMode } = useRatingDisplayMode();
   const { startDay, orderedDays, isHydrated: isWeekStartHydrated } = useWeekStartController();
@@ -126,9 +128,13 @@ export default function WeekDashboardScreen() {
   );
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
   const [isPreviewVisible, setPreviewVisible] = useState(false);
+  const [todayCardFocusKey, setTodayCardFocusKey] = useState(0);
   const [isTodayPlanMealVisible, setTodayPlanMealVisible] = useState(false);
   const [changePlanDay, setChangePlanDay] = useState<WeekPlanDay | null>(null);
   const [isBrowseMealsVisible, setBrowseMealsVisible] = useState(false);
+  const [completedWeekHistory, setCompletedWeekHistory] = useState<
+    WeekPlanHistoryEntry[]
+  >([]);
   const [selectedDashboardDay, setSelectedDashboardDay] =
     useState<WeekPlanDay | null>(null);
   const [pendingReplacement, setPendingReplacement] = useState<{
@@ -292,6 +298,7 @@ export default function WeekDashboardScreen() {
     ]);
     setStreakCount(streak.count ?? 0);
     setPlannedWeeksCount(history.length);
+    setCompletedWeekHistory(history);
   }, []);
 
   useEffect(() => {
@@ -317,6 +324,9 @@ export default function WeekDashboardScreen() {
       refreshNextWeekPlan();
       refreshServedMeals();
       refreshStreak();
+      return () => {
+        setTodayCardFocusKey((current) => current + 1);
+      };
     }, [
       refreshNextWeekPlan,
       refreshServedMeals,
@@ -646,6 +656,33 @@ export default function WeekDashboardScreen() {
     setTodaySwapSides([]);
     setTodayPlanMealVisible(true);
   }, []);
+
+  const handleCreateReplacementMeal = useCallback(
+    (title: string) => {
+      const trimmedTitle = title.trim().replace(/\s+/g, " ");
+      const normalizedTitle = trimmedTitle.toLowerCase();
+      const existingMeal = meals.find(
+        (meal) =>
+          meal.title.trim().replace(/\s+/g, " ").toLowerCase() ===
+          normalizedTitle,
+      );
+      if (existingMeal) return existingMeal;
+
+      const now = new Date().toISOString();
+      const draft = createEmptyMealDraft();
+      const meal: Meal = {
+        id: createMealId(),
+        ...draft,
+        title: trimmedTitle,
+        emoji: suggestEmojiForTitle(trimmedTitle) ?? draft.emoji,
+        createdAt: now,
+        updatedAt: now,
+      };
+      addMeal(meal);
+      return meal;
+    },
+    [addMeal, meals],
+  );
 
   const handleSelectReplacementMeal = useCallback(
     (meal: Meal, side?: string) => {
@@ -1668,6 +1705,7 @@ export default function WeekDashboardScreen() {
     if (today?.meal) {
       return (
         <TodayCard
+          key={`${today.plannedDateISO}:${todayCardFocusKey}`}
           meal={today.meal}
           dateLabel={formatWeekdayDate(today.plannedDate)}
           dateKey={today.plannedDateISO}
@@ -1711,6 +1749,7 @@ export default function WeekDashboardScreen() {
     theme.color.accent,
     today,
     todayServedEntry,
+    todayCardFocusKey,
     todayIsGalaxyMeal,
     ratingDisplayMode,
   ]);
@@ -1944,7 +1983,10 @@ export default function WeekDashboardScreen() {
                     <Text style={styles.swapConfirmationDay}>
                       {activeChangePlanDay.label}
                     </Text>
-                    <ChangeMealIdentity meal={activeChangePlanDay.meal} />
+                    <ChangeMealIdentity
+                      meal={activeChangePlanDay.meal}
+                      sides={activeChangePlanDay.sides}
+                    />
                   </View>
                   <MaterialCommunityIcons
                     name="swap-vertical"
@@ -1957,7 +1999,10 @@ export default function WeekDashboardScreen() {
                       {selectedSwapOption.label}
                     </Text>
                     {selectedSwapOption.meal ? (
-                      <ChangeMealIdentity meal={selectedSwapOption.meal} />
+                      <ChangeMealIdentity
+                        meal={selectedSwapOption.meal}
+                        sides={selectedSwapOption.sides}
+                      />
                     ) : null}
                   </View>
                 </View>
@@ -2021,7 +2066,7 @@ export default function WeekDashboardScreen() {
                       >
                         <Text style={styles.swapDayLabel}>{day.label}</Text>
                         {day.meal ? (
-                          <ChangeMealIdentity meal={day.meal} />
+                          <ChangeMealIdentity meal={day.meal} sides={day.sides} />
                         ) : null}
                         <MaterialCommunityIcons
                           name="chevron-right"
@@ -2073,8 +2118,10 @@ export default function WeekDashboardScreen() {
         dayName={PLANNED_WEEK_DISPLAY_NAMES[changePlanDayKey]}
         dayKey={changePlanDayKey}
         history={servedEntries}
+        completedWeekHistory={completedWeekHistory}
         mode="changeDinner"
         currentMeal={activeChangePlanDay?.meal ?? null}
+        currentMealSides={activeChangePlanDay?.sides ?? []}
         suggestion={todaySuggestionEntry}
         canSuggestAnother={todaySuggestionPool.length > 1}
         onDismiss={handleDismissBrowseMeals}
@@ -2090,10 +2137,12 @@ export default function WeekDashboardScreen() {
         onSuggestAnother={handleSuggestAnotherTodayMeal}
         meals={sortedMeals}
         onSelectSearchMeal={handleSelectReplacementMeal}
+        onCreateMeal={handleCreateReplacementMeal}
         onEatOut={handleSelectReplacementEatOut}
         onFlexNight={() => handleSelectReplacementMeal(FLEX_NIGHT_MEAL)}
         getLastServedISO={getMealLastServedISO}
         sides={todaySwapSides}
+        onSelectedSidesChange={setTodaySwapSides}
         onAddSide={handleAddTodaySwapSide}
         onRemoveSide={handleRemoveTodaySwapSide}
         pins={todayPlanPins}
@@ -2135,7 +2184,7 @@ export default function WeekDashboardScreen() {
                   <View>
                     <Text style={styles.swapReplaceSectionLabel}>Today</Text>
                     <View style={styles.swapConfirmationMeal}>
-                      <ChangeMealIdentity meal={today.meal} />
+                      <ChangeMealIdentity meal={today.meal} sides={today.sides} />
                     </View>
                   </View>
                   <MaterialCommunityIcons
@@ -2149,7 +2198,10 @@ export default function WeekDashboardScreen() {
                       Replace With
                     </Text>
                     <View style={styles.swapConfirmationMeal}>
-                      <ChangeMealIdentity meal={pendingReplacement.meal} />
+                      <ChangeMealIdentity
+                        meal={pendingReplacement.meal}
+                        sides={pendingReplacement.sides}
+                      />
                     </View>
                   </View>
                 </View>
@@ -2229,7 +2281,7 @@ export default function WeekDashboardScreen() {
             {today?.meal && displacedMealStep === "decision" ? (
               <>
                 <View style={styles.displacedMealSummary}>
-                  <ChangeMealIdentity meal={today.meal} />
+                  <ChangeMealIdentity meal={today.meal} sides={today.sides} />
                 </View>
                 <View style={styles.displacedIntro}>
                   <Text style={styles.displacedIntroTitle}>
@@ -2896,6 +2948,7 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     swapConfirmationIcon: {
       alignSelf: "center",
+      marginVertical: theme.space.sm,
     },
     swapConfirmationActions: {
       flexDirection: "row",

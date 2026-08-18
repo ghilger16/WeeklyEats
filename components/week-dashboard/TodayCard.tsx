@@ -205,11 +205,37 @@ export default function TodayCard({
   }, [initializeCarousel, isServed, phase]);
 
   useEffect(() => {
+    if (!servedFromEntry) {
+      if (savingRef.current) return;
+      clearTimers();
+      setLocallyServed(false);
+      setCarouselOrder(null);
+      setRatingsWereNeeded(null);
+      setActivePage(0);
+      setPhase("idle");
+      contentOpacity.setValue(1);
+      checkScale.setValue(0.8);
+      successOpacity.setValue(0);
+      sparkleProgress.setValue(0);
+      completionProgress.setValue(0);
+      ratingProgress.setValue(0);
+      return;
+    }
     if (phase !== "idle") return;
-    setLocallyServed(servedFromEntry);
-    checkScale.setValue(servedFromEntry ? 1 : 0.8);
-    successOpacity.setValue(servedFromEntry ? 1 : 0);
-  }, [checkScale, phase, servedFromEntry, successOpacity]);
+    setLocallyServed(true);
+    checkScale.setValue(1);
+    successOpacity.setValue(1);
+  }, [
+    checkScale,
+    clearTimers,
+    completionProgress,
+    contentOpacity,
+    phase,
+    ratingProgress,
+    servedFromEntry,
+    sparkleProgress,
+    successOpacity,
+  ]);
 
   const handleServed = async () => {
     if (isServed || savingRef.current) return;

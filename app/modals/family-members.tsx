@@ -209,6 +209,9 @@ export default function FamilyMembersModal() {
                     <Text style={styles.familyMemberName} numberOfLines={1}>
                       {member.name}
                     </Text>
+                    {index === 0 ? (
+                      <Text style={styles.youLabel}>you</Text>
+                    ) : null}
                     <Pressable
                       onPress={() => handleRemoveMember(member.id)}
                       accessibilityRole="button"
@@ -384,6 +387,11 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.medium,
+    },
+    youLabel: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
     },
     removeButton: {
       width: 32,

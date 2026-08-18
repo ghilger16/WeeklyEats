@@ -95,6 +95,7 @@ export default function DisplayOnCardsSheet({
             contentContainerStyle={styles.listContent}
             renderItem={({ item }) => (
               <OptionChip
+                id={item.id}
                 label={item.label}
                 subLabel={item.subLabel}
                 selected={item.selected}

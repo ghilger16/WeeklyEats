@@ -12,6 +12,7 @@ import {
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import MealEmoji from "../../emoji/MealEmoji";
 import { ServedMealEntry } from "../../../stores/servedMealsStorage";
+import { WeekPlanHistoryEntry } from "../../../stores/weekPlanStorage";
 import { alpha, WeeklyTheme } from "../../../styles/theme";
 import { Meal } from "../../../types/meals";
 import { isSpecialMealId } from "../../../types/specialMeals";
@@ -19,12 +20,16 @@ import {
   PLANNED_WEEK_DISPLAY_NAMES,
   PlannedWeekDayKey,
 } from "../../../types/weekPlan";
-import { getUsualMealsForDay } from "./getUsualMealsForDay";
+import {
+  getRecentCompletedWeekMealsForDay,
+  getUsualMealsForDay,
+} from "./getUsualMealsForDay";
 
 type Props = {
   day: PlannedWeekDayKey;
   meals: Meal[];
   history: ServedMealEntry[];
+  completedWeekHistory?: WeekPlanHistoryEntry[];
   assignedMeal: Meal | null;
   onSelectMeal: (meal: Meal) => void;
   onAddNewMeal?: () => void;
@@ -42,6 +47,7 @@ export default function InlineDaySearch({
   day,
   meals,
   history,
+  completedWeekHistory,
   assignedMeal,
   onSelectMeal,
   onAddNewMeal,
@@ -72,13 +78,31 @@ export default function InlineDaySearch({
         ? meals.filter((meal) =>
             meal.title.toLowerCase().includes(normalizedQuery),
           )
-        : getUsualMealsForDay(
-            day,
-            meals.filter((meal) => meal.id !== assignedMeal?.id),
-            history,
-          ),
-    [assignedMeal?.id, day, history, meals, normalizedQuery],
+        : completedWeekHistory
+          ? getRecentCompletedWeekMealsForDay(
+              day,
+              meals.filter((meal) => meal.id !== assignedMeal?.id),
+              completedWeekHistory,
+            )
+          : getUsualMealsForDay(
+              day,
+              meals.filter((meal) => meal.id !== assignedMeal?.id),
+              history,
+            ),
+    [
+      assignedMeal?.id,
+      completedWeekHistory,
+      day,
+      history,
+      meals,
+      normalizedQuery,
+    ],
   );
+  const showMealSection = normalizedQuery
+    ? true
+    : completedWeekHistory
+      ? completedWeekHistory.length > 0 && resultMeals.length > 0
+      : true;
 
   return (
     <View style={styles.content} onLayout={onExpandedLayout}>
@@ -168,14 +192,14 @@ export default function InlineDaySearch({
           <View style={styles.divider} />
         </>
       ) : null}
-      <Text style={styles.sectionTitle}>
+      {showMealSection ? <Text style={styles.sectionTitle}>
         {normalizedQuery
           ? resultMeals.length
             ? "Search Results"
             : "No Matches"
           : `${PLANNED_WEEK_DISPLAY_NAMES[day]} Favorites`}
-      </Text>
-      {resultMeals.length ? (
+      </Text> : null}
+      {showMealSection && resultMeals.length ? (
         <View>
           {resultMeals.map((meal) => (
             <Pressable
@@ -237,9 +261,9 @@ export default function InlineDaySearch({
             color={theme.color.subtleInk}
           />
         </Pressable>
-      ) : (
+      ) : showMealSection ? (
         <Text style={styles.empty}>No meals found</Text>
-      )}
+      ) : null}
     </View>
   );
 }

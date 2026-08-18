@@ -22,6 +22,10 @@ import { Meal } from "../../types/meals";
 import { CUISINE_OPTIONS, CuisineType, getCuisineLabel } from "../../types/cuisine";
 import { formatFreezerAvailability, getFreezerMealAmount } from "../../utils/freezerMealAmount";
 import MealEmoji from "../emoji/MealEmoji";
+import RatingStars from "../meals/RatingStars";
+import { useFamilyMembers } from "../../hooks/useFamilyMembers";
+import { useRatingDisplayMode } from "../../hooks/useRatingDisplayMode";
+import { getFamilyRatingSummary } from "../../utils/familyRatings";
 import {
   IngredientOverlap,
   formatSharedIngredientPreview,
@@ -113,6 +117,12 @@ export default function MealInspirationSection({
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const { members } = useFamilyMembers();
+  const { mode: ratingDisplayMode } = useRatingDisplayMode();
+  const familyMemberIds = useMemo(
+    () => members.map((member) => member.id),
+    [members],
+  );
   const transition = useRef(new Animated.Value(1)).current;
   const carouselRef = useRef<ScrollView>(null);
   const [carouselWidth, setCarouselWidth] = useState(0);
@@ -771,6 +781,14 @@ export default function MealInspirationSection({
                   <Text style={styles.discoveryIcon}>🌎</Text>
                 ) : pool.cycle === "beenAwhile" ? (
                   <Text style={styles.discoveryIcon}>🕒</Text>
+                ) : pool.id === "fiveStars" ? (
+                  <MaterialCommunityIcons
+                    name="star"
+                    size={22}
+                    color={theme.color.accent}
+                    style={styles.discoveryMaterialIcon}
+                    accessibilityLabel="Five Stars"
+                  />
                 ) : (
                   <Text style={styles.discoveryIcon}>
                     {getDiscoveryPoolIcon(pool.id, pool.chipIcon)}
@@ -838,6 +856,14 @@ export default function MealInspirationSection({
             >
               {activePool.meals.map((meal) => {
                 const isSelected = meal.id === selectedMealId;
+                const familyRatingSummary =
+                  ratingDisplayMode === "family"
+                    ? getFamilyRatingSummary(meal.familyRatings, familyMemberIds)
+                    : null;
+                const hasStarRating =
+                  ratingDisplayMode === "summary" && (meal.rating ?? 0) > 0;
+                const hasDisplayedRating =
+                  Boolean(familyRatingSummary) || hasStarRating;
                 const plannedDay = orderedDays.find(
                   (day) => plannedWeek[day] === meal.id,
                 );
@@ -887,13 +913,37 @@ export default function MealInspirationSection({
                       pressed && styles.pressed,
                     ]}
                   >
-                    {activePool.id === "familyStars" || activePool.id === "fiveStars" ||
-                    activePool.id === "freezerMeals" ? (
+                    {hasDisplayedRating || activePool.id === "familyStars" ||
+                    activePool.id === "fiveStars" || activePool.id === "freezerMeals" ? (
                       <View style={styles.carouselIndicators}>
-                        {activePool.id === "familyStars" || activePool.id === "fiveStars" ? (
+                        {familyRatingSummary ? (
+                          <View
+                            style={styles.carouselFamilyRating}
+                            accessible
+                            accessibilityLabel={`${familyRatingSummary.average.toFixed(1)} family rating`}
+                          >
+                            <MaterialCommunityIcons
+                              name="star"
+                              size={17}
+                              color={theme.color.accent}
+                            />
+                            <Text style={styles.carouselFamilyRatingText}>
+                              {familyRatingSummary.average.toFixed(1)}
+                            </Text>
+                          </View>
+                        ) : hasStarRating ? (
+                          <RatingStars value={meal.rating} size={14} gap={1} />
+                        ) : activePool.id === "fiveStars" ? (
+                          <MaterialCommunityIcons
+                            name="star"
+                            size={22}
+                            color={theme.color.accent}
+                            accessibilityLabel="Five-star meal"
+                          />
+                        ) : activePool.id === "familyStars" ? (
                           <Text
                             style={styles.carouselFamilyStar}
-                            accessibilityLabel={activePool.id === "fiveStars" ? "Five-star meal" : "Family Star meal"}
+                            accessibilityLabel="Family Star meal"
                           >
                             ⭐
                           </Text>
@@ -1473,6 +1523,16 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     carouselFamilyStar: {
       fontSize: 20,
+    },
+    carouselFamilyRating: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
+    },
+    carouselFamilyRatingText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
     },
     carouselEmoji: {
       fontSize: 49,
