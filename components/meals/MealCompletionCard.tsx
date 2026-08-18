@@ -32,6 +32,7 @@ import {
   classifyIngredientType,
 } from "../../utils/ingredientClassification";
 import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
+import { compareMealTitles } from "../../utils/mealTitleMatch";
 
 type Props = {
   meal: Meal;
@@ -438,10 +439,17 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
         : {}),
     };
     const detectedTitle = outcome.data.title?.trim() ?? "";
+    const fallbackTitleMatch = detectedTitle
+      ? compareMealTitles(meal.title, detectedTitle)
+      : null;
+    const serverMatchConfidence = outcome.data.matchConfidence ?? 0;
     const isConfidentMismatch =
       Boolean(detectedTitle) &&
-      outcome.data.matchesExistingMeal === false &&
-      (outcome.data.matchConfidence ?? 0) >= 0.75;
+      ((outcome.data.matchesExistingMeal === false &&
+        serverMatchConfidence >= 0.75) ||
+        (serverMatchConfidence === 0 &&
+          fallbackTitleMatch?.matches === false &&
+          fallbackTitleMatch.confidence >= 0.75));
     if (isConfidentMismatch) {
       Keyboard.dismiss();
       setPendingDifferentRecipe({ title: detectedTitle, patch });
