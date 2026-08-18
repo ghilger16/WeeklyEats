@@ -74,6 +74,7 @@ type Props = {
   onClearAutoPlan?: () => void;
   onKeepCurrentWeek?: () => void;
   onRestorePreviousWeek?: () => void;
+  maxDiscoveryRows?: number;
 };
 
 const CAROUSEL_GAP = 12;
@@ -108,6 +109,7 @@ export default function MealInspirationSection({
   onClearAutoPlan,
   onKeepCurrentWeek,
   onRestorePreviousWeek,
+  maxDiscoveryRows = 3,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -157,10 +159,14 @@ export default function MealInspirationSection({
   );
   const hasPlanItForMe = typeof onPlanItForMe === "function";
   const reservedDiscoverySlots = hasPlanItForMe ? 1 : 0;
+  const collapsedDiscoverySlots = Math.max(4, maxDiscoveryRows * 2);
   const hasMoreDiscoveryPools =
-    discoveryPools.length + reservedDiscoverySlots > 6;
+    discoveryPools.length + reservedDiscoverySlots > collapsedDiscoverySlots;
   const collapsedDiscoveryPools = hasMoreDiscoveryPools
-    ? discoveryPools.slice(0, Math.max(0, 5 - reservedDiscoverySlots))
+    ? discoveryPools.slice(
+        0,
+        Math.max(0, collapsedDiscoverySlots - reservedDiscoverySlots - 1),
+      )
     : discoveryPools;
   const displayedDiscoveryPools = isDiscoveryExpanded
     ? discoveryPools
@@ -1449,11 +1455,6 @@ const createStyles = (theme: WeeklyTheme) =>
       alignItems: "center",
       justifyContent: "center",
       gap: theme.space.md * 0.9,
-      shadowColor: "#000",
-      shadowOpacity: theme.mode === "dark" ? 0.22 : 0.1,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 3,
     },
     carouselCardSelected: {
       borderColor: theme.color.accent,

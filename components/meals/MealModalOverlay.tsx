@@ -155,7 +155,7 @@ export default function MealModalOverlay({
       {...panResponder.panHandlers}
     >
       <SafeAreaView
-        edges={["top", "bottom", "left", "right"]}
+        edges={["top", "left", "right"]}
         style={styles.safeArea}
       >
         <MealCard

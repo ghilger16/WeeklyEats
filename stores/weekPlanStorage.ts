@@ -20,6 +20,15 @@ const WEEK_PLAN_MAP_KEY = "@weeklyeats/weekPlanByWeek";
 const WEEK_PLAN_SIDES_MAP_KEY = "@weeklyeats/weekPlanSidesByWeek";
 const WEEK_PLAN_STREAK_KEY = "@weeklyeats/weekPlanStreak";
 const WEEK_PLAN_HISTORY_KEY = "@weeklyeats/weekPlanHistory";
+const WEEK_PLAN_DRAFT_MAP_KEY = "@weeklyeats/weekPlanDraftByWeek";
+
+export type WeekPlanDraft = {
+  plan: CurrentPlannedWeek;
+  sides: CurrentWeekSides;
+  updatedAtISO: string;
+};
+
+type WeekPlanDraftMap = Record<string, WeekPlanDraft>;
 
 export type WeekPlanStreak = {
   count: number;
@@ -203,6 +212,68 @@ const normalizeSides = (raw: unknown): CurrentWeekSides => {
     }
   });
   return sides;
+};
+
+const getDraftMap = async (): Promise<WeekPlanDraftMap> => {
+  try {
+    const raw = await AsyncStorage.getItem(WEEK_PLAN_DRAFT_MAP_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.entries(parsed).reduce<WeekPlanDraftMap>((drafts, [weekStartISO, value]) => {
+      if (!isValidISODateString(weekStartISO) || !value || typeof value !== "object") return drafts;
+      const candidate = value as { plan?: unknown; sides?: unknown; updatedAtISO?: unknown };
+      const plan = normalizePlan(candidate.plan, weekStartISO);
+      if (!plan) return drafts;
+      drafts[weekStartISO.slice(0, 10)] = {
+        plan,
+        sides: normalizeSides(candidate.sides),
+        updatedAtISO: isValidISODateString(candidate.updatedAtISO)
+          ? candidate.updatedAtISO
+          : new Date(0).toISOString(),
+      };
+      return drafts;
+    }, {});
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to read plan drafts", error);
+    return {};
+  }
+};
+
+export const getWeekPlanDraft = async (
+  weekStartISO: string,
+): Promise<WeekPlanDraft | null> => {
+  const drafts = await getDraftMap();
+  return drafts[weekStartISO.slice(0, 10)] ?? null;
+};
+
+export const setWeekPlanDraft = async (
+  weekStartISO: string,
+  plan: CurrentPlannedWeek,
+  sides: CurrentWeekSides,
+): Promise<void> => {
+  try {
+    const normalizedStart = weekStartISO.slice(0, 10);
+    const drafts = await getDraftMap();
+    drafts[normalizedStart] = {
+      plan: { ...plan, weekStartISO: normalizedStart, weekedPlanned: false },
+      sides: normalizeSides(sides),
+      updatedAtISO: new Date().toISOString(),
+    };
+    await AsyncStorage.setItem(WEEK_PLAN_DRAFT_MAP_KEY, JSON.stringify(drafts));
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to persist plan draft", error);
+  }
+};
+
+export const clearWeekPlanDraft = async (weekStartISO: string): Promise<void> => {
+  try {
+    const normalizedStart = weekStartISO.slice(0, 10);
+    const drafts = await getDraftMap();
+    delete drafts[normalizedStart];
+    await AsyncStorage.setItem(WEEK_PLAN_DRAFT_MAP_KEY, JSON.stringify(drafts));
+  } catch (error) {
+    console.warn("[weekPlanStorage] Failed to clear plan draft", error);
+  }
 };
 
 const normalizePlanMap = (raw: unknown): WeekPlanMap => {

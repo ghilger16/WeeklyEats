@@ -38,9 +38,13 @@ import {
   createEmptyCurrentPlannedWeek,
   createEmptyCurrentWeekSides,
 } from "../../types/weekPlan";
-import { Meal, MealDraft, createMealId } from "../../types/meals";
+import { Meal, createEmptyMealDraft, createMealId } from "../../types/meals";
 import { useCurrentWeekPlan } from "../../hooks/useCurrentWeekPlan";
 import {
+  clearWeekPlanDraft,
+  getWeekPlanDraft,
+  setWeekPlanDraft,
+  WeekPlanDraft,
   setCurrentWeekPlan,
   setCurrentWeekSides,
   addWeekPlanHistory,
@@ -98,6 +102,7 @@ import InlineSideEditor from "../../components/plan-week/inline/InlineSideEditor
 import CompactSidesSummary from "../../components/plan-week/inline/CompactSidesSummary";
 import { hasFullFreezerMeal } from "../../utils/freezerMealAmount";
 import InlineEatOutEditor from "../../components/plan-week/inline/InlineEatOutEditor";
+import InlineAddMealEditor from "../../components/plan-week/inline/InlineAddMealEditor";
 import {
   DayPinsState,
   createEmptyDayPinsMap,
@@ -269,6 +274,8 @@ export default function PlanWeekModal() {
   const [plannedCardPreviewDay, setPlannedCardPreviewDay] =
     useState<PlannedWeekDayKey | null>(null);
   const [resumePromptVisible, setResumePromptVisible] = useState(false);
+  const [resumeDraft, setResumeDraft] = useState<WeekPlanDraft | null>(null);
+  const [isDraftChecked, setDraftChecked] = useState(false);
   const [activeWizardAction, setActiveWizardAction] =
     useState<DayWizardAction | null>(null);
   const [isCelebratingSave, setIsCelebratingSave] = useState(false);
@@ -301,7 +308,7 @@ export default function PlanWeekModal() {
     nonce: number;
   } | null>(null);
   const [viewingMealId, setViewingMealId] = useState<Meal["id"] | null>(null);
-  const [creatingMealDay, setCreatingMealDay] =
+  const [addingMealDay, setAddingMealDay] =
     useState<PlannedWeekDayKey | null>(null);
   const [selectedSavedIdeaMealId, setSelectedSavedIdeaMealId] = useState<
     Meal["id"] | null
@@ -433,6 +440,28 @@ export default function PlanWeekModal() {
     handleRemoveSide,
     resetSides,
   } = usePlanSides({ activeDay });
+
+  const handleClosePlanWeek = useCallback(async () => {
+    const hasPlannedMeals = PLANNED_WEEK_ORDER.some(
+      (day) => typeof plannedWeek[day] === "string",
+    );
+
+    if (hasPlannedMeals && !plannedWeek.weekedPlanned) {
+      const planToSave: CurrentPlannedWeek = {
+        ...plannedWeek,
+        weekStartISO: planningWeekStartISO,
+        plannedScope: isRemainingMode ? "remaining" : "full",
+      };
+      try {
+        await setWeekPlanDraft(planningWeekStartISO, planToSave, daySidesMap);
+      } catch (error) {
+        console.warn("Unable to save the in-progress week before closing", error);
+      }
+    }
+
+    router.back();
+  }, [daySidesMap, isRemainingMode, plannedWeek, planningWeekStartISO, router]);
+
   const planningRangeStart = useMemo(() => {
     if (!isRemainingMode || !sessionDays.length) {
       return planningWeekStart;
@@ -481,8 +510,12 @@ export default function PlanWeekModal() {
   );
 
   const handleResumeContinue = useCallback(() => {
+    if (!resumeDraft) return;
+    setPlannedWeek(resumeDraft.plan);
+    resetSides(resumeDraft.sides);
+    initializedRef.current = true;
     setResumePromptVisible(false);
-  }, []);
+  }, [resetSides, resumeDraft]);
 
   useEffect(() => {
     if (
@@ -509,10 +542,8 @@ export default function PlanWeekModal() {
     setPlannedCardPreviewDay(null);
     setActiveWizardAction(null);
     setSavedIndicatorDay(null);
-    await Promise.all([
-      setCurrentWeekPlan(planningWeekStartISO, emptyPlan),
-      setCurrentWeekSides(planningWeekStartISO, emptySides),
-    ]);
+    setResumeDraft(null);
+    await clearWeekPlanDraft(planningWeekStartISO);
   }, [planningWeekStartISO, replaceDayPins, resetSides]);
   const isWeekComplete = useMemo(
     () => sessionDays.every((day) => Boolean(plannedWeek[day])),
@@ -530,12 +561,60 @@ export default function PlanWeekModal() {
       // becomes active so suggestions added from Meals and externally changed
       // plans are reflected in the dynamic inspiration pools.
       initializedRef.current = false;
-      refreshStoredPlan();
+      setDraftChecked(false);
+      let isActive = true;
+      Promise.all([
+        refreshStoredPlan(),
+        getWeekPlanDraft(planningWeekStartISO),
+      ]).then(([, draft]) => {
+        if (!isActive) return;
+        setResumeDraft(draft);
+        setDraftChecked(true);
+        const hasDraftMeals = Boolean(
+          draft &&
+            PLANNED_WEEK_ORDER.some(
+              (day) => typeof draft.plan[day] === "string",
+            ),
+        );
+        setResumePromptVisible(hasDraftMeals);
+      });
       return () => {
+        isActive = false;
         initializedRef.current = false;
       };
-    }, [refreshStoredPlan]),
+    }, [planningWeekStartISO, refreshStoredPlan]),
   );
+
+  useEffect(() => {
+    if (isLoading || !isDraftChecked || resumeDraft || plan.weekedPlanned) return;
+    const hasLegacyDraftMeals = PLANNED_WEEK_ORDER.some(
+      (day) => typeof plan[day] === "string",
+    );
+    if (!hasLegacyDraftMeals) return;
+
+    const migratedDraft: WeekPlanDraft = {
+      plan: { ...plan, weekedPlanned: false },
+      sides: storedSides,
+      updatedAtISO: new Date().toISOString(),
+    };
+    setResumeDraft(migratedDraft);
+    setResumePromptVisible(true);
+    void Promise.all([
+      setWeekPlanDraft(planningWeekStartISO, migratedDraft.plan, storedSides),
+      setCurrentWeekPlan(
+        planningWeekStartISO,
+        createEmptyCurrentPlannedWeek({ weekStartISO: planningWeekStartISO }),
+      ),
+      setCurrentWeekSides(planningWeekStartISO, createEmptyCurrentWeekSides()),
+    ]);
+  }, [
+    isDraftChecked,
+    isLoading,
+    plan,
+    planningWeekStartISO,
+    resumeDraft,
+    storedSides,
+  ]);
 
   useEffect(() => {
     if (isLoading || requestedEditDay) {
@@ -573,17 +652,37 @@ export default function PlanWeekModal() {
   }, [isLoading, resetSides, storedSides]);
 
   useEffect(() => {
-    if (isLoading) {
-      return;
-    }
-    const hasMeals = PLANNED_WEEK_ORDER.some(
-      (dayKey) => typeof plan[dayKey] === "string",
+    if (
+      isLoading ||
+      !initializedRef.current ||
+      resumePromptVisible ||
+      plannedWeek.weekedPlanned
+    ) return;
+    const hasPlannedMeals = PLANNED_WEEK_ORDER.some(
+      (day) => typeof plannedWeek[day] === "string",
     );
-    const isTargetWeek =
-      plan.weekStartISO === planningWeekStartISO || !plan.weekStartISO;
-    const shouldPromptResume = isTargetWeek && !plan.weekedPlanned && hasMeals;
-    setResumePromptVisible(shouldPromptResume);
-  }, [isLoading, plan, planningWeekStartISO, requestedEditDay]);
+    if (!hasPlannedMeals) return;
+
+    const saveTimer = setTimeout(() => {
+      const planToSave: CurrentPlannedWeek = {
+        ...plannedWeek,
+        weekStartISO: planningWeekStartISO,
+        plannedScope: isRemainingMode ? "remaining" : "full",
+      };
+      setWeekPlanDraft(planningWeekStartISO, planToSave, daySidesMap).catch((error) => {
+        console.warn("Unable to auto-save the in-progress week", error);
+      });
+    }, 100);
+
+    return () => clearTimeout(saveTimer);
+  }, [
+    daySidesMap,
+    isLoading,
+    isRemainingMode,
+    plannedWeek,
+    planningWeekStartISO,
+    resumePromptVisible,
+  ]);
 
   useEffect(() => {
     setActiveWizardAction(null);
@@ -1443,10 +1542,7 @@ export default function PlanWeekModal() {
       setSelectedMealPoolId(null);
       setPendingPlannedDay(day);
       try {
-        await Promise.all([
-          setCurrentWeekPlan(planningWeekStartISO, nextPlan),
-          setCurrentWeekSides(planningWeekStartISO, nextSidesMap),
-        ]);
+        await setWeekPlanDraft(planningWeekStartISO, nextPlan, nextSidesMap);
         await Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         ).catch(() => {});
@@ -1521,6 +1617,7 @@ export default function PlanWeekModal() {
         resetSides({ ...daySidesMap, [day]: [] });
       }
       setPendingEatOutDay(null);
+      setAddingMealDay(null);
       setPendingInlineMeal({ day, meal, sides: initialSides });
       Haptics.selectionAsync().catch(() => {});
     },
@@ -1546,10 +1643,42 @@ export default function PlanWeekModal() {
       });
       resetSides({ ...daySidesMap, [day]: [] });
       setPendingEatOutDay(null);
+      setAddingMealDay(null);
       setExpandedDrawerDay(null);
       Haptics.selectionAsync().catch(() => {});
     },
     [daySidesMap, isRemainingMode, planningWeekStartISO, resetSides],
+  );
+
+  const commitInlineNewMeal = useCallback(
+    (day: PlannedWeekDayKey, title: string) => {
+      const normalizedTitle = title.trim().replace(/\s+/g, " ").toLowerCase();
+      const existingMeal = meals.find(
+        (meal) =>
+          meal.title.trim().replace(/\s+/g, " ").toLowerCase() ===
+          normalizedTitle,
+      );
+      if (existingMeal) {
+        setAddingMealDay(null);
+        beginInlineMealEditing(day, existingMeal, null);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const draft = createEmptyMealDraft();
+      const meal: Meal = {
+        id: createMealId(),
+        ...draft,
+        title,
+        emoji: draft.emoji,
+        createdAt: now,
+        updatedAt: now,
+      };
+      addMeal(meal);
+      setAddingMealDay(null);
+      beginInlineMealEditing(day, meal, null);
+    },
+    [addMeal, beginInlineMealEditing, meals],
   );
 
   const removeInlineAssignment = useCallback((day: PlannedWeekDayKey) => {
@@ -1568,6 +1697,7 @@ export default function PlanWeekModal() {
     resetSides({ ...daySidesMap, [day]: [] });
     setPendingInlineMeal(null);
     setPendingEatOutDay(null);
+    setAddingMealDay(null);
     Haptics.selectionAsync().catch(() => {});
   }, [daySidesMap, resetSides]);
 
@@ -1733,9 +1863,9 @@ export default function PlanWeekModal() {
         setSelectedSavedIdeaMealId(null);
         setSelectedMealPoolId(null);
       }
-      await setCurrentWeekPlan(planningWeekStartISO, nextPlan);
+      await setWeekPlanDraft(planningWeekStartISO, nextPlan, daySidesMap);
     },
-    [plannedWeek, planningWeekStartISO, selectedSavedIdeaMealId],
+    [daySidesMap, plannedWeek, planningWeekStartISO, selectedSavedIdeaMealId],
   );
 
   const handleSelectCarryOverMeal = useCallback(
@@ -2030,6 +2160,7 @@ export default function PlanWeekModal() {
       const saveTasks: Promise<unknown>[] = [
         setCurrentWeekPlan(planningWeekStartISO, completedPlan),
         setCurrentWeekSides(planningWeekStartISO, daySidesMap),
+        clearWeekPlanDraft(planningWeekStartISO),
       ];
       if (!isRemainingMode) {
         saveTasks.push(
@@ -2048,6 +2179,7 @@ export default function PlanWeekModal() {
         );
       }
       await Promise.all(saveTasks);
+      setResumeDraft(null);
       setAutoPlanSession(null);
       setAlternateWeekSnapshot(null);
       setCompleteWeekPromptVisible(false);
@@ -2126,10 +2258,7 @@ export default function PlanWeekModal() {
       setPlannedCardPreviewDay(null);
       setPendingPlannedDay(null);
       setActiveWizardAction(null);
-      await Promise.all([
-        setCurrentWeekPlan(planningWeekStartISO, nextPlan),
-        setCurrentWeekSides(planningWeekStartISO, nextSides),
-      ]);
+      await setWeekPlanDraft(planningWeekStartISO, nextPlan, nextSides);
     },
     [
       daySidesMap,
@@ -2156,23 +2285,6 @@ export default function PlanWeekModal() {
     [updateMeal],
   );
 
-  const handleCreatePlannedMeal = useCallback(
-    (draft: MealDraft) => {
-      const now = new Date().toISOString();
-      const meal: Meal = {
-        id: createMealId(),
-        ...draft,
-        createdAt: draft.createdAt ?? now,
-        updatedAt: now,
-      };
-      addMeal(meal);
-      if (creatingMealDay) {
-        beginInlineMealEditing(creatingMealDay, meal, null);
-      }
-    },
-    [addMeal, beginInlineMealEditing, creatingMealDay],
-  );
-
   const handlePlannerSave = useCallback(async () => {
     if (!plannerSelection.meal) {
       return;
@@ -2195,10 +2307,7 @@ export default function PlanWeekModal() {
     };
     setPlannedWeek(nextPlan);
     try {
-      await Promise.all([
-        setCurrentWeekPlan(planningWeekStartISO, nextPlan),
-        setCurrentWeekSides(planningWeekStartISO, daySidesMap),
-      ]);
+      await setWeekPlanDraft(planningWeekStartISO, nextPlan, daySidesMap);
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success,
       ).catch(() => {});
@@ -2277,10 +2386,9 @@ export default function PlanWeekModal() {
         edges={["top", "left", "right", "bottom"]}
       >
         <View style={styles.resumeCard}>
-          <Text style={styles.resumeTitle}>Resume planning?</Text>
+          <Text style={styles.resumeTitle}>Resume Planning?</Text>
           <Text style={styles.resumeSubtitle}>
-            You already saved some meals for this week. Continue where you left
-            off or start over.
+            You already saved some meals for this week.
           </Text>
           <View style={styles.resumeActions}>
             <Pressable
@@ -2327,12 +2435,12 @@ export default function PlanWeekModal() {
     <View style={styles.swipeContainer}>
       <SafeAreaView
         style={styles.safe}
-        edges={["top", "left", "right", "bottom"]}
+        edges={["left", "right", "bottom"]}
       >
         <PlanWeekHeader
           isSummaryVisible={isSummaryVisible}
           onClose={
-            isDayPlanningStep ? handleBackToWizardOptions : () => router.back()
+            isDayPlanningStep ? handleBackToWizardOptions : handleClosePlanWeek
           }
           onOpenSummary={handleOpenSummary}
           onToggleCalendar={
@@ -2407,6 +2515,7 @@ export default function PlanWeekModal() {
                 onClearAutoPlan={handleClearAutoPlan}
                 onKeepCurrentWeek={handleKeepCurrentWeek}
                 onRestorePreviousWeek={handleRestorePreviousWeek}
+                maxDiscoveryRows={sessionDays.length >= 4 ? 2 : 3}
                 beforeActivePoolContent={
                   resolvedActiveInspirationPoolId === "beenAwhile" ? (
                     <CarryOverSection
@@ -2455,6 +2564,7 @@ export default function PlanWeekModal() {
                       ? pendingInlineMeal.meal
                       : null;
                   const isEditingEatOut = pendingEatOutDay === day;
+                  const isAddingMeal = addingMealDay === day;
                   const displayedMeal = isEditingEatOut
                     ? EAT_OUT_MEAL
                     : temporaryMeal ?? plannedMeal;
@@ -2553,8 +2663,14 @@ export default function PlanWeekModal() {
                             setExpandedDrawerDay(null);
                             return;
                           }
+                          if (isAddingMeal) {
+                            setAddingMealDay(null);
+                            setExpandedDrawerDay(null);
+                            return;
+                          }
                           setPendingInlineMeal(null);
                           setPendingEatOutDay(null);
+                          setAddingMealDay(null);
                           setExpandedDrawerDay((current) =>
                             current === day ? null : day,
                           );
@@ -2667,7 +2783,15 @@ export default function PlanWeekModal() {
                         </View>
                       </Pressable>
                       {isExpanded ? (
-                        isEditingEatOut ? (
+                        isAddingMeal ? (
+                          <InlineAddMealEditor
+                            key={day}
+                            day={day}
+                            onBack={() => setAddingMealDay(null)}
+                            onSave={(title) => commitInlineNewMeal(day, title)}
+                            onExpandedLayout={() => focusExpandedDay(day)}
+                          />
+                        ) : isEditingEatOut ? (
                           <InlineEatOutEditor
                             key={`${day}-${plannedWeek.specialMealTitles?.[day] ?? ""}`}
                             day={day}
@@ -2759,8 +2883,14 @@ export default function PlanWeekModal() {
                             }
                             onAddNewMeal={() => {
                               Keyboard.dismiss();
-                              setCreatingMealDay(day);
+                              setPendingEatOutDay(null);
+                              setAddingMealDay(day);
                             }}
+                            onAddMealFromSearch={
+                              plannedMeal
+                                ? undefined
+                                : (title) => commitInlineNewMeal(day, title)
+                            }
                             onSelectEatOut={() => setPendingEatOutDay(day)}
                             onSelectFlexNight={() =>
                               assignInlineMeal(day, FLEX_NIGHT_MEAL)
@@ -2789,29 +2919,6 @@ export default function PlanWeekModal() {
                 })}
               </View>
 
-              {!autoPlanSession && !isCompleteWeekPromptVisible ? (
-              <Pressable
-                onPress={handleSavePlan}
-                disabled={!isWeekComplete || isSaving || isCelebratingSave}
-                accessibilityRole="button"
-                accessibilityLabel="Save planned week"
-                style={({ pressed }) => [
-                  styles.saveButton,
-                  styles.inlineSaveButton,
-                  !isWeekComplete && styles.saveButtonDisabled,
-                  pressed && isWeekComplete && styles.saveButtonPressed,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.saveButtonText,
-                    !isWeekComplete && styles.saveButtonTextDisabled,
-                  ]}
-                >
-                  Save Plan
-                </Text>
-              </Pressable>
-              ) : null}
             </View>
           ) : null}
 
@@ -2877,7 +2984,8 @@ export default function PlanWeekModal() {
         <View style={styles.footer}>
           {isWeekComplete &&
             !isSummaryVisible &&
-            activeWizardAction && (
+            !autoPlanSession &&
+            !isCompleteWeekPromptVisible && (
               <Pressable
                 onPress={handleSavePlan}
                 disabled={isSaving || isCelebratingSave}
@@ -2983,13 +3091,6 @@ export default function PlanWeekModal() {
         meal={viewingMeal}
         onDismiss={() => setViewingMealId(null)}
         onCreateMeal={() => {}}
-        onUpdateMeal={handleUpdateViewedMeal}
-      />
-      <MealModalOverlay
-        visible={Boolean(creatingMealDay)}
-        mode="create"
-        onDismiss={() => setCreatingMealDay(null)}
-        onCreateMeal={handleCreatePlannedMeal}
         onUpdateMeal={handleUpdateViewedMeal}
       />
     </View>
@@ -3365,17 +3466,6 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.bold,
-    },
-    saveButtonDisabled: {
-      backgroundColor: theme.color.surfaceAlt,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-    },
-    inlineSaveButton: {
-      marginBottom: theme.space.xl,
-    },
-    saveButtonTextDisabled: {
-      color: theme.color.subtleInk,
     },
     outlineSaveButton: {
       minHeight: theme.component.button.height,

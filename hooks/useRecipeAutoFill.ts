@@ -17,7 +17,10 @@ const initialState: AutoFillState = {
   result: null,
 };
 
-export const useRecipeAutoFill = (url: string | undefined) => {
+export const useRecipeAutoFill = (
+  url: string | undefined,
+  existingMealTitle?: string,
+) => {
   const [state, setState] = useState<AutoFillState>(initialState);
 
   const requestAutoFill = useCallback(async () => {
@@ -34,7 +37,7 @@ export const useRecipeAutoFill = (url: string | undefined) => {
 
     setState({ isLoading: true, error: null, result: null });
 
-    const outcome = await autoFillMealFromUrl(url);
+    const outcome = await autoFillMealFromUrl(url, existingMealTitle);
 
     if (outcome.ok) {
       setState({ isLoading: false, error: null, result: outcome.data });
@@ -43,7 +46,7 @@ export const useRecipeAutoFill = (url: string | undefined) => {
     }
 
     return outcome;
-  }, [url]);
+  }, [existingMealTitle, url]);
 
   const resetAutoFill = useCallback(() => {
     setState(initialState);

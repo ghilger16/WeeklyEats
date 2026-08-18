@@ -530,6 +530,7 @@ export default function OnboardingScreen() {
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
+        enabled={step !== "family"}
         style={styles.keyboardView}
       >
         <View style={styles.topBar}>

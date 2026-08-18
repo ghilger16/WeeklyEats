@@ -298,7 +298,7 @@ const sortIngredientsForShopping = (ingredients) =>
       return a.name.localeCompare(b.name);
     });
 
-const buildOpenAiPayload = (url, text) => ({
+const buildOpenAiPayload = (url, text, existingMealTitle = "") => ({
   model: OPENAI_MODEL,
   temperature: 0.2,
   max_tokens: 1400,
@@ -311,7 +311,7 @@ const buildOpenAiPayload = (url, text) => ({
     {
       role: "user",
       content: [
-        "Return a JSON object with keys: title, ingredients, cuisine, difficulty, expense, prepNotes.",
+        "Return a JSON object with keys: title, ingredients, cuisine, difficulty, expense, prepNotes, suggestedSides, matchesExistingMeal, matchConfidence.",
 
         "For title, invent the short meal name a family would say at dinner. Do not copy the recipe page title.",
         "Title should usually be 2-4 words and under 28 characters.",
@@ -370,6 +370,11 @@ const buildOpenAiPayload = (url, text) => ({
 
         "PrepNotes should only include advance-ahead tasks, like defrosting or marinating. Keep it short.",
         "Difficulty and expense are integers 1-5. PrepNotes is short.",
+        "SuggestedSides is an array of 0-3 short side dish names that naturally pair with the recipe.",
+
+        existingMealTitle
+          ? `Compare the detected recipe with the existing meal named \"${existingMealTitle}\". Set matchesExistingMeal to true when they are the same general meal despite modifiers, proteins, styles, or minor naming differences. Examples: Burgers and Classic Smash Burgers; Tacos and Ground Beef Tacos; Spaghetti and Spaghetti & Meatballs; Pizza and Homemade Pepperoni Pizza. Set it to false only when they are clearly different dishes, such as Burgers and Chicken Alfredo or Chili and Lasagna. Return matchConfidence from 0 to 1. Be conservative: uncertainty should produce matchesExistingMeal true or a low confidence. Do not reject reasonable variants.`
+          : "Set matchesExistingMeal to true and matchConfidence to 0 when no existing meal title is supplied.",
 
         "Cuisine must be one of these exact values only:",
         CUISINE_OPTIONS.join(", "),
@@ -457,6 +462,10 @@ exports.handler = async (event) => {
   const suggestionTitle =
     typeof body.suggestionTitle === "string" ? body.suggestionTitle.trim() : "";
   const url = typeof body.url === "string" ? body.url.trim() : "";
+  const existingMealTitle =
+    typeof body.existingMealTitle === "string"
+      ? body.existingMealTitle.trim()
+      : "";
   if (!url && !suggestionTitle) {
     return {
       statusCode: 400,
@@ -498,7 +507,7 @@ exports.handler = async (event) => {
       };
     }
     const trimmedText = stripHtml(html).slice(0, MAX_HTML_CHARS);
-    aiPayload = buildOpenAiPayload(url, trimmedText);
+    aiPayload = buildOpenAiPayload(url, trimmedText, existingMealTitle);
   }
 
   let aiResponse;
@@ -589,6 +598,20 @@ exports.handler = async (event) => {
   const cuisine = CUISINE_OPTIONS.includes(parsed.cuisine)
     ? parsed.cuisine
     : null;
+  const suggestedSides = Array.isArray(parsed.suggestedSides)
+    ? parsed.suggestedSides
+        .filter((side) => typeof side === "string" && side.trim())
+        .map((side) => side.trim())
+        .slice(0, 3)
+    : [];
+  const matchesExistingMeal =
+    typeof parsed.matchesExistingMeal === "boolean"
+      ? parsed.matchesExistingMeal
+      : true;
+  const matchConfidence =
+    typeof parsed.matchConfidence === "number"
+      ? Math.min(Math.max(parsed.matchConfidence, 0), 1)
+      : 0;
 
   return {
     statusCode: 200,
@@ -601,6 +624,9 @@ exports.handler = async (event) => {
         difficulty,
         expense,
         prepNotes,
+        suggestedSides,
+        matchesExistingMeal,
+        matchConfidence,
       },
     }),
   };

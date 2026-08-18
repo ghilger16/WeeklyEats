@@ -66,6 +66,8 @@ import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
 import { getGalaxyMealId } from "../../../utils/galaxyMeal";
 import { getFamilyRatingSummary } from "../../../utils/familyRatings";
 import { CUISINE_OPTIONS } from "../../../types/cuisine";
+import { mealHasIngredientInformation } from "../../../utils/missingPlannedIngredients";
+import { suggestEmojiForTitle } from "../../../utils/emojiCatalog";
 
 const getMealRatingValue = (meal: Meal, familyMemberIds: string[]) => {
   const calculatedRating =
@@ -295,9 +297,16 @@ const AnimatedCount = ({ value, style }: { value: number; style: object }) => {
 };
 
 export default function MealsScreen() {
-  const { url: sharedRecipeUrlParam, mealId: requestedMealIdParam } = useLocalSearchParams<{
+  const {
+    url: sharedRecipeUrlParam,
+    mealId: requestedMealIdParam,
+    completeFromGrocery,
+    plannedMissingMealIds,
+  } = useLocalSearchParams<{
     url?: string | string[];
     mealId?: string | string[];
+    completeFromGrocery?: string | string[];
+    plannedMissingMealIds?: string | string[];
   }>();
   const requestedMealId = Array.isArray(requestedMealIdParam)
     ? requestedMealIdParam[0]
@@ -323,7 +332,11 @@ export default function MealsScreen() {
     deleteMeal,
   } = useMeals();
   const [activeTab, setActiveTab] = useState<MealTabKey>("all");
+  const [contextualPlannedMealIds, setContextualPlannedMealIds] = useState<
+    string[]
+  >([]);
   const mealsListRef = useRef<FlatList<Meal> | null>(null);
+  const mealsListOffsetRef = useRef(0);
   const [selectedMealId, setSelectedMealId] = useState<string | undefined>();
   const openedRequestedMealRef = useRef<string | null>(null);
   const [isModalVisible, setModalVisible] = useState(false);
@@ -395,11 +408,26 @@ export default function MealsScreen() {
 
   const handleTabChange = useCallback(
     (tab: MealTabKey) => {
+      if (tab !== "complete") setContextualPlannedMealIds([]);
       setActiveTab(tab);
       animateContent(tab);
     },
     [animateContent]
   );
+
+  useEffect(() => {
+    const source = Array.isArray(completeFromGrocery)
+      ? completeFromGrocery[0]
+      : completeFromGrocery;
+    if (source !== "1") return;
+    const idsValue = Array.isArray(plannedMissingMealIds)
+      ? plannedMissingMealIds[0]
+      : plannedMissingMealIds;
+    const ids = (idsValue ?? "").split(",").filter(Boolean);
+    setContextualPlannedMealIds(ids);
+    setActiveTab("complete");
+    animateContent("complete");
+  }, [animateContent, completeFromGrocery, plannedMissingMealIds]);
 
   const filterMealsForSearch = useCallback(
     (sourceMeals: Meal[]) => {
@@ -623,18 +651,43 @@ export default function MealsScreen() {
     () => sortMealsList(incompleteMeals),
     [incompleteMeals, sortMealsList]
   );
+  const contextualPlannedMeals = useMemo(
+    () =>
+      contextualPlannedMealIds.flatMap((mealId) => {
+        const meal = sortedIncompleteMeals.find(
+          (candidate) => candidate.id === mealId,
+        );
+        return meal && !mealHasIngredientInformation(meal) ? [meal] : [];
+      }),
+    [contextualPlannedMealIds, sortedIncompleteMeals],
+  );
+  const contextualPlannedMealIdSet = useMemo(
+    () => new Set(contextualPlannedMeals.map((meal) => meal.id)),
+    [contextualPlannedMeals],
+  );
+  const otherIncompleteMeals = useMemo(
+    () =>
+      sortedIncompleteMeals.filter(
+        (meal) => !contextualPlannedMealIdSet.has(meal.id),
+      ),
+    [contextualPlannedMealIdSet, sortedIncompleteMeals],
+  );
+  const completeMeals = useMemo(
+    () => [...contextualPlannedMeals, ...otherIncompleteMeals],
+    [contextualPlannedMeals, otherIncompleteMeals],
+  );
   const completedMealCount = Math.max(0, meals.length - incompleteMeals.length);
 
   const data =
     activeTab === "all"
       ? sortedAllMeals
       : activeTab === "complete"
-      ? sortedIncompleteMeals
+      ? completeMeals
       : sortedFavorites;
 
   const scrollCompletionMealToTop = useCallback(
     (mealId: string) => {
-      const index = sortedIncompleteMeals.findIndex((meal) => meal.id === mealId);
+      const index = completeMeals.findIndex((meal) => meal.id === mealId);
       if (index < 0) return;
       requestAnimationFrame(() => {
         mealsListRef.current?.scrollToIndex({
@@ -644,7 +697,25 @@ export default function MealsScreen() {
         });
       });
     },
-    [sortedIncompleteMeals]
+    [completeMeals]
+  );
+
+  const scrollCompletionInputAboveKeyboard = useCallback(
+    (mealId: string) => {
+      const index = completeMeals.findIndex(
+        (meal) => meal.id === mealId,
+      );
+      if (index < 0) return;
+      setTimeout(() => {
+        mealsListRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: 0,
+          viewOffset: theme.space.sm,
+        });
+      }, 200);
+    },
+    [completeMeals, theme.space.sm],
   );
 
   const handleSortChange = useCallback(
@@ -910,7 +981,7 @@ export default function MealsScreen() {
   );
 
   const renderMeal: ListRenderItem<Meal> = useCallback(
-    ({ item }) => {
+    ({ item, index }) => {
       if (activeTab === "complete") {
         const handleApply = (confirmed: Ingredient[]) => {
           updateMeal({
@@ -928,14 +999,83 @@ export default function MealsScreen() {
             updatedAt: new Date().toISOString(),
           });
         };
+        const startsOtherMeals =
+          contextualPlannedMeals.length > 0 &&
+          index === contextualPlannedMeals.length;
         return (
-          <MealCompletionCard
-            meal={item}
-            onApply={handleApply}
-            onUpdateDetails={handleUpdateDetails}
-            onExpand={() => scrollCompletionMealToTop(item.id)}
-            isLastIncomplete={sortedIncompleteMeals.length === 1}
-          />
+          <View style={styles.completeMealGroup}>
+            {startsOtherMeals ? (
+              <View style={styles.completeSectionHeader}>
+                <Text style={styles.completeSectionTitle}>
+                  OTHER MEALS TO COMPLETE
+                </Text>
+              </View>
+            ) : null}
+            <MealCompletionCard
+              meal={item}
+              onApply={handleApply}
+              onUpdateDetails={handleUpdateDetails}
+              onAutoFill={(patch) => {
+                updateMeal({
+                  id: item.id,
+                  ...patch,
+                  ingredients: patch.ingredients
+                    ? mergeConfirmedIngredients(item.ingredients, patch.ingredients)
+                    : item.ingredients,
+                  updatedAt: new Date().toISOString(),
+                });
+              }}
+              onAddAutoFilledMeal={(title, patch) => {
+                const now = new Date().toISOString();
+                const expense = patch.expense;
+                addMeal({
+                  id: createMealId(),
+                  title,
+                  emoji: suggestEmojiForTitle(title) ?? "🍽️",
+                  rating: 0,
+                  familyRatings: {},
+                  servedCount: 0,
+                  showServedCount: false,
+                  plannedCostTier:
+                    typeof expense !== "number" ? 2 : expense <= 2 ? 1 : expense >= 4 ? 3 : 2,
+                  locked: false,
+                  isFavorite: false,
+                  freezerQuantity: "",
+                  freezerAmount: "",
+                  freezerUnit: "",
+                  ingredients: patch.ingredients ?? [],
+                  difficulty: patch.difficulty,
+                  expense: patch.expense,
+                  cuisine: patch.cuisine,
+                  prepNotes: patch.prepNotes,
+                  preferredSides: patch.preferredSides,
+                  recipeUrl: patch.recipeUrl,
+                  createdAt: now,
+                  updatedAt: now,
+                });
+              }}
+              onReplaceWithAutoFilledMeal={(title, patch) => {
+                updateMeal({
+                  id: item.id,
+                  title,
+                  ...patch,
+                  ingredients: patch.ingredients ?? item.ingredients,
+                  updatedAt: new Date().toISOString(),
+                });
+              }}
+              onExpand={() => scrollCompletionMealToTop(item.id)}
+              onManualIngredientFocus={() =>
+                scrollCompletionInputAboveKeyboard(item.id)
+              }
+              onManualIngredientNeedsScroll={(overlap) => {
+                mealsListRef.current?.scrollToOffset({
+                  offset: Math.max(0, mealsListOffsetRef.current + overlap),
+                  animated: true,
+                });
+              }}
+              isLastIncomplete={completeMeals.length === 1}
+            />
+          </View>
         );
       }
       const isFreezerTab = activeTab === "favorites";
@@ -967,8 +1107,11 @@ export default function MealsScreen() {
       onOpenMeal,
       openFreezerModal,
       galaxyMealId,
+      completeMeals.length,
+      contextualPlannedMeals.length,
       scrollCompletionMealToTop,
-      sortedIncompleteMeals.length,
+      scrollCompletionInputAboveKeyboard,
+      styles,
       updateMeal,
     ]
   );
@@ -1341,6 +1484,10 @@ export default function MealsScreen() {
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
+            onScroll={(event) => {
+              mealsListOffsetRef.current = event.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={16}
             refreshControl={
               <RefreshControl
                 testID="meals-refresh-control"
@@ -1379,7 +1526,7 @@ export default function MealsScreen() {
                     <View style={styles.completeStatDivider} />
                     <View style={styles.completeStat}>
                       <View style={[styles.completeStatIcon, styles.completeStatIconGold]}>
-                        <MaterialCommunityIcons name="check-circle-outline" size={22} color={theme.color.warning} />
+                        <MaterialCommunityIcons name="check-circle-outline" size={22} color={theme.color.success} />
                       </View>
                       <View style={styles.completeStatDetails}>
                         <AnimatedCount value={completedMealCount} style={styles.completeStatNumber} />
@@ -1389,7 +1536,11 @@ export default function MealsScreen() {
                   </View>
 
                   {incompleteMeals.length > 0 ? <View style={styles.completeSectionHeader}>
-                    <Text style={styles.completeSectionTitle}>Needs attention</Text>
+                    <Text style={styles.completeSectionTitle}>
+                      {contextualPlannedMeals.length > 0
+                        ? "PLANNED THIS WEEK"
+                        : "Needs attention"}
+                    </Text>
                   </View> : null}
                 </View>
               ) : activeTab === "all" ? (
@@ -1982,6 +2133,7 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingHorizontal: theme.space.xs,
       paddingTop: theme.space.xs,
     },
+    completeMealGroup: { gap: theme.space.md },
     completeSectionTitle: {
       color: theme.color.ink,
       fontSize: theme.type.size.title,

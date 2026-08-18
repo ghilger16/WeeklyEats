@@ -60,6 +60,7 @@ type GroceryListContentProps = {
   showHeader?: boolean;
   useSafeArea?: boolean;
   weekNavigator?: ReactNode;
+  missingIngredientsAlert?: ReactNode;
 };
 
 type GroceryTabLayout = {
@@ -256,6 +257,7 @@ export function GroceryListContent({
   showHeader = true,
   useSafeArea = true,
   weekNavigator,
+  missingIngredientsAlert,
 }: GroceryListContentProps) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -875,6 +877,7 @@ export function GroceryListContent({
           }
         }}
       >
+        {viewMode === "meal" ? missingIngredientsAlert : null}
         {viewMode === "meal" ? (
           itemsByMeal.map((group) => {
             const groupKey = `${group.dayTitle}-${group.mealTitle}`;

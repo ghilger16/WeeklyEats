@@ -12,7 +12,7 @@ import {
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import MealEmoji from "../../emoji/MealEmoji";
 import { ServedMealEntry } from "../../../stores/servedMealsStorage";
-import { WeeklyTheme } from "../../../styles/theme";
+import { alpha, WeeklyTheme } from "../../../styles/theme";
 import { Meal } from "../../../types/meals";
 import { isSpecialMealId } from "../../../types/specialMeals";
 import {
@@ -28,6 +28,7 @@ type Props = {
   assignedMeal: Meal | null;
   onSelectMeal: (meal: Meal) => void;
   onAddNewMeal?: () => void;
+  onAddMealFromSearch?: (title: string) => void;
   onSelectEatOut: () => void;
   onSelectFlexNight: () => void;
   onEditSides: () => void;
@@ -44,6 +45,7 @@ export default function InlineDaySearch({
   assignedMeal,
   onSelectMeal,
   onAddNewMeal,
+  onAddMealFromSearch,
   onSelectEatOut,
   onSelectFlexNight,
   onEditSides,
@@ -138,17 +140,6 @@ export default function InlineDaySearch({
                 theme={theme}
               />
             ) : null}
-            {onAddNewMeal ? (
-              <QuickOption
-                icon="plus-circle-outline"
-                label="Add New Meal"
-                accessibilityLabel={`Add a new meal for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
-                onPress={onAddNewMeal}
-                accent
-                styles={styles}
-                theme={theme}
-              />
-            ) : null}
             <QuickOption
               icon="silverware-fork-knife"
               label="Eat Out"
@@ -156,9 +147,19 @@ export default function InlineDaySearch({
               styles={styles}
               theme={theme}
             />
+            {onAddNewMeal ? (
+              <QuickOption
+                icon="plus-circle-outline"
+                label="Add Meal"
+                accessibilityLabel={`Add a new meal for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
+                onPress={onAddNewMeal}
+                styles={styles}
+                theme={theme}
+              />
+            ) : null}
             <QuickOption
               icon="sync"
-              label="Flex Night"
+              label="Flex Meal"
               onPress={onSelectFlexNight}
               styles={styles}
               theme={theme}
@@ -169,7 +170,9 @@ export default function InlineDaySearch({
       ) : null}
       <Text style={styles.sectionTitle}>
         {normalizedQuery
-          ? "Search Results"
+          ? resultMeals.length
+            ? "Search Results"
+            : "No Matches"
           : `${PLANNED_WEEK_DISPLAY_NAMES[day]} Favorites`}
       </Text>
       {resultMeals.length ? (
@@ -200,6 +203,40 @@ export default function InlineDaySearch({
             </Pressable>
           ))}
         </View>
+      ) : normalizedQuery && onAddMealFromSearch ? (
+        <Pressable
+          onPress={() => {
+            Keyboard.dismiss();
+            onAddMealFromSearch(query.trim());
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`Add ${query.trim()} and plan it for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
+          style={({ pressed }) => [
+            styles.addSearchMealRow,
+            pressed && styles.pressed,
+          ]}
+        >
+          <View style={styles.addSearchMealIcon}>
+            <MaterialCommunityIcons
+              name="plus"
+              size={24}
+              color={theme.color.accent}
+            />
+          </View>
+          <View style={styles.addSearchMealCopy}>
+            <Text numberOfLines={1} style={styles.addSearchMealTitle}>
+              Add “{query.trim()}”
+            </Text>
+            <Text numberOfLines={1} style={styles.addSearchMealSubtitle}>
+              Create meal and plan for {PLANNED_WEEK_DISPLAY_NAMES[day]}
+            </Text>
+          </View>
+          <MaterialCommunityIcons
+            name="chevron-right"
+            size={28}
+            color={theme.color.subtleInk}
+          />
+        </Pressable>
       ) : (
         <Text style={styles.empty}>No meals found</Text>
       )}
@@ -213,7 +250,6 @@ function QuickOption({
   accessibilityLabel,
   onPress,
   destructive = false,
-  accent = false,
   styles,
   theme,
 }: {
@@ -228,7 +264,6 @@ function QuickOption({
   accessibilityLabel?: string;
   onPress: () => void;
   destructive?: boolean;
-  accent?: boolean;
   styles: ReturnType<typeof createStyles>;
   theme: WeeklyTheme;
 }) {
@@ -246,19 +281,12 @@ function QuickOption({
       <MaterialCommunityIcons
         name={icon}
         size={27}
-        color={
-          destructive
-            ? theme.color.danger
-            : accent
-              ? theme.color.accent
-              : theme.color.ink
-        }
+        color={destructive ? theme.color.danger : theme.color.ink}
       />
       <Text
         style={[
           styles.quickOptionText,
           destructive && styles.quickOptionTextDestructive,
-          accent && styles.quickOptionTextAccent,
         ]}
       >
         {label}
@@ -277,11 +305,15 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   quickOptionDestructive: { borderColor: theme.color.danger },
   quickOptionText: { color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
   quickOptionTextDestructive: { color: theme.color.danger },
-  quickOptionTextAccent: { color: theme.color.accent },
   divider: { height: StyleSheet.hairlineWidth, marginTop: theme.space.xs, backgroundColor: theme.color.border },
   mealRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.border },
   mealEmoji: { width: 32, textAlign: "center", fontSize: 22 },
   mealTitle: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
+  addSearchMealRow: { minHeight: 78, flexDirection: "row", alignItems: "center", gap: theme.space.md, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, borderRadius: theme.radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.cardOutline, backgroundColor: theme.color.surface },
+  addSearchMealIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.full, backgroundColor: alpha(theme.color.accent, 0.16) },
+  addSearchMealCopy: { flex: 1, gap: 2 },
+  addSearchMealTitle: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+  addSearchMealSubtitle: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, lineHeight: 17 },
   empty: { minHeight: 48, textAlignVertical: "center", color: theme.color.subtleInk, fontSize: theme.type.size.base },
   pressed: { opacity: 0.7 },
 });

@@ -37,6 +37,7 @@ export default function WeekPlanSavedCelebration({
   const streakOpacity = useRef(new Animated.Value(0)).current;
   const streakPop = useRef(new Animated.Value(0.7)).current;
   const exitProgress = useRef(new Animated.Value(0)).current;
+  const dashboardRevealProgress = useRef(new Animated.Value(0)).current;
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statOpacities = useRef(
     Array.from({ length: 4 }, () => new Animated.Value(0)),
@@ -95,21 +96,33 @@ export default function WeekPlanSavedCelebration({
       streakOpacity.stopAnimation();
       streakPop.stopAnimation();
       exitProgress.stopAnimation();
+      dashboardRevealProgress.stopAnimation();
       if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
     };
   }, []);
+
+  const exitToDashboard = () => {
+    Animated.timing(exitProgress, {
+      toValue: 1,
+      duration: reduceMotion ? 140 : 260,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => {
+      Animated.timing(dashboardRevealProgress, {
+        toValue: 1,
+        duration: reduceMotion ? 160 : 300,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start(onComplete);
+    });
+  };
 
   const handleContinue = () => {
     if (isAdvancing) return;
     setIsAdvancing(true);
 
     if (!hasStreak) {
-      Animated.timing(exitProgress, {
-        toValue: 1,
-        duration: reduceMotion ? 180 : 360,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }).start(onComplete);
+      exitToDashboard();
       return;
     }
 
@@ -148,12 +161,7 @@ export default function WeekPlanSavedCelebration({
       ]).start(() => {
         setIsAdvancing(false);
         dismissTimerRef.current = setTimeout(() => {
-          Animated.timing(exitProgress, {
-            toValue: 1,
-            duration: reduceMotion ? 180 : 360,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }).start(onComplete);
+          exitToDashboard();
         }, isMilestone ? 2000 : 1700);
       });
       Haptics.notificationAsync(
@@ -170,24 +178,31 @@ export default function WeekPlanSavedCelebration({
         style={[
           styles.scrim,
           {
-            opacity: exitProgress.interpolate({
+            opacity: dashboardRevealProgress.interpolate({
               inputRange: [0, 1],
               outputRange: [0.96, 0],
             }),
           },
         ]}
       />
-      <Animated.View style={[styles.contentWrap, { opacity: cardOpacity }]}>
+      <Animated.View
+        style={[
+          styles.contentWrap,
+          {
+            opacity: Animated.multiply(
+              cardOpacity,
+              exitProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 0],
+              }),
+            ),
+          },
+        ]}
+      >
         <Animated.View
           style={[
             styles.card,
             { transform: [{ scale: cardScale }] },
-            stage === "streak" && {
-              opacity: exitProgress.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 0],
-              }),
-            },
           ]}
         >
         {stage === "summary" ? (

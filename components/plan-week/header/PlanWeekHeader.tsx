@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useMemo } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
 import { CurrentPlannedWeek, PlannedWeekDayKey } from "../../../types/weekPlan";
@@ -32,6 +33,7 @@ const PlanWeekHeader = ({
   activeDay,
 }: PlanWeekHeaderProps) => {
   const { theme } = useThemeController();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const showDaysIndicator =
     isDayPlanningStep && orderedDays && plannedWeek && activeDay;
@@ -41,7 +43,14 @@ const PlanWeekHeader = ({
     : isSummaryVisible;
 
   return (
-    <View style={styles.header}>
+    <View
+      style={[
+        styles.header,
+        // Keep these controls reachable even if a modal temporarily reports a
+        // zero top inset during presentation or dismissal.
+        { paddingTop: Math.max(insets.top, 24) + theme.space.lg },
+      ]}
+    >
       <Pressable
         onPress={onClose}
         accessibilityRole="button"
@@ -109,7 +118,6 @@ const createStyles = (theme: WeeklyTheme) =>
       alignItems: "center",
       justifyContent: "space-between",
       paddingHorizontal: theme.space.xl,
-      paddingTop: theme.space.lg,
       paddingBottom: theme.space.lg,
     },
     headerCenter: {

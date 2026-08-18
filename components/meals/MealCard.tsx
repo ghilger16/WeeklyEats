@@ -43,10 +43,17 @@ import {
   suggestEmojiForTitle,
 } from "../../utils/emojiCatalog";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
+import { useRatingDisplayMode } from "../../hooks/useRatingDisplayMode";
 import {
   getFamilyRatingSummary,
   setFamilyRatingValue,
 } from "../../utils/familyRatings";
+import {
+  classifyIngredientType,
+  classifyIngredients,
+  normalizeIngredientClassificationName,
+  setIngredientClassificationPreference,
+} from "../../utils/ingredientClassification";
 
 type MealCardProps = {
   mode: "create" | "edit";
@@ -269,6 +276,7 @@ export default function MealCard({
   const autoFillScrollRef = useRef<ScrollView | null>(null);
   const notesSectionOffsetRef = useRef(0);
   const autoFillNotesSectionOffsetRef = useRef(0);
+  const detailIngredientInputRef = useRef<TextInput>(null);
   const prevMealKeyRef = useRef<string | undefined>(undefined);
   const prevMealIdentityRef = useRef<string | undefined>(undefined);
   const [form, setForm] = useState<MealFormValues>(() =>
@@ -278,14 +286,16 @@ export default function MealCard({
     () => form.prepNotes ?? ""
   );
   const [newIngredient, setNewIngredient] = useState("");
-  const [newPantryIngredient, setNewPantryIngredient] = useState("");
   const [isIngredientDeleteMode, setIsIngredientDeleteMode] = useState(false);
   const isEditMode = mode === "edit";
   const autoFillFeatureFlag = useFeatureFlag("recipeAutoFillEnabled");
   const isAutoFillSupported = useMemo(() => supportsRecipeAutoFill(), []);
   const isAutoFillEnabled = autoFillFeatureFlag && isAutoFillSupported;
   const { members } = useFamilyMembers();
-  const hasFamilyMembers = members.length > 1;
+  const { mode: ratingDisplayMode } = useRatingDisplayMode();
+  const showRatings = ratingDisplayMode !== "off";
+  const useFamilyRatings =
+    ratingDisplayMode === "family" && members.length > 1;
   const familyRatingSummary = useMemo(
     () => getFamilyRatingSummary(
       form.familyRatings,
@@ -307,8 +317,6 @@ export default function MealCard({
     useState<AutoFillPreviewDraft | null>(null);
   const [autoFillKeyboardHeight, setAutoFillKeyboardHeight] = useState(0);
   const [newAutoFillIngredient, setNewAutoFillIngredient] = useState("");
-  const [newAutoFillPantryIngredient, setNewAutoFillPantryIngredient] =
-    useState("");
   const [
     isAutoFillIngredientDeleteMode,
     setIsAutoFillIngredientDeleteMode,
@@ -328,7 +336,6 @@ export default function MealCard({
   const [isDetailIngredientsEditing, setDetailIngredientsEditing] =
     useState(false);
   const [detailIngredientDraft, setDetailIngredientDraft] = useState("");
-  const [detailPantryDraft, setDetailPantryDraft] = useState("");
   const [isDetailTitleEditing, setDetailTitleEditing] = useState(false);
   const [detailTitleDraft, setDetailTitleDraft] = useState(() => form.title);
   const [isDetailNotesEditing, setDetailNotesEditing] = useState(false);
@@ -398,7 +405,6 @@ export default function MealCard({
     setForm(normalized);
     setPrepNotesDraft(normalized.prepNotes ?? "");
     setNewIngredient("");
-    setNewPantryIngredient("");
     setShowTitleRequiredError(false);
     autoFillTriggeredRef.current = false;
     setAddMealStep(mode === "edit" ? "manual" : "entry");
@@ -407,7 +413,6 @@ export default function MealCard({
       setDetailIngredientsExpanded(false);
       setDetailIngredientsEditing(false);
       setDetailIngredientDraft("");
-      setDetailPantryDraft("");
       setDetailTitleEditing(false);
       setDetailTitleDraft(normalized.title);
       setDetailNotesEditing(false);
@@ -471,33 +476,20 @@ export default function MealCard({
     []
   );
 
-  const handleAddIngredient = useCallback(() => {
+  const handleAddIngredient = useCallback(async () => {
     const trimmed = newIngredient.trim();
     if (!trimmed) {
       return;
     }
 
+    const ingredientType = await classifyIngredientType(trimmed);
     updateField("ingredients", [
       ...(form.ingredients ?? []),
-      createManualIngredient(trimmed),
+      createManualIngredient(trimmed, ingredientType),
     ]);
     setNewIngredient("");
     setIsIngredientDeleteMode(false);
   }, [form.ingredients, newIngredient, updateField]);
-
-  const handleAddPantryIngredient = useCallback(() => {
-    const trimmed = newPantryIngredient.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    updateField("ingredients", [
-      ...(form.ingredients ?? []),
-      createManualIngredient(trimmed, "pantryStaple"),
-    ]);
-    setNewPantryIngredient("");
-    setIsIngredientDeleteMode(false);
-  }, [form.ingredients, newPantryIngredient, updateField]);
 
   const handleOpenEmojiPicker = useCallback(() => {
     Keyboard.dismiss();
@@ -573,6 +565,16 @@ export default function MealCard({
 
   const handleToggleIngredientType = useCallback(
     (index: number) => {
+      const current = normalizeIngredientValue(
+        (form.ingredients ?? [])[index] as IngredientValue,
+      );
+      if (current) {
+        const nextType: IngredientType =
+          current.ingredientType === "pantryStaple"
+            ? "keyIngredient"
+            : "pantryStaple";
+        void setIngredientClassificationPreference(current.name, nextType);
+      }
       updateField(
         "ingredients",
         (form.ingredients ?? []).map((ingredient, i) => {
@@ -618,17 +620,19 @@ export default function MealCard({
           .map(normalizeIngredientValue)
           .filter(isIngredient)
       : [];
+    const classifiedIngredients = await classifyIngredients(
+      normalizedIngredients,
+    );
 
     setAutoFillDraft({
       title: outcome.data.title?.trim() ?? "",
-      ingredients: normalizedIngredients,
+      ingredients: classifiedIngredients,
       cuisine: outcome.data.cuisine,
       difficulty: normalizedDifficulty,
       expense: normalizedExpense,
       prepNotes: outcome.data.prepNotes?.trim() ?? "",
     });
     setNewAutoFillIngredient("");
-    setNewAutoFillPantryIngredient("");
     setIsAutoFillIngredientDeleteMode(false);
     if (!isEditMode) {
       setAddMealStep("manual");
@@ -657,7 +661,6 @@ export default function MealCard({
     setIsAutoFillPreviewVisible(false);
     setAutoFillDraft(null);
     setNewAutoFillIngredient("");
-    setNewAutoFillPantryIngredient("");
     setIsAutoFillIngredientDeleteMode(false);
     resetAutoFill();
     if (!isEditMode) {
@@ -841,42 +844,26 @@ export default function MealCard({
     []
   );
 
-  const handleAddAutoFillIngredient = useCallback(() => {
+  const handleAddAutoFillIngredient = useCallback(async () => {
     const trimmed = newAutoFillIngredient.trim();
     if (!trimmed) {
       return;
     }
-    setAutoFillDraft((prev) =>
-      prev
-        ? {
-            ...prev,
-            ingredients: [...prev.ingredients, createManualIngredient(trimmed)],
-          }
-        : prev
-    );
-    setNewAutoFillIngredient("");
-    setIsAutoFillIngredientDeleteMode(false);
-  }, [newAutoFillIngredient]);
-
-  const handleAddAutoFillPantryIngredient = useCallback(() => {
-    const trimmed = newAutoFillPantryIngredient.trim();
-    if (!trimmed) {
-      return;
-    }
+    const ingredientType = await classifyIngredientType(trimmed);
     setAutoFillDraft((prev) =>
       prev
         ? {
             ...prev,
             ingredients: [
               ...prev.ingredients,
-              createManualIngredient(trimmed, "pantryStaple"),
+              createManualIngredient(trimmed, ingredientType),
             ],
           }
         : prev
     );
-    setNewAutoFillPantryIngredient("");
+    setNewAutoFillIngredient("");
     setIsAutoFillIngredientDeleteMode(false);
-  }, [newAutoFillPantryIngredient]);
+  }, [newAutoFillIngredient]);
 
   const handleRemoveAutoFillIngredient = useCallback((index: number) => {
     setAutoFillDraft((prev) =>
@@ -892,7 +879,21 @@ export default function MealCard({
   const handleToggleAutoFillIngredientType = useCallback((index: number) => {
     setAutoFillDraft((prev) =>
       prev
-        ? {
+        ? (() => {
+            const current = normalizeIngredientValue(
+              prev.ingredients[index] as IngredientValue,
+            );
+            if (current) {
+              const nextType: IngredientType =
+                current.ingredientType === "pantryStaple"
+                  ? "keyIngredient"
+                  : "pantryStaple";
+              void setIngredientClassificationPreference(
+                current.name,
+                nextType,
+              );
+            }
+            return {
             ...prev,
             ingredients: prev.ingredients.map((ingredient, i) => {
               if (i !== index) {
@@ -903,7 +904,8 @@ export default function MealCard({
               );
               return normalized ? toggleIngredientType(normalized) : ingredient;
             }),
-          }
+            };
+          })()
         : prev
     );
   }, []);
@@ -924,22 +926,6 @@ export default function MealCard({
 
     createMealFromValues(form, prepNotesDraft);
   }, [createMealFromValues, form, isEditMode, prepNotesDraft]);
-
-  const handleQuickPickSubmit = useCallback(() => {
-    if (!form.title.trim()) {
-      setShowTitleRequiredError(true);
-      return;
-    }
-
-    Keyboard.dismiss();
-    createMealFromValues(
-      {
-        ...form,
-        emoji: suggestedEmoji ?? form.emoji,
-      },
-      ""
-    );
-  }, [createMealFromValues, form, suggestedEmoji]);
 
   const persistDetailIngredients = useCallback(
     (ingredients: Ingredient[]) => {
@@ -972,58 +958,60 @@ export default function MealCard({
     [form.ingredients, persistDetailIngredients]
   );
 
-  const handleAddDetailIngredient = useCallback(() => {
+  const handleAddDetailIngredient = useCallback(async () => {
     const name = detailIngredientDraft.trim();
     if (!name) return;
+    const normalizedName = normalizeIngredientClassificationName(name);
     const duplicate = (form.ingredients ?? []).some(
       (ingredient) =>
-        getIngredientName(ingredient as IngredientValue).toLowerCase() ===
-        name.toLowerCase()
+        normalizeIngredientClassificationName(
+          getIngredientName(ingredient as IngredientValue),
+        ) === normalizedName,
     );
     if (duplicate) {
       setDetailIngredientDraft("");
+      requestAnimationFrame(() => detailIngredientInputRef.current?.focus());
       return;
     }
     const existing = (form.ingredients ?? [])
       .map((ingredient) => normalizeIngredientValue(ingredient as IngredientValue))
       .filter(isIngredient);
-    persistDetailIngredients([...existing, createManualIngredient(name)]);
-    setDetailIngredientDraft("");
-  }, [detailIngredientDraft, form.ingredients, persistDetailIngredients]);
-
-  const handleAddDetailPantryStaple = useCallback(() => {
-    const name = detailPantryDraft.trim();
-    if (!name) return;
-    const duplicate = (form.ingredients ?? []).some(
-      (ingredient) =>
-        getIngredientName(ingredient as IngredientValue).toLowerCase() ===
-        name.toLowerCase()
-    );
-    if (duplicate) {
-      setDetailPantryDraft("");
-      return;
-    }
-    const existing = (form.ingredients ?? [])
-      .map((ingredient) => normalizeIngredientValue(ingredient as IngredientValue))
-      .filter(isIngredient);
+    const ingredientType = await classifyIngredientType(name);
     persistDetailIngredients([
       ...existing,
-      createManualIngredient(name, "pantryStaple"),
+      createManualIngredient(name, ingredientType),
     ]);
-    setDetailPantryDraft("");
-  }, [detailPantryDraft, form.ingredients, persistDetailIngredients]);
+    setDetailIngredientDraft("");
+    requestAnimationFrame(() => detailIngredientInputRef.current?.focus());
+  }, [detailIngredientDraft, form.ingredients, persistDetailIngredients]);
 
-  const handleToggleDetailIngredientEdit = useCallback(() => {
-    if (isDetailIngredientsEditing) {
-      setDetailIngredientsEditing(false);
-      setDetailIngredientsExpanded(false);
-      setDetailIngredientDraft("");
-      setDetailPantryDraft("");
-      return;
-    }
-    setDetailIngredientsExpanded(true);
-    setDetailIngredientsEditing(true);
-  }, [isDetailIngredientsEditing]);
+  const handleMoveDetailIngredient = useCallback(
+    (index: number) => {
+      const next = (form.ingredients ?? [])
+        .map((ingredient, ingredientIndex) => {
+          const normalized = normalizeIngredientValue(
+            ingredient as IngredientValue,
+          );
+          if (!normalized || ingredientIndex !== index) return normalized;
+          const moved = toggleIngredientType(normalized);
+          void setIngredientClassificationPreference(
+            moved.name,
+            moved.ingredientType,
+          );
+          return moved;
+        })
+        .filter(isIngredient);
+      persistDetailIngredients(next);
+    },
+    [form.ingredients, persistDetailIngredients],
+  );
+
+  const endDetailIngredientEditing = useCallback(() => {
+    Keyboard.dismiss();
+    setDetailIngredientsEditing(false);
+    setDetailIngredientsExpanded(false);
+    setDetailIngredientDraft("");
+  }, []);
 
   const handleDetailFamilyRatingChange = useCallback(
     (memberId: string, rating: FamilyRatingValue) => {
@@ -1199,13 +1187,13 @@ export default function MealCard({
     const cuisineLabel = getCuisineLabel(form.cuisine) ?? "Not set";
     const freezerValue = getFreezerMealAmount(form as Meal);
     const isFamilyStar =
-      hasFamilyMembers && familyRatingSummary?.isUnanimousHeart === true;
+      useFamilyRatings && familyRatingSummary?.isUnanimousHeart === true;
     const visibleKeyIngredients =
       isDetailIngredientsExpanded || isDetailIngredientsEditing
         ? keyIngredientEntries
-        : keyIngredientEntries.slice(0, 4);
+        : keyIngredientEntries.slice(0, 3);
     const hiddenIngredientCount =
-      Math.max(0, keyIngredientEntries.length - 4) +
+      Math.max(0, keyIngredientEntries.length - 3) +
       pantryStapleEntries.length;
 
     return (
@@ -1213,11 +1201,17 @@ export default function MealCard({
         <View style={styles.headerRow}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Back"
-            onPress={handleHeaderBack}
+            accessibilityLabel={
+              isManualCreate ? "Close without saving" : "Back"
+            }
+            onPress={isManualCreate ? onClose : handleHeaderBack}
             style={styles.backButton}
           >
-            <MaterialCommunityIcons name="arrow-left" size={24} color={theme.color.subtleInk} />
+            <MaterialCommunityIcons
+              name={isManualCreate ? "close" : "arrow-left"}
+              size={24}
+              color={theme.color.subtleInk}
+            />
           </Pressable>
           <View style={styles.headerSpacer} />
           {isManualCreate ? (
@@ -1253,6 +1247,11 @@ export default function MealCard({
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
           contentContainerStyle={styles.detailContent}
+          onTouchStart={() => {
+            if (isDetailIngredientsEditing) {
+              endDetailIngredientEditing();
+            }
+          }}
         >
           <View style={styles.detailHero}>
             <Pressable
@@ -1315,22 +1314,22 @@ export default function MealCard({
                   Meal Title is required.
                 </Text>
               ) : null}
-              {isGalaxyMeal ? (
+              {showRatings && isGalaxyMeal ? (
                 <View style={styles.galaxyMealTitleRow}>
                   <MaterialCommunityIcons name="creation" size={18} color="#8B5CF6" />
                   <Text style={styles.galaxyMealTitle}>Galaxy Meal</Text>
                 </View>
-              ) : isFamilyStar ? (
+              ) : showRatings && isFamilyStar ? (
                 <Text style={styles.familyStarTitle}>⭐ Family Star</Text>
-              ) : hasFamilyMembers && familyRatingSummary ? (
+              ) : showRatings && useFamilyRatings && familyRatingSummary ? (
                 <Text style={styles.detailRatingText}>
                   ⭐ {familyRatingSummary.average.toFixed(1)}
                 </Text>
-              ) : hasFamilyMembers ? (
+              ) : showRatings && useFamilyRatings ? (
                 <Text style={styles.detailMutedText}>Not yet rated</Text>
-              ) : !hasFamilyMembers && (form.rating ?? 0) > 0 ? (
+              ) : showRatings && (form.rating ?? 0) > 0 ? (
                 <RatingStars value={form.rating} size={18} gap={2} />
-              ) : !hasFamilyMembers ? (
+              ) : showRatings ? (
                 <Text style={styles.detailMutedText}>Not yet rated</Text>
               ) : null}
               <Text style={styles.detailMutedText}>
@@ -1355,104 +1354,201 @@ export default function MealCard({
           <View style={styles.detailSection}>
             <View style={styles.detailSectionHeader}>
               <Text style={styles.detailSectionLabel}>Key Ingredients</Text>
-              <Pressable
-                onPress={handleToggleDetailIngredientEdit}
-                accessibilityRole="button"
-                accessibilityLabel={isDetailIngredientsEditing ? "Finish editing ingredients" : "Edit ingredients"}
-              >
-                <Text style={styles.detailEditText}>
-                  {isDetailIngredientsEditing ? "Done" : "Edit"}
-                </Text>
-              </Pressable>
             </View>
-            {visibleKeyIngredients.length ? (
-              <View style={styles.detailIngredientsGrid}>
-                {visibleKeyIngredients.map(({ ingredient, index }) => (
-                  <View style={[styles.detailChip, isDetailIngredientsEditing && styles.detailChipEditing]} key={`${ingredient.name}-${index}`}>
-                    <View style={styles.detailChipDot} />
-                    <Text style={styles.detailChipText} numberOfLines={1}>{capitalizeMealTitleWords(ingredient.name)}</Text>
-                    {isDetailIngredientsEditing ? (
+            <View style={styles.detailIngredientList}>
+              {visibleKeyIngredients.map(({ ingredient, index }) => (
+                  <View
+                    style={styles.detailIngredientListRow}
+                    key={`${ingredient.name}-${index}`}
+                  >
+                    <Pressable
+                      style={styles.detailIngredientDeleteTarget}
+                      disabled={!isDetailIngredientsEditing}
+                      onTouchStart={(event) => event.stopPropagation()}
+                      onPress={() => handleRemoveDetailIngredient(index)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${ingredient.name}`}
+                      hitSlop={6}
+                    >
+                      <MaterialCommunityIcons
+                        name={
+                          isDetailIngredientsEditing
+                            ? "minus-circle-outline"
+                            : "checkbox-blank-circle-outline"
+                        }
+                        size={18}
+                        color={theme.color.accent}
+                      />
+                    </Pressable>
+                    <Pressable
+                      onTouchStart={(event) => event.stopPropagation()}
+                      onPress={() => {
+                        if (isDetailIngredientsEditing) {
+                          endDetailIngredientEditing();
+                          return;
+                        }
+                        setDetailIngredientsExpanded(true);
+                        setDetailIngredientsEditing(true);
+                        requestAnimationFrame(() =>
+                          detailIngredientInputRef.current?.focus(),
+                        );
+                      }}
+                      style={styles.detailIngredientTextTarget}
+                    >
+                      <Text style={styles.detailIngredientListText} numberOfLines={1}>
+                        {capitalizeMealTitleWords(ingredient.name)}
+                      </Text>
+                    </Pressable>
+                    {isDetailIngredientsEditing && pantryStapleEntries.length > 0 ? (
                       <Pressable
-                        onPress={() => handleRemoveDetailIngredient(index)}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onPress={() => handleMoveDetailIngredient(index)}
                         accessibilityRole="button"
-                        accessibilityLabel={`Remove ${ingredient.name}`}
+                        accessibilityLabel={`Move ${ingredient.name} to Pantry Staples`}
                         hitSlop={6}
+                        style={styles.detailIngredientSwapTarget}
                       >
-                        <MaterialCommunityIcons name="trash-can-outline" size={15} color={theme.color.subtleInk} />
+                        <MaterialCommunityIcons
+                          name="arrow-down"
+                          size={19}
+                          color={theme.color.accent}
+                        />
                       </Pressable>
                     ) : null}
                   </View>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.detailEmptyText}>No key ingredients added yet</Text>
-            )}
+              ))}
 
-            {isDetailIngredientsEditing ? (
-              <View style={styles.detailAddIngredientRow}>
+              {isDetailIngredientsEditing || visibleKeyIngredients.length === 0 ? (
+              <View
+                style={[
+                  styles.detailAddIngredientRow,
+                  styles.detailInlineIngredientRow,
+                ]}
+                onTouchStart={(event) => event.stopPropagation()}
+              >
+                <View style={styles.detailAddIngredientBulletSlot}>
+                  <View style={styles.detailAddIngredientDot} />
+                </View>
                 <TextInput
+                  ref={detailIngredientInputRef}
                   value={detailIngredientDraft}
                   onChangeText={setDetailIngredientDraft}
                   onSubmitEditing={handleAddDetailIngredient}
-                  placeholder="Add ingredient"
+                  onFocus={() => {
+                    setDetailIngredientsExpanded(true);
+                    setDetailIngredientsEditing(true);
+                  }}
+                  placeholder="Add Ingredient"
                   placeholderTextColor={theme.color.subtleInk}
-                  style={styles.detailAddIngredientInput}
-                  returnKeyType="done"
+                  autoCapitalize="words"
+                  style={[
+                    styles.detailAddIngredientInput,
+                    styles.detailAddIngredientInputWithDot,
+                  ]}
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      if (!detailIngredientInputRef.current?.isFocused()) {
+                        endDetailIngredientEditing();
+                      }
+                    }, 100);
+                  }}
                 />
+                {detailIngredientDraft.trim() ? (
                 <Pressable
                   onPress={handleAddDetailIngredient}
                   accessibilityRole="button"
                   accessibilityLabel="Add ingredient"
-                  style={styles.detailAddIngredientButton}
+                  style={[
+                    styles.detailAddIngredientButton,
+                    styles.detailInlineIngredientButton,
+                  ]}
                 >
-                  <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
+                  <MaterialCommunityIcons
+                    name="plus"
+                    size={22}
+                    color={theme.color.accent}
+                  />
                 </Pressable>
+                ) : null}
               </View>
-            ) : null}
+              ) : null}
+            </View>
 
-            {isDetailIngredientsEditing ||
-            (isDetailIngredientsExpanded && pantryStapleEntries.length) ? (
+            {pantryStapleEntries.length > 0 &&
+            (isDetailIngredientsEditing || isDetailIngredientsExpanded) ? (
               <View style={styles.detailPantrySection}>
                 <Text style={styles.detailSectionLabel}>Pantry Staples</Text>
                 {pantryStapleEntries.length ? (
-                  <View style={styles.detailIngredientsGrid}>
+                  <View style={styles.detailIngredientList}>
                     {pantryStapleEntries.map(({ ingredient, index }) => (
-                      <View style={[styles.detailChip, styles.detailPantryChip, isDetailIngredientsEditing && styles.detailChipEditing]} key={`${ingredient.name}-${index}`}>
-                        <View style={styles.detailChipDot} />
-                        <Text style={[styles.detailChipText, styles.detailPantryChipText]} numberOfLines={1}>{capitalizeMealTitleWords(ingredient.name)}</Text>
+                      <View
+                        style={styles.detailIngredientListRow}
+                        key={`${ingredient.name}-${index}`}
+                      >
+                        <Pressable
+                          style={styles.detailIngredientDeleteTarget}
+                          disabled={!isDetailIngredientsEditing}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onPress={() => handleRemoveDetailIngredient(index)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${ingredient.name}`}
+                          hitSlop={6}
+                        >
+                          <MaterialCommunityIcons
+                            name={
+                              isDetailIngredientsEditing
+                                ? "minus-circle-outline"
+                                : "checkbox-blank-circle-outline"
+                            }
+                            size={18}
+                            color={theme.color.accent}
+                          />
+                        </Pressable>
+                        <Pressable
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onPress={() => {
+                            if (isDetailIngredientsEditing) {
+                              endDetailIngredientEditing();
+                              return;
+                            }
+                            setDetailIngredientsExpanded(true);
+                            setDetailIngredientsEditing(true);
+                            requestAnimationFrame(() =>
+                              detailIngredientInputRef.current?.focus(),
+                            );
+                          }}
+                          style={styles.detailIngredientTextTarget}
+                        >
+                          <Text
+                            style={[
+                              styles.detailIngredientListText,
+                              styles.detailPantryChipText,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {capitalizeMealTitleWords(ingredient.name)}
+                          </Text>
+                        </Pressable>
                         {isDetailIngredientsEditing ? (
                           <Pressable
-                            onPress={() => handleRemoveDetailIngredient(index)}
+                            onTouchStart={(event) => event.stopPropagation()}
+                            onPress={() => handleMoveDetailIngredient(index)}
                             accessibilityRole="button"
-                            accessibilityLabel={`Remove ${ingredient.name}`}
+                            accessibilityLabel={`Move ${ingredient.name} to Key Ingredients`}
                             hitSlop={6}
+                            style={styles.detailIngredientSwapTarget}
                           >
-                            <MaterialCommunityIcons name="trash-can-outline" size={15} color={theme.color.subtleInk} />
+                            <MaterialCommunityIcons
+                              name="arrow-up"
+                              size={19}
+                              color={theme.color.accent}
+                            />
                           </Pressable>
                         ) : null}
                       </View>
                     ))}
-                  </View>
-                ) : null}
-                {isDetailIngredientsEditing ? (
-                  <View style={styles.detailAddIngredientRow}>
-                    <TextInput
-                      value={detailPantryDraft}
-                      onChangeText={setDetailPantryDraft}
-                      onSubmitEditing={handleAddDetailPantryStaple}
-                      placeholder="Add pantry staple"
-                      placeholderTextColor={theme.color.subtleInk}
-                      style={styles.detailAddIngredientInput}
-                      returnKeyType="done"
-                    />
-                    <Pressable
-                      onPress={handleAddDetailPantryStaple}
-                      accessibilityRole="button"
-                      accessibilityLabel="Add pantry staple"
-                      style={styles.detailAddIngredientButton}
-                    >
-                      <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
-                    </Pressable>
                   </View>
                 ) : null}
               </View>
@@ -1517,16 +1613,23 @@ export default function MealCard({
             </View>
           </View>
 
-          <View style={styles.detailSection}>
+          {showRatings ? <View style={styles.detailSection}>
             <Text style={styles.detailSectionLabel}>
-              {hasFamilyMembers ? "Family Rating" : "Ratings"}
+              {useFamilyRatings ? "Family Rating" : "Ratings"}
             </Text>
-            <FamilyRatingAchievements
-              isFamilyStar={isFamilyStar}
-              isGalaxyMeal={Boolean(isGalaxyMeal)}
-            />
-            <View style={styles.familyDetailIcons}>
-              {hasFamilyMembers ? (
+            {useFamilyRatings ? (
+              <FamilyRatingAchievements
+                isFamilyStar={isFamilyStar}
+                isGalaxyMeal={Boolean(isGalaxyMeal)}
+              />
+            ) : null}
+            <View
+              style={[
+                styles.familyDetailIcons,
+                !useFamilyRatings && styles.ratingStarsCentered,
+              ]}
+            >
+              {useFamilyRatings ? (
                 <FamilyRatingRow
                   ratings={form.familyRatings}
                   onChange={handleDetailFamilyRatingChange}
@@ -1539,7 +1642,7 @@ export default function MealCard({
                 />
               )}
             </View>
-          </View>
+          </View> : null}
 
           <View style={styles.detailSection}>
             <Text style={styles.detailSectionLabel}>Prep Notes</Text>
@@ -1611,77 +1714,6 @@ export default function MealCard({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.entryContent}
         >
-          <View style={styles.quickPickCard}>
-            <View style={styles.recipeEntryHeadingRow}>
-              <View style={styles.quickPickIcon}>
-                <MaterialCommunityIcons
-                  name="lightning-bolt"
-                  size={26}
-                  color={theme.color.accent}
-                />
-              </View>
-              <View style={styles.recipeEntryHeadingText}>
-                <Text style={styles.recipeEntryTitle}>Quick Pick</Text>
-                <Text style={styles.recipeEntryDescription}>
-                  Enter a meal title now. You can add the details later.
-                </Text>
-              </View>
-            </View>
-            <View
-              style={[
-                styles.quickPickInputRow,
-                showTitleRequiredError && styles.inputError,
-              ]}
-            >
-              <MealEmoji
-                value={suggestedEmoji ?? form.emoji ?? DEFAULT_MEAL_EMOJI}
-                size={24}
-              />
-              <TextInput
-                accessibilityLabel="Quick Pick meal title"
-                placeholder="Meal title"
-                placeholderTextColor={theme.color.subtleInk}
-                style={styles.linkTextInput}
-                value={form.title}
-                onChangeText={(value) =>
-                  updateField("title", capitalizeMealTitleWords(value))
-                }
-                onSubmitEditing={handleQuickPickSubmit}
-                autoCapitalize="words"
-                autoCorrect
-                returnKeyType="done"
-              />
-            </View>
-            {showTitleRequiredError ? (
-              <Text style={styles.fieldErrorText} accessibilityRole="alert">
-                Enter a meal title.
-              </Text>
-            ) : null}
-            <Pressable
-              style={({ pressed }) => [
-                styles.quickPickButton,
-                !form.title.trim() && styles.autoFillButtonDisabled,
-                pressed && form.title.trim() && styles.entryButtonPressed,
-              ]}
-              onPress={handleQuickPickSubmit}
-              accessibilityRole="button"
-              accessibilityLabel="Add Quick Pick meal"
-            >
-              <MaterialCommunityIcons
-                name="plus-circle"
-                size={20}
-                color={theme.color.accent}
-              />
-              <Text style={styles.quickPickButtonText}>Add Quick Pick</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.entryDividerRow}>
-            <View style={styles.entryDividerLine} />
-            <Text style={styles.entryDividerText}>or</Text>
-            <View style={styles.entryDividerLine} />
-          </View>
-
           <View style={styles.recipeEntryCard}>
             <View style={styles.recipeEntryHeadingRow}>
               <View style={styles.recipeEntryIcon}>
@@ -1780,7 +1812,7 @@ export default function MealCard({
               <MaterialCommunityIcons
                 name="pencil-outline"
                 size={24}
-                color={theme.color.subtleInk}
+                color={theme.color.accent}
               />
             </View>
             <View style={styles.manualEntryText}>
@@ -2092,13 +2124,13 @@ export default function MealCard({
                 />
               </Pressable>
             </View>
-            {pantryStapleEntries.length ? (
-              <>
+            <>
                 <Text style={[styles.sectionLabel, styles.pantrySectionLabel]}>
                   PANTRY STAPLES
                 </Text>
-                <View style={styles.ingredientsWrapper}>
-                  {pantryStapleEntries.map(({ ingredient, index }) => {
+                {pantryStapleEntries.length ? (
+                  <View style={styles.ingredientsWrapper}>
+                    {pantryStapleEntries.map(({ ingredient, index }) => {
                     const ingredientName = ingredient.name;
                     return (
                       <Pressable
@@ -2135,63 +2167,20 @@ export default function MealCard({
                         </Text>
                       </Pressable>
                     );
-                  })}
-                </View>
-                <View style={styles.addIngredientRow}>
-                  <TextInput
-                    placeholder="Add ingredient"
-                    placeholderTextColor={theme.color.subtleInk}
-                    style={styles.ingredientInput}
-                    value={newPantryIngredient}
-                    onChangeText={setNewPantryIngredient}
-                    onFocus={() => setIsIngredientDeleteMode(false)}
-                    onSubmitEditing={handleAddPantryIngredient}
-                    returnKeyType="done"
-                  />
-                  <Pressable
-                    onPress={handleToggleIngredientDeleteMode}
-                    disabled={!hasIngredients}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      isIngredientDeleteMode
-                        ? "Exit ingredient delete mode"
-                        : "Delete ingredients"
-                    }
-                    style={({ pressed }) => [
-                      styles.ingredientTrashButton,
-                      pressed &&
-                        hasIngredients &&
-                        styles.ingredientTrashButtonPressed,
-                      isIngredientDeleteMode &&
-                        styles.ingredientTrashButtonActive,
-                      !hasIngredients && styles.ingredientTrashButtonDisabled,
-                    ]}
-                  >
-                    <MaterialCommunityIcons
-                      name={
-                        isIngredientDeleteMode
-                          ? "trash-can"
-                          : "trash-can-outline"
-                      }
-                      size={18}
-                      color={
-                        !hasIngredients
-                          ? theme.color.border
-                          : isIngredientDeleteMode
-                          ? theme.color.ink
-                          : theme.color.subtleInk
-                      }
-                    />
-                  </Pressable>
-                </View>
+                    })}
+                  </View>
+                ) : (
+                  <Text style={styles.ingredientsEmpty}>
+                    Pantry staples added above will appear here.
+                  </Text>
+                )}
               </>
-            ) : null}
           </View>
 
-          <View style={styles.section}>
+          {showRatings ? <View style={styles.section}>
             <Text style={styles.sectionLabel}>Rating</Text>
             <FlexGrid.Row justifyContent="center">
-              {hasFamilyMembers ? (
+              {useFamilyRatings ? (
                 <FamilyRatingRow
                   ratings={form.familyRatings}
                   onChange={handleFamilyRatingChange}
@@ -2205,7 +2194,7 @@ export default function MealCard({
                 />
               )}
             </FlexGrid.Row>
-          </View>
+          </View> : null}
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Served Count</Text>
@@ -2509,28 +2498,9 @@ export default function MealCard({
                             </View>
                           ))}
                         </View>
-                      ) : null}
-                      {isAutoFillIngredientDeleteMode ? (
-                        <View style={styles.detailAddIngredientRow}>
-                          <TextInput
-                            placeholder="Add pantry staple"
-                            placeholderTextColor={theme.color.subtleInk}
-                            style={styles.detailAddIngredientInput}
-                            value={newAutoFillPantryIngredient}
-                            onChangeText={setNewAutoFillPantryIngredient}
-                            onSubmitEditing={handleAddAutoFillPantryIngredient}
-                            returnKeyType="done"
-                          />
-                          <Pressable
-                            onPress={handleAddAutoFillPantryIngredient}
-                            accessibilityRole="button"
-                            accessibilityLabel="Add pantry staple"
-                            style={styles.detailAddIngredientButton}
-                          >
-                            <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
-                          </Pressable>
-                        </View>
-                      ) : null}
+                      ) : (
+                        <Text style={styles.detailEmptyText}>No pantry staples added yet</Text>
+                      )}
                     </View>
                   ) : null}
                 </View>
@@ -2801,6 +2771,12 @@ const createStyles = (theme: WeeklyTheme) =>
     detailSectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     detailSectionLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.medium, textTransform: "uppercase", letterSpacing: 0.8 },
     detailEditText: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
+    detailIngredientList: { gap: theme.space.xs },
+    detailIngredientListRow: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+    detailIngredientDeleteTarget: { width: 32, minHeight: 38, alignItems: "center", justifyContent: "center" },
+    detailIngredientSwapTarget: { width: 36, minHeight: 38, alignItems: "center", justifyContent: "center" },
+    detailIngredientTextTarget: { flex: 1, minHeight: 38, justifyContent: "center" },
+    detailIngredientListText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
     detailIngredientsGrid: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm },
     detailChip: { width: "48.5%", height: 44, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderRadius: theme.radius.md, paddingHorizontal: theme.space.md, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
     detailChipEditing: { paddingRight: theme.space.sm },
@@ -2812,8 +2788,13 @@ const createStyles = (theme: WeeklyTheme) =>
     detailEmptyText: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
     detailMoreIngredientsText: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
     detailAddIngredientRow: { minHeight: 48, flexDirection: "row", alignItems: "center", borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+    detailInlineIngredientRow: { minHeight: 38, gap: theme.space.sm, borderRadius: 0, backgroundColor: "transparent", borderWidth: 0 },
+    detailAddIngredientBulletSlot: { width: 32, minHeight: 38, alignItems: "center", justifyContent: "center" },
+    detailAddIngredientDot: { width: 8, height: 8, borderRadius: theme.radius.full, backgroundColor: theme.color.accent },
     detailAddIngredientInput: { flex: 1, minHeight: 48, paddingHorizontal: theme.space.md, color: theme.color.ink, fontSize: theme.type.size.base },
+    detailAddIngredientInputWithDot: { minHeight: 38, paddingHorizontal: 0 },
     detailAddIngredientButton: { width: 44, height: 44, marginRight: theme.space.xs, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center" },
+    detailInlineIngredientButton: { width: 36, height: 38, marginRight: 0 },
     detailGrid: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.md },
     detailTile: { minWidth: "46%", flexGrow: 1, gap: theme.space.xs, padding: theme.space.md, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt },
     detailTileLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, textTransform: "uppercase", letterSpacing: 0.5 },
@@ -2828,6 +2809,7 @@ const createStyles = (theme: WeeklyTheme) =>
     detailNotesInput: { minHeight: 104, padding: theme.space.lg, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, color: theme.color.ink, fontSize: theme.type.size.base, lineHeight: 23, textAlignVertical: "top", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.cardOutline },
     familyDetailCard: { borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, paddingHorizontal: theme.space.lg },
     familyDetailIcons: { alignItems: "stretch", paddingVertical: theme.space.sm },
+    ratingStarsCentered: { alignItems: "center" },
     familyDetailRow: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.border },
     familyDetailName: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
     familyDetailReaction: { color: theme.color.subtleInk, fontSize: theme.type.size.title },
@@ -2845,49 +2827,6 @@ const createStyles = (theme: WeeklyTheme) =>
       borderWidth: 1,
       borderColor: theme.color.cardOutline,
       backgroundColor: theme.color.surfaceAlt,
-    },
-    quickPickCard: {
-      padding: theme.space.lg,
-      gap: theme.space.md,
-      borderRadius: theme.radius.lg,
-      borderWidth: 1,
-      borderColor: alpha(theme.color.accent, 0.45),
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    quickPickIcon: {
-      width: 52,
-      height: 52,
-      borderRadius: theme.radius.full,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.color.focus,
-    },
-    quickPickInputRow: {
-      minHeight: theme.component.input.height,
-      flexDirection: "row",
-      alignItems: "center",
-      paddingHorizontal: theme.space.md,
-      gap: theme.space.sm,
-      borderRadius: theme.radius.md,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.border,
-      backgroundColor: theme.color.surface,
-    },
-    quickPickButton: {
-      minHeight: theme.component.button.height,
-      borderRadius: theme.radius.xl,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.accent,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: theme.space.sm,
-      backgroundColor: theme.color.surface,
-    },
-    quickPickButtonText: {
-      color: theme.color.accent,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.bold,
     },
     recipeEntryHeadingRow: {
       flexDirection: "row",
@@ -2958,9 +2897,10 @@ const createStyles = (theme: WeeklyTheme) =>
       fontWeight: theme.type.weight.bold,
     },
     entryDividerRow: {
+      width: "100%",
+      alignSelf: "center",
       flexDirection: "row",
       alignItems: "center",
-      gap: theme.space.md,
       paddingHorizontal: theme.space.xl,
     },
     entryDividerLine: {
@@ -2969,9 +2909,12 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.border,
     },
     entryDividerText: {
+      width: 44,
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.medium,
+      lineHeight: 20,
+      textAlign: "center",
     },
     manualEntryCard: {
       minHeight: 92,
@@ -2990,7 +2933,7 @@ const createStyles = (theme: WeeklyTheme) =>
       borderRadius: theme.radius.full,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: theme.color.surfaceAlt,
+      backgroundColor: theme.color.focus,
     },
     manualEntryText: {
       flex: 1,

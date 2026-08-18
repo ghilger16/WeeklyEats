@@ -293,7 +293,12 @@ export default function TodayCard({
         <View style={[styles.carouselPageContent, styles.ratingsPageContent]}>
           <Text style={styles.carouselPrompt}>{ratingsWereNeeded ? "How was the meal?" : "Still the same ratings?"}</Text>
           <Text style={styles.ratingLabel}>{useRatingStars ? "RATING" : "FAMILY RATING"}</Text>
-          <View style={styles.ratingMembers}>
+          <View
+            style={[
+              styles.ratingMembers,
+              useRatingStars && styles.ratingStarsCentered,
+            ]}
+          >
             {useRatingStars ? (
               <RatingStars value={meal.rating ?? 0} size={32} gap={theme.space.sm} onChange={onChangeMealRating} />
             ) : (
@@ -594,6 +599,7 @@ const createStyles = (theme: WeeklyTheme) =>
     sparkle: { position: "absolute", left: "50%", top: "50%", width: 8, height: 8, borderRadius: 4, marginLeft: -4, marginTop: -4 },
     ratingLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
     ratingMembers: { width: "100%", marginTop: theme.space.lg },
+    ratingStarsCentered: { alignItems: "center" },
     carouselShell: { flex: 1, width: "100%", overflow: "hidden" },
     carouselPage: { height: 191, justifyContent: "center", paddingHorizontal: theme.space.xs },
     carouselPageContent: { flex: 1, alignItems: "center", justifyContent: "center", gap: theme.space.sm, paddingVertical: theme.space.xs },

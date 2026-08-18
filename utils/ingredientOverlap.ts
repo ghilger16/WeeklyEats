@@ -1,4 +1,5 @@
 import { Meal, MealIngredient } from "../types/meals";
+import { isDefaultPantryStaple } from "./ingredientClassification";
 
 export type IngredientOverlap = {
   sharedIngredients: string[];
@@ -15,16 +16,6 @@ export type RankedIngredientMeal = {
 
 export const INGREDIENT_OVERLAP_MINIMUM = 2;
 export const INGREDIENT_OVERLAP_RATIO_WEIGHT = 3;
-
-const LEGACY_PANTRY_NAMES = new Set([
-  "salt",
-  "kosher salt",
-  "black pepper",
-  "pepper",
-  "olive oil",
-  "garlic powder",
-  "onion powder",
-]);
 
 const normalizeWord = (word: string) => {
   if (word.length > 4 && word.endsWith("ies")) return `${word.slice(0, -3)}y`;
@@ -57,7 +48,7 @@ const isMeaningfulKeyIngredient = (ingredient: MealIngredient) => {
   if (typeof ingredient !== "string") {
     return ingredient.ingredientType === "keyIngredient";
   }
-  return !LEGACY_PANTRY_NAMES.has(normalizeIngredientName(ingredient));
+  return !isDefaultPantryStaple(ingredient);
 };
 
 const getMeaningfulIngredientMap = (meal: Meal) => {

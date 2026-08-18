@@ -4,6 +4,7 @@ import {
   AccessibilityInfo,
   Animated,
   Dimensions,
+  Keyboard,
   LayoutAnimation,
   Linking,
   Modal,
@@ -13,6 +14,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   UIManager,
   View,
 } from "react-native";
@@ -22,26 +24,35 @@ import { WeekPlanDay } from "../../hooks/useCurrentWeekPlan";
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
 import { useMeals } from "../../hooks/useMeals";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
+import { useRatingDisplayMode } from "../../hooks/useRatingDisplayMode";
 import { setFamilyRatingValue } from "../../utils/familyRatings";
 import FreezerAmountModal from "../meals/FreezerAmountModal";
 import FamilyRatingRow from "../meals/FamilyRatingRow";
+import RatingStars from "../meals/RatingStars";
 import { EAT_OUT_MEAL_ID } from "../../types/specialMeals";
-import { IngredientType, MealIngredient } from "../../types/meals";
+import { Ingredient, IngredientType, MealIngredient } from "../../types/meals";
 import MealEmoji from "../emoji/MealEmoji";
+import {
+  classifyIngredientType,
+  normalizeIngredientClassificationName,
+  setIngredientClassificationPreference,
+} from "../../utils/ingredientClassification";
 
 const SHEET_HIDDEN_TRANSLATE = Dimensions.get("window").height;
 
 type ReadOnlyIngredient = {
   name: string;
   ingredientType: IngredientType;
+  index: number;
 };
 
 const normalizeIngredient = (
   ingredient: MealIngredient,
+  index: number,
 ): ReadOnlyIngredient | null => {
   if (typeof ingredient === "string") {
     const name = ingredient.trim();
-    return name ? { name, ingredientType: "keyIngredient" } : null;
+    return name ? { name, ingredientType: "keyIngredient", index } : null;
   }
   const name = ingredient.name?.trim();
   if (!name) return null;
@@ -51,6 +62,7 @@ const normalizeIngredient = (
       ingredient.ingredientType === "pantryStaple"
         ? "pantryStaple"
         : "keyIngredient",
+    index,
   };
 };
 
@@ -85,7 +97,18 @@ export default function MealRowDetailsSheet({
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { updateMeal } = useMeals();
   const { members } = useFamilyMembers();
+  const { mode: ratingDisplayMode } = useRatingDisplayMode();
+  const showRatings = ratingDisplayMode !== "off";
+  const useRatingStars =
+    ratingDisplayMode === "summary" || members.length <= 1;
   const [isFreezerVisible, setFreezerVisible] = useState(false);
+  const [isPrepNoteEditing, setPrepNoteEditing] = useState(false);
+  const [prepNoteDraft, setPrepNoteDraft] = useState("");
+  const prepNoteInputRef = useRef<TextInput>(null);
+  const ingredientInputRef = useRef<TextInput>(null);
+  const sheetScrollRef = useRef<ScrollView>(null);
+  const [isIngredientEditing, setIngredientEditing] = useState(false);
+  const [ingredientDraft, setIngredientDraft] = useState("");
   const [reduceMotion, setReduceMotion] = useState(false);
   const translateY = useRef(
     new Animated.Value(SHEET_HIDDEN_TRANSLATE),
@@ -140,7 +163,14 @@ export default function MealRowDetailsSheet({
 
   useEffect(() => {
     setIngredientsExpanded(shouldAutoExpandIngredients);
+    setIngredientEditing(false);
+    setIngredientDraft("");
   }, [day?.key, day?.mealId, shouldAutoExpandIngredients]);
+
+  useEffect(() => {
+    setPrepNoteEditing(false);
+    setPrepNoteDraft(day?.meal?.prepNotes ?? "");
+  }, [day?.key, day?.mealId, day?.meal?.prepNotes]);
 
   useEffect(() => {
     translateY.stopAnimation();
@@ -159,6 +189,9 @@ export default function MealRowDetailsSheet({
 
   const closeSheet = () => {
     setIngredientsExpanded(false);
+    setIngredientEditing(false);
+    setIngredientDraft("");
+    setPrepNoteEditing(false);
     onClose();
   };
 
@@ -206,6 +239,42 @@ export default function MealRowDetailsSheet({
   ) : (
     <MealEmoji value={meal.emoji} size={52} />
   );
+  const savePrepNote = () => {
+    const prepNotes = prepNoteDraft.trim();
+    if (prepNotes !== (meal.prepNotes ?? "").trim()) {
+      updateMeal({
+        id: meal.id,
+        prepNotes,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    setPrepNoteDraft(prepNotes);
+    setPrepNoteEditing(false);
+  };
+  const beginPrepNoteEditing = () => {
+    setPrepNoteDraft(meal.prepNotes ?? "");
+    setPrepNoteEditing(true);
+    requestAnimationFrame(() => {
+      sheetScrollRef.current?.scrollTo({ y: 0, animated: true });
+      prepNoteInputRef.current?.focus();
+    });
+  };
+  const prepNoteSubtitle = isPrepNoteEditing ? (
+    <TextInput
+      ref={prepNoteInputRef}
+      value={prepNoteDraft}
+      onChangeText={setPrepNoteDraft}
+      onBlur={savePrepNote}
+      onSubmitEditing={() => prepNoteInputRef.current?.blur()}
+      placeholder="Add prep note"
+      placeholderTextColor={theme.color.subtleInk}
+      returnKeyType="done"
+      style={styles.prepNoteInput}
+      onTouchStart={(event) => event.stopPropagation()}
+    />
+  ) : meal.prepNotes?.trim() ? (
+    <Text style={styles.description}>{meal.prepNotes.trim()}</Text>
+  ) : null;
   const isServed = servedEntry?.outcome === "served";
   const isPending =
     day.status === "past" &&
@@ -237,6 +306,73 @@ export default function MealRowDetailsSheet({
       });
     }
     setIngredientsExpanded((current) => !current);
+  };
+  const endIngredientEditing = () => {
+    Keyboard.dismiss();
+    setIngredientEditing(false);
+    setIngredientDraft("");
+  };
+  const toggleIngredientEditing = () => {
+    if (isIngredientEditing) {
+      endIngredientEditing();
+      return;
+    }
+    setIngredientsExpanded(true);
+    setIngredientEditing(true);
+    requestAnimationFrame(() => ingredientInputRef.current?.focus());
+  };
+  const persistIngredients = (nextIngredients: Ingredient[]) => {
+    updateMeal({
+      id: meal.id,
+      ingredients: nextIngredients,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+  const normalizedIngredients = () =>
+    (meal.ingredients ?? [])
+      .map((ingredient) => {
+        if (typeof ingredient === "string") {
+          const name = ingredient.trim();
+          return name
+            ? { name, category: "other" as const, ingredientType: "keyIngredient" as const }
+            : null;
+        }
+        const name = ingredient.name?.trim();
+        return name ? { ...ingredient, name } : null;
+      })
+      .filter((ingredient): ingredient is Ingredient => Boolean(ingredient));
+  const removeIngredient = (index: number) => {
+    persistIngredients(normalizedIngredients().filter((_, itemIndex) => itemIndex !== index));
+  };
+  const moveIngredient = (index: number) => {
+    const nextIngredients = normalizedIngredients().map((ingredient, itemIndex) => {
+      if (itemIndex !== index) return ingredient;
+      const ingredientType: IngredientType =
+        ingredient.ingredientType === "pantryStaple"
+          ? "keyIngredient"
+          : "pantryStaple";
+      void setIngredientClassificationPreference(ingredient.name, ingredientType);
+      return { ...ingredient, ingredientType };
+    });
+    persistIngredients(nextIngredients);
+  };
+  const addIngredient = async () => {
+    const name = ingredientDraft.trim();
+    if (!name) return;
+    const duplicate = normalizedIngredients().some(
+      (ingredient) =>
+        normalizeIngredientClassificationName(ingredient.name) ===
+        normalizeIngredientClassificationName(name),
+    );
+    if (!duplicate) {
+      const ingredientType = await classifyIngredientType(name);
+      persistIngredients([
+        ...normalizedIngredients(),
+        { name, category: "other", ingredientType },
+      ]);
+    }
+    setIngredientDraft("");
+    requestAnimationFrame(() => ingredientInputRef.current?.focus());
   };
   const action = (
     label: string,
@@ -272,8 +408,13 @@ export default function MealRowDetailsSheet({
         >
           <View style={styles.handle} />
           <ScrollView
+            ref={sheetScrollRef}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.sheetContent}
+            onTouchStart={() => {
+              if (isIngredientEditing) endIngredientEditing();
+            }}
           >
           <View style={styles.dateRow}>
             <Text style={styles.date}>{date.toUpperCase()}</Text>
@@ -296,7 +437,7 @@ export default function MealRowDetailsSheet({
               {mealHeaderIcon}
               <View style={styles.mealCopy}>
                 <Text style={styles.title}>{mealDisplayTitle}</Text>
-                {meal.prepNotes?.trim() ? <Text style={styles.description}>{meal.prepNotes.trim()}</Text> : null}
+                {prepNoteSubtitle}
               </View>
               <MaterialCommunityIcons
                 name={ingredientsExpanded ? "chevron-up" : "chevron-down"}
@@ -309,41 +450,149 @@ export default function MealRowDetailsSheet({
               {mealHeaderIcon}
               <View style={styles.mealCopy}>
                 <Text style={styles.title}>{mealDisplayTitle}</Text>
-                {meal.prepNotes?.trim() ? <Text style={styles.description}>{meal.prepNotes.trim()}</Text> : null}
+                {prepNoteSubtitle}
               </View>
             </View>
           )}
-          {ingredientsExpanded ? (
+          {ingredientsExpanded || isIngredientEditing || !hasIngredients ? (
             <View style={styles.ingredientSection}>
-              {keyIngredients.length ? (
-                <View style={styles.ingredientGroup}>
-                  <Text style={styles.ingredientGroupLabel}>KEY INGREDIENTS</Text>
-                  <View style={styles.ingredientRows}>
-                    {keyIngredients.map((ingredient, index) => (
-                      <View
-                        key={`key-${ingredient.name.toLocaleLowerCase()}-${index}`}
-                        style={styles.ingredientRow}
+              <View style={styles.ingredientGroup}>
+                <Text style={styles.ingredientGroupLabel}>KEY INGREDIENTS</Text>
+                <View style={styles.ingredientRows}>
+                  {keyIngredients.map((ingredient) => (
+                    <View
+                      key={`key-${ingredient.name.toLocaleLowerCase()}-${ingredient.index}`}
+                      style={styles.ingredientRow}
+                    >
+                      <Pressable
+                        disabled={!isIngredientEditing}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onPress={() => removeIngredient(ingredient.index)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${ingredient.name}`}
+                        hitSlop={6}
+                        style={styles.ingredientDeleteTarget}
                       >
-                        <Text style={styles.ingredientText}>
+                        <MaterialCommunityIcons
+                          name={isIngredientEditing ? "minus-circle-outline" : "checkbox-blank-circle-outline"}
+                          size={18}
+                          color={theme.color.accent}
+                        />
+                      </Pressable>
+                      <Pressable
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onPress={toggleIngredientEditing}
+                        style={styles.ingredientTextTarget}
+                      >
+                        <Text style={styles.ingredientText} numberOfLines={1}>
                           {formatIngredientName(ingredient.name)}
                         </Text>
+                      </Pressable>
+                      {isIngredientEditing && pantryStaples.length > 0 ? (
+                        <Pressable
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onPress={() => moveIngredient(ingredient.index)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Move ${ingredient.name} to Pantry Staples`}
+                          hitSlop={6}
+                          style={styles.ingredientSwapTarget}
+                        >
+                          <MaterialCommunityIcons name="arrow-down" size={19} color={theme.color.accent} />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ))}
+                  {isIngredientEditing || keyIngredients.length === 0 ? (
+                    <View
+                      style={styles.addIngredientRow}
+                      onTouchStart={(event) => event.stopPropagation()}
+                    >
+                      <View style={styles.ingredientDeleteTarget}>
+                        <View style={styles.addIngredientDot} />
                       </View>
-                    ))}
-                  </View>
+                      <TextInput
+                        ref={ingredientInputRef}
+                        value={ingredientDraft}
+                        onChangeText={setIngredientDraft}
+                        onSubmitEditing={() => void addIngredient()}
+                        onFocus={() => {
+                          setIngredientsExpanded(true);
+                          setIngredientEditing(true);
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            if (!ingredientInputRef.current?.isFocused()) {
+                              endIngredientEditing();
+                            }
+                          }, 100);
+                        }}
+                        placeholder="Add Ingredient"
+                        placeholderTextColor={theme.color.subtleInk}
+                        autoCapitalize="words"
+                        returnKeyType="next"
+                        blurOnSubmit={false}
+                        style={styles.addIngredientInput}
+                      />
+                      {ingredientDraft.trim() ? (
+                        <Pressable
+                          onPress={() => void addIngredient()}
+                          accessibilityRole="button"
+                          accessibilityLabel="Add ingredient"
+                          style={styles.ingredientSwapTarget}
+                        >
+                          <MaterialCommunityIcons name="plus" size={22} color={theme.color.accent} />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
-              {pantryStaples.length ? (
+              </View>
+              {pantryStaples.length > 0 &&
+              (isIngredientEditing || ingredientsExpanded) ? (
                 <View style={styles.ingredientGroup}>
                   <Text style={styles.ingredientGroupLabel}>PANTRY STAPLES</Text>
                   <View style={styles.ingredientRows}>
-                    {pantryStaples.map((ingredient, index) => (
+                    {pantryStaples.map((ingredient) => (
                       <View
-                        key={`pantry-${ingredient.name.toLocaleLowerCase()}-${index}`}
+                        key={`pantry-${ingredient.name.toLocaleLowerCase()}-${ingredient.index}`}
                         style={styles.ingredientRow}
                       >
-                        <Text style={styles.ingredientText}>
-                          {formatIngredientName(ingredient.name)}
-                        </Text>
+                        <Pressable
+                          disabled={!isIngredientEditing}
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onPress={() => removeIngredient(ingredient.index)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${ingredient.name}`}
+                          hitSlop={6}
+                          style={styles.ingredientDeleteTarget}
+                        >
+                          <MaterialCommunityIcons
+                            name={isIngredientEditing ? "minus-circle-outline" : "checkbox-blank-circle-outline"}
+                            size={18}
+                            color={theme.color.accent}
+                          />
+                        </Pressable>
+                        <Pressable
+                          onTouchStart={(event) => event.stopPropagation()}
+                          onPress={toggleIngredientEditing}
+                          style={styles.ingredientTextTarget}
+                        >
+                          <Text style={styles.ingredientText} numberOfLines={1}>
+                            {formatIngredientName(ingredient.name)}
+                          </Text>
+                        </Pressable>
+                        {isIngredientEditing ? (
+                          <Pressable
+                            onTouchStart={(event) => event.stopPropagation()}
+                            onPress={() => moveIngredient(ingredient.index)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Move ${ingredient.name} to Key Ingredients`}
+                            hitSlop={6}
+                            style={styles.ingredientSwapTarget}
+                          >
+                            <MaterialCommunityIcons name="arrow-up" size={19} color={theme.color.accent} />
+                          </Pressable>
+                        ) : null}
                       </View>
                     ))}
                   </View>
@@ -366,23 +615,42 @@ export default function MealRowDetailsSheet({
               </View>
             </View>
           ) : null}
-          {isServed && members.length > 0 ? (
+          {isServed && showRatings ? (
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>FAMILY RATING</Text>
-              <FamilyRatingRow
-                ratings={meal.familyRatings}
-                onChange={(memberId, rating) =>
-                  updateMeal({
-                    id: meal.id,
-                    familyRatings: setFamilyRatingValue(
-                      meal.familyRatings,
-                      memberId,
-                      rating,
-                    ),
-                    updatedAt: new Date().toISOString(),
-                  })
-                }
-              />
+              <Text style={styles.sectionLabel}>
+                {useRatingStars ? "RATING" : "FAMILY RATING"}
+              </Text>
+              <View style={useRatingStars ? styles.ratingStarsCentered : undefined}>
+                {useRatingStars ? (
+                  <RatingStars
+                    value={meal.rating ?? 0}
+                    size={32}
+                    gap={theme.space.sm}
+                    onChange={(rating) =>
+                      updateMeal({
+                        id: meal.id,
+                        rating,
+                        updatedAt: new Date().toISOString(),
+                      })
+                    }
+                  />
+                ) : (
+                  <FamilyRatingRow
+                    ratings={meal.familyRatings}
+                    onChange={(memberId, rating) =>
+                      updateMeal({
+                        id: meal.id,
+                        familyRatings: setFamilyRatingValue(
+                          meal.familyRatings,
+                          memberId,
+                          rating,
+                        ),
+                        updatedAt: new Date().toISOString(),
+                      })
+                    }
+                  />
+                )}
+              </View>
             </View>
           ) : null}
           <View style={styles.divider} />
@@ -393,7 +661,7 @@ export default function MealRowDetailsSheet({
                 <>
                   {action("View Meal Details", "file-document-outline", () => act(onViewMeal))}
                   {action("Add to Freezer", "snowflake", () => setFreezerVisible(true))}
-                  {action("Add Prep Note", "note-edit-outline", () => act(onViewMeal))}
+                  {action("Add Prep Note", "note-edit-outline", beginPrepNoteEditing)}
                 </>
               ) : isPending
                 ? action(
@@ -478,15 +746,23 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   mealCopy: { flex: 1, gap: theme.space.xs },
   title: { color: theme.color.ink, fontSize: theme.type.size.h2, fontWeight: theme.type.weight.bold },
   description: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, lineHeight: 20 },
+  prepNoteInput: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, lineHeight: 20, padding: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.accent },
   ingredientSection: { gap: theme.space.lg },
   ingredientGroup: { gap: theme.space.sm },
   ingredientGroupLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
   ingredientRows: { gap: theme.space.xs },
-  ingredientRow: { minHeight: 38, flexDirection: "row", alignItems: "center", paddingHorizontal: theme.space.sm, paddingVertical: theme.space.xs },
-  ingredientText: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base },
+  ingredientRow: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+  ingredientDeleteTarget: { width: 32, minHeight: 38, alignItems: "center", justifyContent: "center" },
+  ingredientSwapTarget: { width: 36, minHeight: 38, alignItems: "center", justifyContent: "center" },
+  ingredientTextTarget: { flex: 1, minHeight: 38, justifyContent: "center" },
+  ingredientText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
+  addIngredientRow: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+  addIngredientDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.color.accent },
+  addIngredientInput: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base, padding: 0 },
   servedStatus: { minHeight: 70, borderRadius: theme.radius.lg, paddingHorizontal: theme.space.lg, flexDirection: "row", alignItems: "center", gap: theme.space.md, backgroundColor: theme.mode === "dark" ? "rgba(0,255,156,0.08)" : "rgba(16,185,129,0.08)" },
   servedStatusText: { color: theme.color.success, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
   section: { gap: theme.space.md },
+  ratingStarsCentered: { alignItems: "center" },
   sectionLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 1 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm },
   chip: { color: theme.color.ink, fontSize: theme.type.size.sm, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, borderRadius: theme.radius.full, backgroundColor: theme.color.surface },

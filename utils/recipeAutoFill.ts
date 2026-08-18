@@ -9,6 +9,9 @@ export type RecipeAutoFillResult = {
   expense?: number;
   prepNotes?: string;
   summary?: string;
+  suggestedSides?: string[];
+  matchesExistingMeal?: boolean;
+  matchConfidence?: number;
 };
 
 export type RecipeAutoFillOutcome =
@@ -34,7 +37,8 @@ const buildFunctionUrl = () => {
 };
 
 export const autoFillMealFromUrl = async (
-  rawUrl: string
+  rawUrl: string,
+  existingMealTitle?: string,
 ): Promise<RecipeAutoFillOutcome> => {
   if (!API_BASE_URL) {
     return {
@@ -70,7 +74,12 @@ export const autoFillMealFromUrl = async (
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ url: url.toString() }),
+      body: JSON.stringify({
+        url: url.toString(),
+        ...(existingMealTitle?.trim()
+          ? { existingMealTitle: existingMealTitle.trim() }
+          : {}),
+      }),
     });
   } catch (error) {
     return {
@@ -84,7 +93,10 @@ export const autoFillMealFromUrl = async (
       const payload = (await response.json()) as RecipeAutoFillOutcome;
       return {
         ok: false,
-        error: payload?.error ?? "Auto-fill failed. Check the link and try again.",
+        error:
+          payload && "error" in payload
+            ? payload.error
+            : "Auto-fill failed. Check the link and try again.",
       };
     } catch (error) {
       return {
@@ -115,6 +127,20 @@ export const autoFillMealFromUrl = async (
               : undefined,
           prepNotes: payload.data.prepNotes?.trim(),
           summary: payload.data.summary?.trim(),
+          suggestedSides: Array.isArray(payload.data.suggestedSides)
+            ? payload.data.suggestedSides
+                .filter((side): side is string => typeof side === "string")
+                .map((side) => side.trim())
+                .filter(Boolean)
+            : [],
+          matchesExistingMeal:
+            typeof payload.data.matchesExistingMeal === "boolean"
+              ? payload.data.matchesExistingMeal
+              : true,
+          matchConfidence:
+            typeof payload.data.matchConfidence === "number"
+              ? Math.min(Math.max(payload.data.matchConfidence, 0), 1)
+              : 0,
         },
       };
     }

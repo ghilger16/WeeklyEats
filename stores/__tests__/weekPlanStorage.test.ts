@@ -9,7 +9,10 @@ import {
   getCurrentWeekPlan,
   getCurrentWeekSides,
   getWeekPlanHistory,
+  getWeekPlanDraft,
   getWeekPlanStreak,
+  clearWeekPlanDraft,
+  setWeekPlanDraft,
   setWeekPlanDataBatch,
   updateWeekPlanStreak,
 } from "../weekPlanStorage";
@@ -17,6 +20,34 @@ import {
   createEmptyCurrentPlannedWeek,
   createEmptyCurrentWeekSides,
 } from "../../types/weekPlan";
+
+describe("week planning drafts", () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+  });
+
+  it("stores unfinished selections separately from the official plan", async () => {
+    const draftPlan = createEmptyCurrentPlannedWeek({
+      weekStartISO: "2026-08-16",
+    });
+    draftPlan.mon = "draft-meal";
+    const draftSides = createEmptyCurrentWeekSides();
+    draftSides.mon = ["Salad"];
+
+    await setWeekPlanDraft("2026-08-16", draftPlan, draftSides);
+
+    await expect(getWeekPlanDraft("2026-08-16")).resolves.toMatchObject({
+      plan: { mon: "draft-meal", weekedPlanned: false },
+      sides: { mon: ["Salad"] },
+    });
+    await expect(getCurrentWeekPlan("2026-08-16")).resolves.toMatchObject({
+      mon: null,
+    });
+
+    await clearWeekPlanDraft("2026-08-16");
+    await expect(getWeekPlanDraft("2026-08-16")).resolves.toBeNull();
+  });
+});
 
 describe("setWeekPlanDataBatch", () => {
   beforeEach(async () => {
