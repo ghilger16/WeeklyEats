@@ -69,6 +69,13 @@ export const autoFillMealFromUrl = async (
   let response: Response;
 
   try {
+    if (__DEV__) {
+      console.log("[AutoFill Debug] Request", {
+        url: url.toString(),
+        existingMealTitle,
+        apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL,
+      });
+    }
     response = await fetch(functionUrl, {
       method: "POST",
       headers: {
@@ -88,60 +95,93 @@ export const autoFillMealFromUrl = async (
     };
   }
 
-  if (!response.ok) {
-    try {
-      const payload = (await response.json()) as RecipeAutoFillOutcome;
-      return {
-        ok: false,
-        error:
-          payload && "error" in payload
-            ? payload.error
-            : "Auto-fill failed. Check the link and try again.",
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: "Auto-fill failed. Check the link and try again.",
-      };
+  let rawData: unknown;
+  try {
+    rawData = await response.json();
+  } catch (error) {
+    if (__DEV__) {
+      console.log("[AutoFill Debug] HTTP status", response.status);
+      console.log("[AutoFill Debug] Raw response", {
+        parseError: "Response body was not valid JSON.",
+      });
     }
+    return {
+      ok: false,
+      error: response.ok
+        ? "Auto-fill failed. Try again later."
+        : "Auto-fill failed. Check the link and try again.",
+    };
+  }
+
+  if (__DEV__) {
+    console.log("[AutoFill Debug] HTTP status", response.status);
+    console.log("[AutoFill Debug] Raw response", rawData);
+  }
+
+  if (!response.ok) {
+    const payload = rawData as RecipeAutoFillOutcome;
+    return {
+      ok: false,
+      error:
+        payload && "error" in payload
+          ? payload.error
+          : "Auto-fill failed. Check the link and try again.",
+    };
   }
 
   try {
-    const payload = (await response.json()) as RecipeAutoFillOutcome;
+    const payload = rawData as RecipeAutoFillOutcome;
     if (payload && payload.ok) {
+      const rawResult = payload.data as RecipeAutoFillResult;
+      if (__DEV__) {
+        console.log("[AutoFill Debug] Raw match values", {
+          matchesExistingMeal: rawResult.matchesExistingMeal,
+          matchesExistingMealType: typeof rawResult.matchesExistingMeal,
+          matchConfidence: rawResult.matchConfidence,
+          matchConfidenceType: typeof rawResult.matchConfidence,
+        });
+      }
+      const normalizedResult: RecipeAutoFillResult = {
+        title: payload.data.title?.trim(),
+        ingredients: payload.data.ingredients,
+        cuisine: isCuisineType(payload.data.cuisine)
+          ? payload.data.cuisine
+          : null,
+        difficulty:
+          typeof payload.data.difficulty === "number"
+            ? clamp(payload.data.difficulty, 1, 5)
+            : undefined,
+        expense:
+          typeof payload.data.expense === "number"
+            ? clamp(payload.data.expense, 1, 5)
+            : undefined,
+        prepNotes: payload.data.prepNotes?.trim(),
+        summary: payload.data.summary?.trim(),
+        suggestedSides: Array.isArray(payload.data.suggestedSides)
+          ? payload.data.suggestedSides
+              .filter((side): side is string => typeof side === "string")
+              .map((side) => side.trim())
+              .filter(Boolean)
+          : [],
+        matchesExistingMeal:
+          typeof payload.data.matchesExistingMeal === "boolean"
+            ? payload.data.matchesExistingMeal
+            : true,
+        matchConfidence:
+          typeof payload.data.matchConfidence === "number"
+            ? Math.min(Math.max(payload.data.matchConfidence, 0), 1)
+            : 0,
+      };
+      if (__DEV__) {
+        console.log("[AutoFill Debug] Normalized result", {
+          title: normalizedResult.title,
+          matchesExistingMeal: normalizedResult.matchesExistingMeal,
+          matchConfidence: normalizedResult.matchConfidence,
+        });
+      }
       return {
         ok: true,
-        data: {
-          title: payload.data.title?.trim(),
-          ingredients: payload.data.ingredients,
-          cuisine: isCuisineType(payload.data.cuisine)
-            ? payload.data.cuisine
-            : null,
-          difficulty:
-            typeof payload.data.difficulty === "number"
-              ? clamp(payload.data.difficulty, 1, 5)
-              : undefined,
-          expense:
-            typeof payload.data.expense === "number"
-              ? clamp(payload.data.expense, 1, 5)
-              : undefined,
-          prepNotes: payload.data.prepNotes?.trim(),
-          summary: payload.data.summary?.trim(),
-          suggestedSides: Array.isArray(payload.data.suggestedSides)
-            ? payload.data.suggestedSides
-                .filter((side): side is string => typeof side === "string")
-                .map((side) => side.trim())
-                .filter(Boolean)
-            : [],
-          matchesExistingMeal:
-            typeof payload.data.matchesExistingMeal === "boolean"
-              ? payload.data.matchesExistingMeal
-              : true,
-          matchConfidence:
-            typeof payload.data.matchConfidence === "number"
-              ? Math.min(Math.max(payload.data.matchConfidence, 0), 1)
-              : 0,
-        },
+        data: normalizedResult,
       };
     }
 

@@ -450,6 +450,16 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
         (serverMatchConfidence === 0 &&
           fallbackTitleMatch?.matches === false &&
           fallbackTitleMatch.confidence >= 0.75));
+    if (__DEV__) {
+      console.log("[AutoFill Debug] Match decision", {
+        existingTitle: meal.title,
+        detectedTitle,
+        serverMatchesExistingMeal: outcome.data.matchesExistingMeal,
+        serverMatchConfidence,
+        fallbackTitleMatch,
+        isConfidentMismatch,
+      });
+    }
     if (isConfidentMismatch) {
       Keyboard.dismiss();
       setPendingDifferentRecipe({ title: detectedTitle, patch });

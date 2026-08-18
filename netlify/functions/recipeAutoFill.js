@@ -1,5 +1,8 @@
 const OPENAI_MODEL = "gpt-4o-mini";
 const MAX_HTML_CHARS = 12000;
+const AUTO_FILL_DEBUG =
+  process.env.AUTO_FILL_DEBUG === "true" ||
+  process.env.NETLIFY_DEV === "true";
 
 const SHOPPING_CATEGORIES = [
   "produce",
@@ -573,6 +576,15 @@ exports.handler = async (event) => {
     typeof parsed.title === "string" && parsed.title.trim().length > 0
       ? parsed.title.trim()
       : extractTitleFromUrl(url);
+
+  if (AUTO_FILL_DEBUG && !suggestionTitle) {
+    console.log("[AutoFill Debug] OpenAI parsed match", {
+      existingMealTitle,
+      detectedTitle: parsed.title,
+      matchesExistingMeal: parsed.matchesExistingMeal,
+      matchConfidence: parsed.matchConfidence,
+    });
+  }
 
   const ingredients = Array.isArray(parsed.ingredients)
     ? sortIngredientsForShopping(
