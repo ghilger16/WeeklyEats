@@ -139,6 +139,7 @@ export default function MealRowDetailsSheet({
   );
   const hasIngredients = ingredients.length > 0;
   const shouldAutoExpandIngredients =
+    day?.mealId !== EAT_OUT_MEAL_ID &&
     day?.status === "today" &&
     servedEntry?.outcome !== "served" &&
     hasIngredients;
@@ -422,7 +423,7 @@ export default function MealRowDetailsSheet({
               <MaterialCommunityIcons name="close" size={25} color={theme.color.ink} />
             </Pressable>
           </View>
-          {hasIngredients ? (
+          {hasIngredients && !isEatOut ? (
             <Pressable
               onPress={toggleIngredients}
               accessibilityRole="button"
@@ -454,7 +455,8 @@ export default function MealRowDetailsSheet({
               </View>
             </View>
           )}
-          {ingredientsExpanded || isIngredientEditing || !hasIngredients ? (
+          {!isEatOut &&
+          (ingredientsExpanded || isIngredientEditing || !hasIngredients) ? (
             <View style={styles.ingredientSection}>
               <View style={styles.ingredientGroup}>
                 <Text style={styles.ingredientGroupLabel}>KEY INGREDIENTS</Text>
@@ -659,7 +661,11 @@ export default function MealRowDetailsSheet({
             <View style={styles.actions}>
               {isServed ? (
                 <>
-                  {action("View Meal Details", "file-document-outline", () => act(onViewMeal))}
+                  {!isEatOut
+                    ? action("View Meal Details", "file-document-outline", () =>
+                        act(onViewMeal),
+                      )
+                    : null}
                   {action("Add to Freezer", "snowflake", () => setFreezerVisible(true))}
                   {action("Add Prep Note", "note-edit-outline", beginPrepNoteEditing)}
                 </>
@@ -679,8 +685,8 @@ export default function MealRowDetailsSheet({
                   )}
             </View>
           </View>
-          {!isServed ? <View style={styles.divider} /> : null}
-          {!isServed ? <View style={styles.section}>
+          {!isServed && !isEatOut ? <View style={styles.divider} /> : null}
+          {!isServed && !isEatOut ? <View style={styles.section}>
             <Text style={styles.sectionLabel}>QUICK LINKS</Text>
             <View style={styles.actions}>
               {meal.recipeUrl?.trim()

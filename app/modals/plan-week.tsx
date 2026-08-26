@@ -68,6 +68,11 @@ import {
   getNextWeekStartForDate,
   getWeekStartForDate,
 } from "../../utils/weekDays";
+import { getRemainingPlanningDays } from "../../utils/remainingWeekPlanning";
+import {
+  setFirstFullWeekPlanned,
+  setFirstWeekExperienceActive,
+} from "../../stores/onboardingStorage";
 import PlanDayChoiceStep, {
   DayWizardAction,
 } from "../../components/plan-week/steps/PlanDayChoiceStep";
@@ -98,6 +103,7 @@ import PinInventory, {
   isInventoryPinActive,
 } from "../../components/plan-week/pins/PinInventory";
 import CalendarEventLines from "../../components/plan-week/CalendarEventLines";
+import BurstSparkles from "../../components/week-dashboard/BurstSparkles";
 import { useRatingDisplayMode } from "../../hooks/useRatingDisplayMode";
 import InlineDaySearch from "../../components/plan-week/inline/InlineDaySearch";
 import InlineSideEditor from "../../components/plan-week/inline/InlineSideEditor";
@@ -110,7 +116,6 @@ import {
   createEmptyDayPinsMap,
   normalizeDayPinsState,
 } from "../../types/dayPins";
-import { getRemainingPlanningDays } from "../../utils/remainingWeekPlanning";
 import { buildWeekPlanCelebration } from "../../utils/weekPlanCelebration";
 import { rankMealsByIngredientOverlap } from "../../utils/ingredientOverlap";
 import {
@@ -204,7 +209,22 @@ export default function PlanWeekModal() {
   const { meals, addMeal, updateMeal } = useMeals();
   const { mode: ratingDisplayMode } = useRatingDisplayMode();
   const { orderedDays, startDay } = useWeekStartController();
-  const isRemainingMode = params.mode === "remaining";
+  const firstExperienceRemainingDays = useMemo(
+    () => getRemainingPlanningDays(startDay),
+    [startDay],
+  );
+  const shouldOfferFirstRemainingDays =
+    firstExperienceRemainingDays.length >= 1 &&
+    firstExperienceRemainingDays.length <= 4;
+  const isFirstIntroMode = params.mode === "first-intro";
+  const isFirstRemainingMode = params.mode === "first-remaining";
+  const isRemainingMode =
+    params.mode === "remaining" ||
+    isFirstRemainingMode ||
+    (isFirstIntroMode && shouldOfferFirstRemainingDays);
+  const isFirstFullWeekMode =
+    params.mode === "first-full" ||
+    (isFirstIntroMode && !shouldOfferFirstRemainingDays);
   const isCurrentWeekMode = params.mode === "current";
   const requestedEditDay = isPlannedWeekDayKey(params.editDay)
     ? params.editDay
@@ -218,10 +238,18 @@ export default function PlanWeekModal() {
   }, [isRemainingMode, orderedDays, startDay]);
   const planningWeekStart = useMemo(
     () =>
-      isRemainingMode || isCurrentWeekMode
+      isRemainingMode ||
+      isCurrentWeekMode ||
+      (isFirstFullWeekMode && firstExperienceRemainingDays.length === 7)
         ? getWeekStartForDate(startDay)
         : getNextWeekStartForDate(startDay),
-    [isCurrentWeekMode, isRemainingMode, startDay],
+    [
+      firstExperienceRemainingDays.length,
+      isCurrentWeekMode,
+      isFirstFullWeekMode,
+      isRemainingMode,
+      startDay,
+    ],
   );
   const planningWeekStartISO = useMemo(
     () => planningWeekStart.toISOString().slice(0, 10),
@@ -252,6 +280,11 @@ export default function PlanWeekModal() {
     createInitialSuggestionIndex,
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [showFirstRemainingIntro, setShowFirstRemainingIntro] = useState(
+    isFirstIntroMode && shouldOfferFirstRemainingDays,
+  );
+  const [isFirstRemainingComplete, setFirstRemainingComplete] =
+    useState(false);
   const [isSummaryVisible, setIsSummaryVisible] = useState(false);
   const summaryTranslateY = useRef(
     new Animated.Value(SUMMARY_MAX_TRANSLATE),
@@ -338,6 +371,25 @@ export default function PlanWeekModal() {
     [],
   );
   const [isReduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  const firstCompletionHeadingProgress = useRef(new Animated.Value(0)).current;
+  const firstCompletionLabelProgress = useRef(new Animated.Value(0)).current;
+  const firstCompletionCardProgress = useRef(new Animated.Value(0)).current;
+  const firstCompletionCardSparkleProgress = useRef(new Animated.Value(0)).current;
+  const firstCompletionActionsProgress = useRef(new Animated.Value(0)).current;
+  const firstCompletionRowAnimations = useRef(
+    PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, Animated.Value>>(
+      (animations, day) => {
+        animations[day] = new Animated.Value(0);
+        return animations;
+      },
+      {} as Record<PlannedWeekDayKey, Animated.Value>,
+    ),
+  ).current;
+  const firstCompletionSequenceRef = useRef<Animated.CompositeAnimation | null>(null);
+  const firstCompletionActionsAnimationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const didAnimateFirstCompletionRef = useRef(false);
+  const [areFirstCompletionActionsVisible, setFirstCompletionActionsVisible] =
+    useState(false);
   const autoPlanTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const autoPlanRowAnimationsRef = useRef(
     PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, Animated.Value>>(
@@ -376,6 +428,95 @@ export default function PlanWeekModal() {
       subscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isFirstRemainingComplete) {
+      firstCompletionSequenceRef.current?.stop();
+      firstCompletionActionsAnimationRef.current?.stop();
+      didAnimateFirstCompletionRef.current = false;
+      setFirstCompletionActionsVisible(false);
+      firstCompletionHeadingProgress.setValue(0);
+      firstCompletionLabelProgress.setValue(0);
+      firstCompletionCardProgress.setValue(0);
+      firstCompletionCardSparkleProgress.setValue(0);
+      firstCompletionActionsProgress.setValue(0);
+      PLANNED_WEEK_ORDER.forEach((day) => {
+        firstCompletionRowAnimations[day].setValue(0);
+      });
+      return;
+    }
+    if (didAnimateFirstCompletionRef.current) return;
+    didAnimateFirstCompletionRef.current = true;
+
+    const rowStagger = sessionDays.length > 3 ? 140 : 170;
+    const rowAnimations = sessionDays.map((day) => {
+      const animation = firstCompletionRowAnimations[day];
+      return Animated.timing(animation, {
+        toValue: 1,
+        duration: isReduceMotionEnabled ? 120 : 300,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      });
+    });
+
+    const sequence = Animated.sequence([
+      Animated.timing(firstCompletionHeadingProgress, {
+        toValue: 1,
+        duration: isReduceMotionEnabled ? 120 : 540,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(firstCompletionLabelProgress, {
+        toValue: 1,
+        duration: isReduceMotionEnabled ? 80 : 200,
+        useNativeDriver: true,
+      }),
+      Animated.stagger(isReduceMotionEnabled ? 40 : rowStagger, rowAnimations),
+      Animated.delay(isReduceMotionEnabled ? 40 : 400),
+      Animated.timing(firstCompletionCardProgress, {
+        toValue: 1,
+        duration: isReduceMotionEnabled ? 120 : 560,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(firstCompletionCardSparkleProgress, {
+        toValue: 1,
+        duration: isReduceMotionEnabled ? 1 : 480,
+        useNativeDriver: true,
+      }),
+    ]);
+    firstCompletionSequenceRef.current = sequence;
+    sequence.start(({ finished }) => {
+      if (!finished) return;
+      setFirstCompletionActionsVisible(true);
+      const actionsAnimation = Animated.timing(firstCompletionActionsProgress, {
+        toValue: 1,
+        duration: isReduceMotionEnabled ? 120 : 360,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      });
+      firstCompletionActionsAnimationRef.current = actionsAnimation;
+      actionsAnimation.start();
+    });
+  }, [
+    firstCompletionActionsProgress,
+    firstCompletionCardProgress,
+    firstCompletionCardSparkleProgress,
+    firstCompletionHeadingProgress,
+    firstCompletionLabelProgress,
+    firstCompletionRowAnimations,
+    isFirstRemainingComplete,
+    isReduceMotionEnabled,
+    sessionDays,
+  ]);
+
+  useEffect(
+    () => () => {
+      firstCompletionSequenceRef.current?.stop();
+      firstCompletionActionsAnimationRef.current?.stop();
+    },
+    [],
+  );
 
   useEffect(
     () => () => {
@@ -2202,6 +2343,16 @@ export default function PlanWeekModal() {
       setCompleteWeekPromptVisible(false);
       setAutoPlanAnimationPhase("idle");
       setAutoPlanMessage(null);
+      if (isFirstRemainingMode || (isFirstIntroMode && isRemainingMode)) {
+        setFirstRemainingComplete(true);
+        return;
+      }
+      if (isFirstFullWeekMode) {
+        await Promise.all([
+          setFirstFullWeekPlanned(true),
+          setFirstWeekExperienceActive(false),
+        ]);
+      }
       const celebrationPayload = await runSavePlanCelebration();
       if (celebrationPayload) {
         DeviceEventEmitter.emit(
@@ -2223,6 +2374,9 @@ export default function PlanWeekModal() {
     router,
     runSavePlanCelebration,
     isRemainingMode,
+    isFirstFullWeekMode,
+    isFirstIntroMode,
+    isFirstRemainingMode,
     planningWeekStartISO,
     daySidesMap,
     meals,
@@ -2396,6 +2550,306 @@ export default function PlanWeekModal() {
     [meals, viewingMealId],
   );
 
+  const firstRemainingPlannedMeals = useMemo(
+    () =>
+      sessionDays.map((day) => {
+        const mealId = plannedWeek[day];
+        const meal =
+          getSpecialMealById(mealId, plannedWeek.specialMealTitles?.[day]) ??
+          meals.find((candidate) => candidate.id === mealId);
+        return {
+          day,
+          dayName: PLANNED_WEEK_DISPLAY_NAMES[day],
+          title: meal?.title ?? "Planned meal",
+          emoji: meal?.emoji,
+        };
+      }),
+    [meals, plannedWeek, sessionDays],
+  );
+  const shortDayName = useCallback(
+    (day: PlannedWeekDayKey) => PLANNED_WEEK_DISPLAY_NAMES[day].slice(0, 3),
+    [],
+  );
+  const firstRemainingRangeSummary = useMemo(() => {
+    const firstDay = sessionDays[0];
+    const lastDay = sessionDays[sessionDays.length - 1];
+    if (!firstDay || !lastDay) return "";
+    const range =
+      firstDay === lastDay
+        ? shortDayName(firstDay)
+        : `${shortDayName(firstDay)} – ${shortDayName(lastDay)}`;
+    return `${range} · ${sessionDays.length} ${sessionDays.length === 1 ? "day" : "days"}`;
+  }, [sessionDays, shortDayName]);
+  const firstFullWeekRangeSummary = useMemo(() => {
+    const firstDay = orderedDays[0];
+    const lastDay = orderedDays[orderedDays.length - 1];
+    if (!firstDay || !lastDay) return "";
+    return `${shortDayName(firstDay)} – ${shortDayName(lastDay)} · 7 days`;
+  }, [orderedDays, shortDayName]);
+  const groceryDayName = PLANNED_WEEK_DISPLAY_NAMES[startDay];
+
+  if (showFirstRemainingIntro) {
+    return (
+      <SafeAreaView
+        style={styles.plannerStepsSafeArea}
+        edges={["top", "left", "right", "bottom"]}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close first week planning"
+          onPress={() => router.back()}
+          style={styles.firstWeekCloseButton}
+        >
+          <MaterialCommunityIcons name="close" size={22} color={theme.color.ink} />
+        </Pressable>
+        <View style={styles.firstWeekChoiceContent}>
+          <View style={styles.firstWeekChoiceHeroIcons}>
+            <MaterialCommunityIcons name="calendar-week" size={42} color={theme.color.accent} />
+          </View>
+          <Text
+            style={[styles.firstWeekIntroTitle, styles.firstWeekChoiceTitle]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.9}
+          >
+            Where would you like to start?
+          </Text>
+          <View style={styles.firstWeekGroceryBanner}>
+            <MaterialCommunityIcons name="cart-outline" size={21} color={theme.color.accent} />
+            <Text style={styles.firstWeekGroceryBannerText}>
+              You shop on {groceryDayName},{`\n`}so your week starts {groceryDayName}.
+            </Text>
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Plan my first full week"
+            onPress={() => {
+              setFirstRemainingComplete(false);
+              router.replace("/modals/plan-week?mode=first-full");
+            }}
+            style={({ pressed }) => [
+              styles.firstWeekChoiceCard,
+              styles.firstWeekFullChoiceCard,
+              pressed && styles.resumeButtonPrimaryPressed,
+            ]}
+          >
+            <Text style={styles.firstWeekRecommendedBadge}>Recommended</Text>
+            <View style={styles.firstWeekChoiceIconPink}>
+              <MaterialCommunityIcons name="calendar-week" size={25} color={theme.color.accent} />
+            </View>
+            <View style={styles.firstWeekChoiceCardCopy}>
+              <Text style={styles.firstWeekChoiceCardTitle}>Plan my first full week</Text>
+              <Text style={styles.firstWeekRemainingRange}>{firstFullWeekRangeSummary}</Text>
+              <View style={styles.firstWeekChoiceDivider} />
+              <Text style={styles.firstWeekChoiceDescription}>
+                Plan a full week around your {groceryDayName} grocery trip.
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={25} color={theme.color.ink} />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Plan the next few days"
+            onPress={() => setShowFirstRemainingIntro(false)}
+            style={({ pressed }) => [
+              styles.firstWeekChoiceCard,
+              styles.firstWeekRemainingChoiceCard,
+              pressed && styles.resumeButtonPrimaryPressed,
+            ]}
+          >
+            <View style={styles.firstWeekChoiceIconLavender}>
+              <MaterialCommunityIcons name="calendar-today" size={25} color="#7667D9" />
+            </View>
+            <View style={styles.firstWeekChoiceCardCopy}>
+              <Text style={styles.firstWeekChoiceCardTitle}>Start with the next few days</Text>
+              <Text style={styles.firstWeekFullRange}>{firstRemainingRangeSummary}</Text>
+              <View style={styles.firstWeekChoiceDivider} />
+              <Text style={styles.firstWeekChoiceDescription}>
+                Want to get started now? Plan the dinners before your {groceryDayName} shop.
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={25} color={theme.color.ink} />
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isFirstRemainingComplete) {
+    return (
+      <SafeAreaView
+        style={styles.plannerStepsSafeArea}
+        edges={["top", "left", "right", "bottom"]}
+      >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to edit planned meals"
+          onPress={() => setFirstRemainingComplete(false)}
+          style={styles.firstWeekCloseButton}
+        >
+          <MaterialCommunityIcons
+            name="arrow-left"
+            size={24}
+            color={theme.color.ink}
+          />
+        </Pressable>
+        <View style={styles.firstWeekCompletionContent}>
+          <View style={styles.firstWeekCompletionHeadingWrap}>
+            <Animated.Text
+              style={[
+                styles.firstWeekIntroTitle,
+                {
+                  opacity: firstCompletionHeadingProgress,
+                  transform: [
+                    {
+                      scale: firstCompletionHeadingProgress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [isReduceMotionEnabled ? 1 : 0.98, 1],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              You’re off to a great start!
+            </Animated.Text>
+          </View>
+          <Animated.Text
+            style={[
+              styles.firstWeekPlannedHeading,
+              { opacity: firstCompletionLabelProgress },
+            ]}
+          >
+            Here’s what you planned:
+          </Animated.Text>
+          <View style={styles.firstWeekPlannedDays}>
+            {firstRemainingPlannedMeals.map((plannedMeal, index) => (
+              <Animated.View
+                key={plannedMeal.day}
+                style={[
+                  styles.firstWeekPlannedDayRow,
+                  index < firstRemainingPlannedMeals.length - 1 &&
+                    styles.firstWeekPlannedDayDivider,
+                  {
+                    opacity: firstCompletionRowAnimations[plannedMeal.day],
+                    transform: [
+                      {
+                        translateX: isReduceMotionEnabled
+                          ? 0
+                          : firstCompletionRowAnimations[
+                              plannedMeal.day
+                            ].interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [24, 0],
+                            }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <View style={styles.firstWeekPlannedMealEmoji}>
+                  <MealEmoji value={plannedMeal.emoji} size={28} />
+                </View>
+                <View style={styles.firstWeekPlannedDayCopy}>
+                  <Text style={styles.firstWeekPlannedDayText}>
+                    {plannedMeal.dayName}
+                  </Text>
+                  <Text style={styles.firstWeekPlannedMealTitle}>
+                    {plannedMeal.title}
+                  </Text>
+                </View>
+              </Animated.View>
+            ))}
+          </View>
+          <Animated.View
+            style={[
+              styles.firstWeekStartsCard,
+              {
+                opacity: firstCompletionCardProgress,
+                transform: [
+                  {
+                    translateY: isReduceMotionEnabled
+                      ? 0
+                      : firstCompletionCardProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [16, 0],
+                        }),
+                  },
+                  {
+                    scale: isReduceMotionEnabled
+                      ? 1
+                      : firstCompletionCardProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.97, 1],
+                        }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.firstWeekStartsIcon}>
+              <BurstSparkles
+                progress={firstCompletionCardSparkleProgress}
+                visible={!isReduceMotionEnabled}
+                originYOffset={0}
+                particleCount={4}
+                distanceScale={0.5}
+                particleSize={6}
+              />
+              <MaterialCommunityIcons name="calendar-week" size={24} color={theme.color.accent} />
+            </View>
+            <Text style={styles.firstWeekStartsText}>
+              Your first full week starts {PLANNED_WEEK_DISPLAY_NAMES[startDay]}.
+            </Text>
+          </Animated.View>
+        </View>
+        <Animated.View
+          pointerEvents={areFirstCompletionActionsVisible ? "auto" : "none"}
+          style={[
+            styles.firstWeekIntroActions,
+            {
+              opacity: firstCompletionActionsProgress,
+              transform: [
+                {
+                  translateY: isReduceMotionEnabled
+                    ? 0
+                    : firstCompletionActionsProgress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [10, 0],
+                      }),
+                },
+              ],
+            },
+          ]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Plan my first full week"
+            onPress={() => {
+              setFirstRemainingComplete(false);
+              router.replace("/modals/plan-week?mode=first-full");
+            }}
+            style={styles.firstWeekPrimaryButton}
+          >
+            <Text style={styles.firstWeekPrimaryButtonText}>
+              Plan My First Full Week
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Plan first full week later"
+            onPress={() => router.back()}
+            style={styles.firstWeekSecondaryButton}
+          >
+            <Text style={styles.firstWeekSecondaryButtonText}>I’ll Do This Later</Text>
+          </Pressable>
+        </Animated.View>
+      </SafeAreaView>
+    );
+  }
+
   if (resumePromptVisible) {
     return (
       <SafeAreaView
@@ -2455,6 +2909,13 @@ export default function PlanWeekModal() {
         edges={["left", "right", "bottom"]}
       >
         <PlanWeekHeader
+          title={
+            isRemainingMode
+              ? "Plan These Days"
+              : isFirstFullWeekMode
+                ? "Plan Your First Week"
+                : "Plan Your Week"
+          }
           isSummaryVisible={isSummaryVisible}
           onClose={
             isDayPlanningStep ? handleBackToWizardOptions : handleClosePlanWeek
@@ -3120,6 +3581,286 @@ const createStyles = (theme: WeeklyTheme) =>
     plannerStepsSafeArea: {
       flex: 1,
       backgroundColor: theme.color.bg,
+    },
+    firstWeekCloseButton: {
+      width: 44,
+      height: 44,
+      marginTop: theme.space.sm,
+      marginLeft: theme.space.lg,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.surface,
+    },
+    firstWeekIntroContent: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.lg,
+      paddingHorizontal: theme.space.xl,
+    },
+    firstWeekChoiceContent: {
+      flex: 1,
+      justifyContent: "center",
+      gap: theme.space.lg,
+      paddingHorizontal: theme.space.lg,
+      paddingBottom: theme.space.lg,
+    },
+    firstWeekChoiceHeroIcons: {
+      height: 68,
+      alignSelf: "center",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 2,
+      paddingHorizontal: theme.space.lg,
+      borderRadius: theme.radius.full,
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255, 75, 145, 0.12)" : "#FFF3F8",
+    },
+    firstWeekGroceryBanner: {
+      alignSelf: "stretch",
+      minHeight: 58,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.sm,
+      borderRadius: theme.radius.lg,
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(118, 103, 217, 0.16)" : "#F5F1FF",
+    },
+    firstWeekGroceryBannerText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      lineHeight: theme.type.size.sm * 1.35,
+      fontWeight: theme.type.weight.medium,
+      textAlign: "center",
+    },
+    firstWeekChoiceCard: {
+      position: "relative",
+      minHeight: 138,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.md,
+      paddingVertical: theme.space.lg,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+    },
+    firstWeekRemainingChoiceCard: {
+      borderColor:
+        theme.mode === "dark" ? "rgba(142, 126, 234, 0.42)" : "#D9D2F5",
+      backgroundColor: theme.color.surface,
+    },
+    firstWeekFullChoiceCard: {
+      marginTop: theme.space.xs,
+      borderColor: theme.color.accent,
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255, 75, 145, 0.12)" : "#FFF5F9",
+    },
+    firstWeekRecommendedBadge: {
+      position: "absolute",
+      right: theme.space.md,
+      top: -11,
+      zIndex: 2,
+      overflow: "hidden",
+      color: "#FFFFFF",
+      backgroundColor: theme.color.accent,
+      borderRadius: theme.radius.full,
+      paddingHorizontal: theme.space.sm,
+      paddingVertical: 4,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.bold,
+    },
+    firstWeekChoiceIconPink: {
+      width: 48,
+      height: 48,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255, 75, 145, 0.22)" : "#FFE4EF",
+    },
+    firstWeekChoiceIconLavender: {
+      width: 48,
+      height: 48,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(118, 103, 217, 0.24)" : "#EEEAFE",
+    },
+    firstWeekChoiceCardCopy: {
+      flex: 1,
+      gap: 4,
+    },
+    firstWeekChoiceCardTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      lineHeight: theme.type.size.base * 1.25,
+      fontWeight: theme.type.weight.bold,
+    },
+    firstWeekRemainingRange: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    firstWeekFullRange: {
+      color: "#7667D9",
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
+    },
+    firstWeekChoiceDivider: {
+      height: StyleSheet.hairlineWidth,
+      marginVertical: 3,
+      backgroundColor: theme.color.border,
+    },
+    firstWeekChoiceDescription: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      lineHeight: theme.type.size.sm * 1.35,
+    },
+    firstWeekCompletionContent: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "flex-start",
+      gap: theme.space.lg,
+      paddingHorizontal: theme.space.xl,
+      paddingTop: theme.space["2xl"] * 2,
+    },
+    firstWeekCompletionHeadingWrap: {
+      alignSelf: "stretch",
+      minHeight: 52,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "visible",
+    },
+    firstWeekIntroTitle: {
+      maxWidth: 340,
+      color: theme.color.ink,
+      fontSize: theme.type.size.h1,
+      lineHeight: theme.type.size.h1 * 1.18,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    firstWeekChoiceTitle: {
+      maxWidth: "100%",
+      alignSelf: "stretch",
+      fontSize: theme.type.size.h2,
+      lineHeight: theme.type.size.h2 * 1.18,
+    },
+    firstWeekIntroCopy: {
+      maxWidth: 340,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      lineHeight: theme.type.size.base * 1.45,
+      textAlign: "center",
+    },
+    firstWeekIntroActions: {
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.lg,
+      paddingBottom: theme.space.lg,
+    },
+    firstWeekPrimaryButton: {
+      minHeight: theme.component.button.height,
+      borderRadius: theme.component.button.radius,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: theme.space.lg,
+      backgroundColor: theme.color.accent,
+    },
+    firstWeekPrimaryButtonText: {
+      color: "#FFFFFF",
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    firstWeekSecondaryButton: {
+      minHeight: theme.component.button.height,
+      borderRadius: theme.component.button.radius,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: theme.space.lg,
+      backgroundColor: theme.color.surface,
+    },
+    firstWeekSecondaryButtonText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+      textAlign: "center",
+    },
+    firstWeekPlannedDays: {
+      alignSelf: "stretch",
+      paddingHorizontal: theme.space.lg,
+      paddingVertical: theme.space.xs,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surface,
+    },
+    firstWeekPlannedHeading: {
+      alignSelf: "stretch",
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    firstWeekPlannedDayRow: {
+      minHeight: 62,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      paddingVertical: theme.space.sm,
+    },
+    firstWeekPlannedDayDivider: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.color.border,
+    },
+    firstWeekPlannedDayCopy: {
+      flex: 1,
+      gap: 2,
+    },
+    firstWeekPlannedMealEmoji: {
+      width: 34,
+      height: 34,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "visible",
+    },
+    firstWeekPlannedDayText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    firstWeekPlannedMealTitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+    },
+    firstWeekStartsCard: {
+      alignSelf: "stretch",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.md,
+      padding: theme.space.lg,
+      borderRadius: theme.radius.lg,
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255, 75, 145, 0.12)" : "#FFF3F8",
+    },
+    firstWeekStartsText: {
+      flex: 1,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    firstWeekStartsIcon: {
+      width: 30,
+      height: 30,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "visible",
     },
     resumeCard: {
       flex: 1,

@@ -33,6 +33,7 @@ import FreezerAmountModal from "../meals/FreezerAmountModal";
 import RatingStars from "../meals/RatingStars";
 import MealEmoji from "../emoji/MealEmoji";
 import { RatingDisplayMode } from "../../hooks/useRatingDisplayMode";
+import BurstSparkles from "./BurstSparkles";
 
 const EAT_OUT_MESSAGES = [
   "No cooking tonight! 🎉",
@@ -63,13 +64,6 @@ type TodayCardProps = {
 
 type CelebrationPhase = "idle" | "burst" | "complete" | "carousel";
 type CarouselPage = "ratings" | "served" | "freezer" | "notes";
-
-const SPARKLES = [
-  { x: -72, y: -34, color: "#FF4D8D" }, { x: -48, y: -66, color: "#FEC107" },
-  { x: -18, y: -76, color: "#FF8AB5" }, { x: 26, y: -70, color: "#FEC107" },
-  { x: 65, y: -42, color: "#FF4D8D" }, { x: 72, y: 2, color: "#FEC107" },
-  { x: -70, y: 8, color: "#FF8AB5" }, { x: 42, y: 22, color: "#FF4D8D" },
-] as const;
 
 export default function TodayCard({
   meal,
@@ -559,9 +553,10 @@ export default function TodayCard({
       )}
       </Animated.View>
       )}
-      {!reduceMotion && phase === "burst" && !isFlexNight ? SPARKLES.map((sparkle, index) => (
-        <Animated.View key={`button-sparkle-${index}`} pointerEvents="none" style={[styles.sparkle, { backgroundColor: sparkle.color, opacity: sparkleProgress.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 1, 0] }), transform: [{ translateX: sparkleProgress.interpolate({ inputRange: [0, 1], outputRange: [0, sparkle.x] }) }, { translateY: sparkleProgress.interpolate({ inputRange: [0, 1], outputRange: [35, sparkle.y + 35] }) }, { scale: sparkleProgress.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.4, 1, 0.3] }) }] }]} />
-      )) : null}
+      <BurstSparkles
+        progress={sparkleProgress}
+        visible={!reduceMotion && phase === "burst" && !isFlexNight}
+      />
       <FreezerAmountModal
         visible={isFreezerModalVisible}
         initialMeal={meal}
@@ -622,7 +617,6 @@ const createStyles = (theme: WeeklyTheme) =>
     celebrationContent: { minHeight: 220, alignItems: "center", justifyContent: "center", gap: theme.space.md, overflow: "visible" },
     completionMark: { alignItems: "center", justifyContent: "center", gap: theme.space.xs },
     servedCelebrationText: { color: theme.color.accent, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
-    sparkle: { position: "absolute", left: "50%", top: "50%", width: 8, height: 8, borderRadius: 4, marginLeft: -4, marginTop: -4 },
     ratingLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
     ratingMembers: { width: "100%", marginTop: theme.space.lg },
     ratingStarsCentered: { alignItems: "center" },

@@ -1,7 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -23,7 +25,11 @@ import {
   PLANNED_WEEK_ORDER,
   PlannedWeekDayKey,
 } from "../../types/weekPlan";
-import { setOnboardingCompleted } from "../../stores/onboardingStorage";
+import {
+  setFirstFullWeekPlanned,
+  setFirstWeekExperienceActive,
+  setOnboardingCompleted,
+} from "../../stores/onboardingStorage";
 import { deriveFamilyInitials } from "../../utils/familyInitials";
 import { createMealId, Meal } from "../../types/meals";
 
@@ -61,6 +67,8 @@ const QUICK_MEALS = [
 
 const normalizeMealTitle = (title: string) => title.trim().toLowerCase();
 
+type QuickMealTransitionPhase = "idle" | "grouping" | "confirmed";
+
 const createQuickMeal = (title: string, emoji: string): Meal => ({
   id: createMealId(),
   title: title.trim(),
@@ -93,10 +101,34 @@ export default function OnboardingScreen() {
     new Set()
   );
   const [isSavingQuickMeals, setSavingQuickMeals] = useState(false);
+  const [quickMealTransitionPhase, setQuickMealTransitionPhase] =
+    useState<QuickMealTransitionPhase>("idle");
+  const [savedQuickMealCount, setSavedQuickMealCount] = useState(0);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const familyMemberInputRef = useRef<TextInput | null>(null);
+  const quickMealButtonScale = useRef(new Animated.Value(1)).current;
+  const quickMealUnselectedOpacity = useRef(new Animated.Value(1)).current;
+  const quickMealSelectedOpacity = useRef(new Animated.Value(1)).current;
+  const quickMealGroupProgress = useRef(new Animated.Value(0)).current;
+  const quickMealConfirmationOpacity = useRef(new Animated.Value(0)).current;
 
   const step = STEPS[stepIndex];
   const progress = `${stepIndex + 1} / ${STEPS.length}`;
+
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) setReduceMotion(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion,
+    );
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
 
   const goNext = useCallback(() => {
     setStepIndex((prev) => Math.min(prev + 1, STEPS.length - 1));
@@ -121,7 +153,11 @@ export default function OnboardingScreen() {
       }
     }
 
-    await setOnboardingCompleted(true);
+    await Promise.all([
+      setOnboardingCompleted(true),
+      setFirstWeekExperienceActive(true),
+      setFirstFullWeekPlanned(false),
+    ]);
     router.replace("/week-dashboard");
   }, [
     addMember,
@@ -181,7 +217,22 @@ export default function OnboardingScreen() {
   }, []);
 
   const handleContinueQuickMeals = useCallback(() => {
-    if (selectedMealTitles.size < 3 || isSavingQuickMeals) return;
+    if (quickMealTransitionPhase === "confirmed") {
+      goNext();
+      setQuickMealTransitionPhase("idle");
+      quickMealButtonScale.setValue(1);
+      quickMealUnselectedOpacity.setValue(1);
+      quickMealSelectedOpacity.setValue(1);
+      quickMealGroupProgress.setValue(0);
+      quickMealConfirmationOpacity.setValue(0);
+      setSavedQuickMealCount(0);
+      return;
+    }
+    if (
+      selectedMealTitles.size < 3 ||
+      isSavingQuickMeals ||
+      quickMealTransitionPhase !== "idle"
+    ) return;
     setSavingQuickMeals(true);
     const existingTitles = new Set(
       meals.map((meal) => normalizeMealTitle(meal.title))
@@ -192,9 +243,82 @@ export default function OnboardingScreen() {
       addMeal(createQuickMeal(option.title, option.emoji));
       existingTitles.add(key);
     });
-    setSavingQuickMeals(false);
-    goNext();
-  }, [addMeal, availableQuickMeals, goNext, isSavingQuickMeals, meals, selectedMealTitles]);
+    setSavedQuickMealCount(selectedMealTitles.size);
+
+    const finishSaving = () => {
+      setQuickMealTransitionPhase("confirmed");
+      quickMealConfirmationOpacity.setValue(0);
+      Animated.timing(quickMealConfirmationOpacity, {
+        toValue: 1,
+        duration: reduceMotion ? 140 : 220,
+        useNativeDriver: true,
+      }).start(() => setSavingQuickMeals(false));
+    };
+
+    Animated.sequence([
+      Animated.timing(quickMealButtonScale, {
+        toValue: 0.94,
+        duration: reduceMotion ? 0 : 90,
+        useNativeDriver: true,
+      }),
+      Animated.timing(quickMealButtonScale, {
+        toValue: 1,
+        duration: reduceMotion ? 0 : 80,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setQuickMealTransitionPhase("grouping");
+      if (reduceMotion) {
+        Animated.parallel([
+          Animated.timing(quickMealUnselectedOpacity, {
+            toValue: 0.12,
+            duration: 180,
+            useNativeDriver: true,
+          }),
+          Animated.timing(quickMealSelectedOpacity, {
+            toValue: 0,
+            duration: 180,
+            useNativeDriver: true,
+          }),
+        ]).start(finishSaving);
+        return;
+      }
+      Animated.parallel([
+        Animated.timing(quickMealUnselectedOpacity, {
+          toValue: 0.08,
+          duration: 260,
+          useNativeDriver: true,
+        }),
+        Animated.timing(quickMealGroupProgress, {
+          toValue: 1,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+        Animated.sequence([
+          Animated.delay(390),
+          Animated.timing(quickMealSelectedOpacity, {
+            toValue: 0,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start(finishSaving);
+    });
+  }, [
+    addMeal,
+    availableQuickMeals,
+    goNext,
+    isSavingQuickMeals,
+    meals,
+    quickMealButtonScale,
+    quickMealConfirmationOpacity,
+    quickMealGroupProgress,
+    quickMealSelectedOpacity,
+    quickMealUnselectedOpacity,
+    quickMealTransitionPhase,
+    reduceMotion,
+    selectedMealTitles,
+  ]);
 
   const renderStep = () => {
     switch (step) {
@@ -220,9 +344,24 @@ export default function OnboardingScreen() {
       case "benefits":
         return (
           <View style={styles.step}>
-            <Text style={styles.title}>
-              Make dinner one less thing to think about.
-            </Text>
+            <View style={styles.shoppingDayHero}>
+              <View style={styles.shoppingDayIconWrap}>
+                <MaterialCommunityIcons
+                  name="calendar-check-outline"
+                  size={50}
+                  color={theme.color.accent}
+                />
+                <MaterialCommunityIcons
+                  name="creation"
+                  size={15}
+                  color={theme.color.warning}
+                  style={styles.shoppingDaySparkle}
+                />
+              </View>
+              <Text style={styles.shoppingDayTitle}>
+                Make dinner one less thing to think about.
+              </Text>
+            </View>
             <View style={styles.benefitList}>
               <BenefitCard
                 icon="calendar-check-outline"
@@ -247,37 +386,70 @@ export default function OnboardingScreen() {
         );
       case "shoppingDay":
         return (
-          <View style={styles.step}>
-            <Text style={styles.title}>When do you usually grocery shop?</Text>
-            <Text style={styles.subtitle}>
-              We’ll use this to know when it’s time to plan your next week.
-            </Text>
-            <Text style={styles.sectionLabel}>Grocery shopping day</Text>
-            <View style={styles.dayGrid}>
-              {PLANNED_WEEK_ORDER.map((day) => {
-                const selected = shoppingDay === day;
-                return (
-                  <Pressable
-                    key={day}
-                    onPress={() => setShoppingDay(day)}
-                    style={[
-                      styles.dayChip,
-                      selected && styles.dayChipSelected,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.dayChipText,
-                        selected && styles.dayChipTextSelected,
-                      ]}
-                    >
-                      {PLANNED_WEEK_DISPLAY_NAMES[day].slice(0, 3)}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+          <View style={styles.shoppingDayStep}>
+            <View style={styles.shoppingDayMain}>
+              <View style={styles.shoppingDayHero}>
+                <View style={styles.shoppingDayIconWrap}>
+                  <MaterialCommunityIcons
+                    name="cart-heart"
+                    size={50}
+                    color={theme.color.accent}
+                  />
+                  <MaterialCommunityIcons
+                    name="creation"
+                    size={15}
+                    color={theme.color.warning}
+                    style={styles.shoppingDaySparkle}
+                  />
+                </View>
+                <Text style={styles.shoppingDayTitle}>
+                  Shop once.{"\n"}Enjoy all week.
+                </Text>
+                <Text style={styles.shoppingDaySubtitle}>
+                  Choosing one shopping day helps you plan better, save money,
+                  and keep your week running smoothly.
+                </Text>
+              </View>
+
+              <View style={styles.shoppingDaySelection}>
+                <Text style={styles.shoppingDayPrompt}>
+                  What’s your grocery day?
+                </Text>
+                <View style={[styles.dayGrid, styles.shoppingDayGrid]}>
+                  {PLANNED_WEEK_ORDER.map((day) => {
+                    const selected = shoppingDay === day;
+                    return (
+                      <Pressable
+                        key={day}
+                        onPress={() => setShoppingDay(day)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected }}
+                        accessibilityLabel={PLANNED_WEEK_DISPLAY_NAMES[day]}
+                        style={[
+                          styles.dayChip,
+                          styles.shoppingDayChip,
+                          selected && styles.dayChipSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayChipText,
+                            selected && styles.dayChipTextSelected,
+                          ]}
+                        >
+                          {PLANNED_WEEK_DISPLAY_NAMES[day].slice(0, 3)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
             </View>
-            <Pressable style={styles.primaryButton} onPress={goNext}>
+
+            <Pressable
+              style={[styles.primaryButton, styles.shoppingDayContinue]}
+              onPress={goNext}
+            >
               <Text style={styles.primaryButtonText}>Continue</Text>
             </Pressable>
           </View>
@@ -285,10 +457,18 @@ export default function OnboardingScreen() {
       case "family":
         return (
           <View style={styles.familyStep}>
-            <View style={styles.familyHeader}>
-              <Text style={styles.familyEmoji}>👩‍🍳</Text>
-              <Text style={styles.familyTitle}>Who are you cooking for?</Text>
-              <Text style={styles.familySubtitle}>
+            <View style={styles.shoppingDayHero}>
+              <View style={styles.shoppingDayIconWrap}>
+                <Text style={styles.familyEmoji}>👩‍🍳</Text>
+                <MaterialCommunityIcons
+                  name="creation"
+                  size={15}
+                  color={theme.color.warning}
+                  style={styles.shoppingDaySparkle}
+                />
+              </View>
+              <Text style={styles.shoppingDayTitle}>Who are you cooking for?</Text>
+              <Text style={styles.shoppingDaySubtitle}>
                 Add your family so everyone can rate meals.
               </Text>
             </View>
@@ -319,6 +499,9 @@ export default function OnboardingScreen() {
                       <Text style={styles.familyMemberName} numberOfLines={1}>
                         {member.name}
                       </Text>
+                      {index === 0 ? (
+                        <Text style={styles.familyYouLabel}>you</Text>
+                      ) : null}
                       <Pressable
                         onPress={() => handleRemoveFamilyMember(member.id)}
                         accessibilityRole="button"
@@ -392,73 +575,226 @@ export default function OnboardingScreen() {
       case "quickMeals":
         return (
           <View style={styles.quickMealsStep}>
-            <View style={styles.quickMealsHeader}>
-              <Text style={styles.title}>What does your family already eat?</Text>
-            </View>
+              <Animated.View style={styles.quickMealSelectionContent}>
+                <View
+                  style={[
+                    styles.quickMealsHeader,
+                    (isSavingQuickMeals ||
+                      quickMealTransitionPhase !== "idle") &&
+                      styles.quickMealsHeaderHidden,
+                  ]}
+                  accessibilityElementsHidden={
+                    isSavingQuickMeals || quickMealTransitionPhase !== "idle"
+                  }
+                  importantForAccessibility={
+                    isSavingQuickMeals || quickMealTransitionPhase !== "idle"
+                      ? "no-hide-descendants"
+                      : "auto"
+                  }
+                >
+                  <Text style={styles.title}>Start your meal library</Text>
+                  <Text style={styles.subtitle}>
+                    Choose meals your family already eats
+                  </Text>
+                </View>
 
-            <View style={styles.quickMealGrid}>
-              {availableQuickMeals.map((meal) => {
-                const selected = selectedMealTitles.has(normalizeMealTitle(meal.title));
-                return (
-                  <Pressable
-                    key={normalizeMealTitle(meal.title)}
-                    onPress={() => toggleQuickMeal(meal.title)}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: selected }}
-                    style={({ pressed }) => [
-                      styles.quickMealChip,
-                      selected && styles.quickMealChipSelected,
-                      pressed && styles.quickMealChipPressed,
+                {quickMealTransitionPhase === "confirmed" ? (
+                  <Animated.View
+                    style={[
+                      styles.quickMealLibrarySuccess,
+                      {
+                        opacity: quickMealConfirmationOpacity,
+                        transform: [
+                          {
+                            scale: quickMealConfirmationOpacity.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0.94, 1],
+                            }),
+                          },
+                        ],
+                      },
                     ]}
                   >
-                    <Text style={styles.quickMealEmoji}>{meal.emoji}</Text>
-                    <Text style={styles.quickMealText} numberOfLines={2}>{meal.title}</Text>
-                    {selected ? (
-                      <MaterialCommunityIcons name="check-circle" size={18} color={theme.color.ink} />
+                    <View style={styles.quickMealLibraryIconWrap}>
+                      <MaterialCommunityIcons
+                        name="folder-heart-outline"
+                        size={52}
+                        color={theme.color.accent}
+                      />
+                    </View>
+                    <Text style={styles.quickMealLibrarySuccessTitle}>
+                      Your library is started!
+                    </Text>
+                    <Text style={styles.quickMealLibrarySuccessCopy}>
+                      You now have {savedQuickMealCount} meals in your library.
+                      Add more anytime, then use them to plan your weeks.
+                    </Text>
+                  </Animated.View>
+                ) : (
+                  <View style={styles.quickMealGrid}>
+                    {availableQuickMeals.map((meal, index) => {
+                    const selected = selectedMealTitles.has(normalizeMealTitle(meal.title));
+                    const row = Math.floor(index / 2);
+                    const translateX = quickMealGroupProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, index % 2 === 0 ? 74 : -74],
+                    });
+                    const translateY = quickMealGroupProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, (5.7 - row) * 52],
+                    });
+                    const selectedScale = quickMealGroupProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 0.28],
+                    });
+                    return (
+                      <Animated.View
+                        key={normalizeMealTitle(meal.title)}
+                        style={[
+                          styles.quickMealChipAnimatedWrap,
+                          selected && styles.quickMealChipAnimatedWrapSelected,
+                          {
+                            opacity: selected
+                              ? quickMealSelectedOpacity
+                              : quickMealUnselectedOpacity,
+                            transform: selected
+                              ? [
+                                  { translateX },
+                                  { translateY },
+                                  { scale: selectedScale },
+                                ]
+                              : [],
+                          },
+                        ]}
+                      >
+                        <Pressable
+                          onPress={() => toggleQuickMeal(meal.title)}
+                          disabled={quickMealTransitionPhase !== "idle"}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: selected }}
+                          style={({ pressed }) => [
+                            styles.quickMealChip,
+                            styles.quickMealChipInsideWrap,
+                            selected && styles.quickMealChipSelected,
+                            pressed && styles.quickMealChipPressed,
+                          ]}
+                        >
+                          <Text style={styles.quickMealEmoji}>{meal.emoji}</Text>
+                          <Text style={styles.quickMealText} numberOfLines={2}>{meal.title}</Text>
+                          {selected ? (
+                            <MaterialCommunityIcons name="check-circle" size={18} color={theme.color.ink} />
+                          ) : null}
+                        </Pressable>
+                      </Animated.View>
+                    );
+                    })}
+                  </View>
+                )}
+
+                {quickMealTransitionPhase === "confirmed" ? (
+                  <Animated.View
+                    style={[
+                      styles.quickMealSavedSummary,
+                      { opacity: quickMealConfirmationOpacity },
+                    ]}
+                    accessibilityLiveRegion="polite"
+                  >
+                    <MaterialCommunityIcons
+                      name="check-circle"
+                      size={22}
+                      color={theme.color.success}
+                    />
+                    <Text style={styles.quickMealSavedSummaryText}>
+                      {savedQuickMealCount} meals added to your library!
+                    </Text>
+                  </Animated.View>
+                ) : quickMealTransitionPhase === "grouping" ? (
+                  <Animated.View
+                    style={[
+                      styles.quickMealSavingSummary,
+                      {
+                        transform: [
+                          {
+                            scale: quickMealGroupProgress.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0.96, 1],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                    accessibilityLiveRegion="polite"
+                  >
+                    <MaterialCommunityIcons
+                      name="bookshelf"
+                      size={23}
+                      color={theme.color.accent}
+                    />
+                    <Text style={styles.quickMealSavingSummaryText}>
+                      Adding to My Meals…
+                    </Text>
+                  </Animated.View>
+                ) : (
+                  <View style={styles.quickMealSummary}>
+                    <Text style={styles.quickMealSummaryCount}>{selectedMealTitles.size} selected</Text>
+                    <View style={styles.quickMealSummaryEmojis}>
+                      {availableQuickMeals
+                        .filter((meal) => selectedMealTitles.has(normalizeMealTitle(meal.title)))
+                        .slice(0, 6)
+                        .map((meal) => <Text key={normalizeMealTitle(meal.title)} style={styles.quickMealSummaryEmoji}>{meal.emoji}</Text>)}
+                    </View>
+                    {selectedMealTitles.size > 0 ? (
+                      <Pressable
+                        onPress={() => setSelectedMealTitles(new Set())}
+                        disabled={quickMealTransitionPhase !== "idle"}
+                        accessibilityRole="button"
+                        accessibilityLabel="Clear selected meals"
+                      >
+                        <MaterialCommunityIcons name="close" size={21} color={theme.color.subtleInk} />
+                      </Pressable>
                     ) : null}
+                  </View>
+                )}
+
+                <View style={styles.quickMealInfoSpacer} />
+
+                {selectedMealTitles.size < 3 ? (
+                  <Text style={styles.quickMealMinimum}>Pick at least 3 meals to continue.</Text>
+                ) : null}
+                <Animated.View style={{ transform: [{ scale: quickMealButtonScale }] }}>
+                  <Pressable
+                    style={[
+                      styles.primaryButton,
+                      quickMealTransitionPhase === "idle" &&
+                        selectedMealTitles.size < 3 &&
+                        styles.primaryButtonDisabled,
+                    ]}
+                    onPress={handleContinueQuickMeals}
+                    disabled={
+                      isSavingQuickMeals ||
+                      (quickMealTransitionPhase === "idle" &&
+                        selectedMealTitles.size < 3)
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        quickMealTransitionPhase === "idle" &&
+                          selectedMealTitles.size < 3 &&
+                          styles.primaryButtonTextDisabled,
+                      ]}
+                    >
+                      {quickMealTransitionPhase === "confirmed"
+                        ? "Continue"
+                        : quickMealTransitionPhase === "grouping"
+                          ? "Adding…"
+                          : selectedMealTitles.size >= 3
+                            ? `Add ${selectedMealTitles.size} Meals to Library`
+                            : "Add Meals to Library"}
+                    </Text>
                   </Pressable>
-                );
-              })}
-            </View>
-
-            <View style={styles.quickMealSummary}>
-              <Text style={styles.quickMealSummaryCount}>{selectedMealTitles.size} selected</Text>
-              <View style={styles.quickMealSummaryEmojis}>
-                {availableQuickMeals
-                  .filter((meal) => selectedMealTitles.has(normalizeMealTitle(meal.title)))
-                  .slice(0, 6)
-                  .map((meal) => <Text key={normalizeMealTitle(meal.title)} style={styles.quickMealSummaryEmoji}>{meal.emoji}</Text>)}
-              </View>
-              {selectedMealTitles.size > 0 ? (
-                <Pressable
-                  onPress={() => setSelectedMealTitles(new Set())}
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear selected meals"
-                >
-                  <MaterialCommunityIcons name="close" size={21} color={theme.color.subtleInk} />
-                </Pressable>
-              ) : null}
-            </View>
-
-            <View style={styles.quickMealInfoCard}>
-              <MaterialCommunityIcons name="creation" size={26} color={theme.color.accent} />
-              <View style={styles.quickMealInfoText}>
-                <Text style={styles.quickMealInfoTitle}>You can always add more meals anytime.</Text>
-              </View>
-            </View>
-
-            {selectedMealTitles.size < 3 ? (
-              <Text style={styles.quickMealMinimum}>Pick at least 3 meals to continue.</Text>
-            ) : null}
-            <Pressable
-              style={[styles.primaryButton, selectedMealTitles.size < 3 && styles.primaryButtonDisabled]}
-              onPress={handleContinueQuickMeals}
-              disabled={selectedMealTitles.size < 3 || isSavingQuickMeals}
-            >
-              <Text style={[styles.primaryButtonText, selectedMealTitles.size < 3 && styles.primaryButtonTextDisabled]}>
-                Continue
-              </Text>
-            </Pressable>
+                </Animated.View>
+              </Animated.View>
           </View>
         );
       case "paywall":
@@ -535,7 +871,13 @@ export default function OnboardingScreen() {
       >
         <View style={styles.topBar}>
           {stepIndex > 0 ? (
-            <Pressable onPress={goBack} style={styles.backButton}>
+            <Pressable
+              onPress={goBack}
+              disabled={
+                isSavingQuickMeals || quickMealTransitionPhase !== "idle"
+              }
+              style={styles.backButton}
+            >
               <MaterialCommunityIcons
                 name="arrow-left"
                 size={22}
@@ -634,6 +976,69 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     step: {
       gap: theme.space.lg,
+    },
+    shoppingDayStep: {
+      flex: 1,
+      minHeight: 570,
+      justifyContent: "space-between",
+      gap: theme.space.xl,
+    },
+    shoppingDayHero: {
+      alignItems: "center",
+      gap: theme.space.lg,
+      paddingTop: theme.space.sm,
+      paddingHorizontal: theme.space.sm,
+    },
+    shoppingDayMain: {
+      gap: theme.space["2xl"] + theme.space.sm,
+    },
+    shoppingDayIconWrap: {
+      width: 88,
+      height: 88,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.color.surfaceAlt,
+      position: "relative",
+    },
+    shoppingDaySparkle: {
+      position: "absolute",
+      right: 13,
+      top: 13,
+    },
+    shoppingDayTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.h1,
+      lineHeight: theme.type.size.h1 * 1.18,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    shoppingDaySubtitle: {
+      maxWidth: 340,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      lineHeight: theme.type.size.base * 1.45,
+      textAlign: "center",
+    },
+    shoppingDaySelection: {
+      alignItems: "center",
+      gap: theme.space.md,
+    },
+    shoppingDayPrompt: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.medium,
+      textAlign: "center",
+    },
+    shoppingDayGrid: {
+      justifyContent: "center",
+      maxWidth: 360,
+    },
+    shoppingDayChip: {
+      minWidth: 70,
+    },
+    shoppingDayContinue: {
+      width: "100%",
     },
     logoMark: {
       width: 96,
@@ -823,6 +1228,11 @@ const createStyles = (theme: WeeklyTheme) =>
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.medium,
     },
+    familyYouLabel: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
     familyRemoveButton: {
       width: 32,
       height: 32,
@@ -861,15 +1271,62 @@ const createStyles = (theme: WeeklyTheme) =>
       marginTop: "auto",
     },
     quickMealsStep: {
+      flex: 1,
+      minHeight: 560,
+    },
+    quickMealSelectionContent: {
       gap: theme.space.lg,
     },
     quickMealsHeader: {
       gap: theme.space.sm,
     },
+    quickMealsHeaderHidden: {
+      opacity: 0,
+    },
     quickMealGrid: {
+      position: "relative",
       flexDirection: "row",
       flexWrap: "wrap",
       gap: theme.space.sm,
+    },
+    quickMealLibrarySuccess: {
+      minHeight: 328,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.lg,
+    },
+    quickMealLibraryIconWrap: {
+      width: 78,
+      height: 78,
+      borderRadius: theme.radius.lg,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255, 75, 145, 0.16)" : "#FFF0F7",
+    },
+    quickMealLibrarySuccessTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.h2,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    quickMealLibrarySuccessCopy: {
+      maxWidth: 330,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.base,
+      lineHeight: theme.type.size.base * 1.4,
+      textAlign: "center",
+    },
+    quickMealChipAnimatedWrap: {
+      minHeight: 48,
+      maxWidth: "100%",
+      flexGrow: 1,
+      flexBasis: "44%",
+    },
+    quickMealChipAnimatedWrapSelected: {
+      zIndex: 2,
+      elevation: 2,
     },
     quickMealChip: {
       minHeight: 48,
@@ -885,6 +1342,12 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.border,
+    },
+    quickMealChipInsideWrap: {
+      width: "100%",
+      minHeight: 48,
+      flexBasis: "auto",
+      flexGrow: 0,
     },
     quickMealChipSelected: {
       backgroundColor:
@@ -927,24 +1390,44 @@ const createStyles = (theme: WeeklyTheme) =>
     quickMealSummaryEmoji: {
       fontSize: 19,
     },
-    quickMealInfoCard: {
+    quickMealSavedSummary: {
+      minHeight: 54,
       flexDirection: "row",
       alignItems: "center",
-      gap: theme.space.md,
-      padding: theme.space.md,
+      justifyContent: "center",
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.md,
       borderRadius: theme.radius.lg,
-      backgroundColor: theme.color.surface,
+      backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: theme.color.cardOutline,
+      borderColor: theme.color.success,
     },
-    quickMealInfoText: {
-      flex: 1,
-      gap: theme.space.xs,
-    },
-    quickMealInfoTitle: {
+    quickMealSavedSummaryText: {
       color: theme.color.ink,
       fontSize: theme.type.size.sm,
       fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    quickMealInfoSpacer: {
+      height: 58,
+    },
+    quickMealSavingSummary: {
+      minHeight: 54,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+      paddingHorizontal: theme.space.md,
+      borderRadius: theme.radius.lg,
+      backgroundColor: theme.color.surfaceAlt,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.accent,
+    },
+    quickMealSavingSummaryText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
     },
     quickMealMinimum: {
       color: theme.color.subtleInk,
