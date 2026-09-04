@@ -32,6 +32,15 @@ type MenuButtonProps = {
   iconName?: IconName;
 };
 
+type ProfileButtonProps = {
+  onPress: () => void;
+  initials: string;
+  backgroundColor: string;
+  isPro?: boolean;
+  testID?: string;
+  accessibilityLabel?: string;
+};
+
 type Props = {
   title?: string;
   header?: ReactNode;
@@ -49,6 +58,7 @@ type Props = {
   };
   addBtn?: AddButtonProps;
   menuBtn?: MenuButtonProps;
+  profileBtn?: ProfileButtonProps;
 };
 
 /**
@@ -67,6 +77,7 @@ export default function TabParent({
   headerStyle,
   addBtn,
   menuBtn,
+  profileBtn,
   streak,
   smartLevel,
 }: Props) {
@@ -85,6 +96,34 @@ export default function TabParent({
             <Text style={[styles.title, titleStyle]}>{title}</Text>
           </View>
           <View style={styles.actions}>
+            {profileBtn ? (
+              <Pressable
+                onPress={profileBtn.onPress}
+                testID={profileBtn.testID}
+                hitSlop={theme.space.xs}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  profileBtn.accessibilityLabel ?? "Open your family profile"
+                }
+                style={({ pressed }) => [
+                  styles.profileButton,
+                  { backgroundColor: profileBtn.backgroundColor },
+                  pressed && styles.iconButtonPressed,
+                ]}
+              >
+                {profileBtn.isPro ? (
+                  <MaterialCommunityIcons
+                    name="chef-hat"
+                    size={21}
+                    color={theme.color.accent}
+                    style={styles.profileCrown}
+                  />
+                ) : null}
+                <Text style={styles.profileButtonText} numberOfLines={1}>
+                  {profileBtn.initials}
+                </Text>
+              </Pressable>
+            ) : null}
             {typeof streak?.count === "number" ? (
               <Pressable
                 disabled={!streak.onPress}
@@ -234,6 +273,27 @@ const createStyles = (theme: WeeklyTheme) =>
       flexDirection: "row",
       alignItems: "center",
       gap: theme.space.sm,
+    },
+    profileButton: {
+      width: 42,
+      height: 42,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 2,
+      borderColor: theme.color.bg,
+    },
+    profileButtonText: {
+      maxWidth: 34,
+      color: "#FFFFFF",
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    profileCrown: {
+      position: "absolute",
+      top: -14,
+      zIndex: 1,
     },
     streakPill: {
       flexDirection: "row",

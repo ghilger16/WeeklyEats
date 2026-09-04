@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   GestureHandlerRootView,
   RectButton,
@@ -70,6 +70,7 @@ import { getGalaxyMealId } from "../../../utils/galaxyMeal";
 import { getFamilyRatingSummary } from "../../../utils/familyRatings";
 import { CUISINE_OPTIONS } from "../../../types/cuisine";
 import { mealHasIngredientInformation } from "../../../utils/missingPlannedIngredients";
+import { suggestEmojiForTitle } from "../../../utils/emojiCatalog";
 
 const getMealRatingValue = (meal: Meal, familyMemberIds: string[]) => {
   const calculatedRating =
@@ -304,15 +305,32 @@ export default function MealsScreen() {
     mealId: requestedMealIdParam,
     completeFromGrocery,
     plannedMissingMealIds,
+    plannedWeekISO,
   } = useLocalSearchParams<{
     url?: string | string[];
     mealId?: string | string[];
     completeFromGrocery?: string | string[];
     plannedMissingMealIds?: string | string[];
+    plannedWeekISO?: string | string[];
   }>();
+  const router = useRouter();
   const requestedMealId = Array.isArray(requestedMealIdParam)
     ? requestedMealIdParam[0]
     : requestedMealIdParam;
+  const groceryWeekISO = Array.isArray(plannedWeekISO)
+    ? plannedWeekISO[0]
+    : plannedWeekISO;
+  const shouldReturnToGrocery =
+    (Array.isArray(completeFromGrocery)
+      ? completeFromGrocery[0]
+      : completeFromGrocery) === "1";
+  const returnToGrocery = useCallback(() => {
+    if (!shouldReturnToGrocery) return;
+    router.replace({
+      pathname: "/(tabs)/grocery-list",
+      params: groceryWeekISO ? { weekISO: groceryWeekISO } : undefined,
+    });
+  }, [groceryWeekISO, router, shouldReturnToGrocery]);
   const { theme } = useThemeController();
   const { members } = useFamilyMembers();
   const familyMemberIds = useMemo(
@@ -347,6 +365,12 @@ export default function MealsScreen() {
   const [pendingSharedRecipeUrl, setPendingSharedRecipeUrl] = useState<
     string | null
   >(null);
+  const [completionAutoFillMealId, setCompletionAutoFillMealId] = useState<string | null>(null);
+  const [detailAutoFillMealId, setDetailAutoFillMealId] = useState<string | null>(null);
+  const [pendingCompletionAutoFill, setPendingCompletionAutoFill] = useState<{
+    mealId: string;
+    draft: MealDraft;
+  } | null>(null);
   const [pendingSharedRecipeImportId, setPendingSharedRecipeImportId] =
     useState<string | null>(null);
   const [pendingImportQueue, setPendingImportQueue] = useState<
@@ -992,6 +1016,7 @@ export default function MealsScreen() {
             ingredients: mergeConfirmedIngredients(item.ingredients, confirmed),
             updatedAt: new Date().toISOString(),
           });
+          if (confirmed.length > 0) returnToGrocery();
         };
         const handleUpdateDetails = (
           patch: Pick<Partial<Meal>, "difficulty" | "expense" | "cuisine">
@@ -1018,6 +1043,83 @@ export default function MealsScreen() {
               meal={item}
               onApply={handleApply}
               onUpdateDetails={handleUpdateDetails}
+              onAutoFill={(patch) => {
+                updateMeal({
+                  id: item.id,
+                  ...patch,
+                  ingredients: patch.ingredients
+                    ? mergeConfirmedIngredients(item.ingredients, patch.ingredients)
+                    : item.ingredients,
+                  updatedAt: new Date().toISOString(),
+                });
+                if (patch.ingredients?.length) returnToGrocery();
+              }}
+              onAddAutoFilledMeal={(title, patch) => {
+                const now = new Date().toISOString();
+                const expense = patch.expense;
+                addMeal({
+                  id: createMealId(),
+                  title,
+                  emoji: suggestEmojiForTitle(title) ?? "🍽️",
+                  rating: 0,
+                  familyRatings: {},
+                  servedCount: 0,
+                  showServedCount: false,
+                  plannedCostTier:
+                    typeof expense !== "number" ? 2 : expense <= 2 ? 1 : expense >= 4 ? 3 : 2,
+                  locked: false,
+                  isFavorite: false,
+                  freezerQuantity: "",
+                  freezerAmount: "",
+                  freezerUnit: "",
+                  ingredients: patch.ingredients ?? [],
+                  difficulty: patch.difficulty,
+                  expense: patch.expense,
+                  cuisine: patch.cuisine,
+                  prepNotes: patch.prepNotes,
+                  preferredSides: patch.preferredSides,
+                  recipeUrl: patch.recipeUrl,
+                  createdAt: now,
+                  updatedAt: now,
+                });
+              }}
+              onReplaceWithAutoFilledMeal={(title, patch) => {
+                updateMeal({
+                  id: item.id,
+                  title,
+                  ...patch,
+                  ingredients: patch.ingredients ?? item.ingredients,
+                  updatedAt: new Date().toISOString(),
+                });
+                if (patch.ingredients?.length) returnToGrocery();
+              }}
+              onLaunchAutoFill={(recipeUrl) => {
+                setCompletionAutoFillMealId(item.id);
+                setPendingSharedRecipeUrl(recipeUrl);
+                setModalMode("create");
+                setSelectedMealId(undefined);
+                setModalVisible(true);
+              }}
+              autoFillCompletionPending={pendingCompletionAutoFill?.mealId === item.id}
+              onCompleteAutoFill={() => {
+                if (pendingCompletionAutoFill?.mealId !== item.id) return;
+                const draft = pendingCompletionAutoFill.draft;
+                updateMeal({
+                  id: item.id,
+                  title: draft.title.trim() || item.title,
+                  emoji: draft.emoji || item.emoji,
+                  ingredients: draft.ingredients ?? item.ingredients,
+                  difficulty: draft.difficulty,
+                  expense: draft.expense,
+                  cuisine: draft.cuisine,
+                  prepNotes: draft.prepNotes,
+                  preferredSides: draft.preferredSides,
+                  recipeUrl: draft.recipeUrl?.trim() ?? "",
+                  updatedAt: new Date().toISOString(),
+                });
+                setPendingCompletionAutoFill(null);
+                if (draft.ingredients?.length) returnToGrocery();
+              }}
               onExpand={() => scrollCompletionMealToTop(item.id)}
               onManualIngredientFocus={() =>
                 scrollCompletionInputAboveKeyboard(item.id)
@@ -1056,6 +1158,7 @@ export default function MealsScreen() {
     },
     [
       activeTab,
+      addMeal,
       displayOptions,
       handleDeleteMeal,
       handleRemoveFromFreezer,
@@ -1064,6 +1167,8 @@ export default function MealsScreen() {
       galaxyMealId,
       completeMeals.length,
       contextualPlannedMeals.length,
+      pendingCompletionAutoFill,
+      returnToGrocery,
       scrollCompletionMealToTop,
       scrollCompletionInputAboveKeyboard,
       styles,
@@ -1145,12 +1250,60 @@ export default function MealsScreen() {
     setSelectedMealId(undefined);
     setModalMode("create");
     setPendingSharedRecipeUrl(null);
+    setCompletionAutoFillMealId(null);
+    setDetailAutoFillMealId(null);
   }, [resetActivePendingImport]);
 
   const handleCreateMeal = useCallback(
     (draft: MealDraft) => {
       const now = new Date().toISOString();
       const draftRecipeUrl = draft.recipeUrl?.trim() ?? "";
+      const detailTarget = detailAutoFillMealId
+        ? meals.find((meal) => meal.id === detailAutoFillMealId)
+        : undefined;
+      if (detailTarget) {
+        updateMeal({
+          ...detailTarget,
+          title: draft.title.trim() || detailTarget.title,
+          emoji: draft.emoji || detailTarget.emoji,
+          ingredients: draft.ingredients ?? detailTarget.ingredients,
+          difficulty: draft.difficulty,
+          expense: draft.expense,
+          cuisine: draft.cuisine,
+          prepNotes: draft.prepNotes,
+          preferredSides: draft.preferredSides,
+          recipeUrl: draftRecipeUrl,
+          updatedAt: now,
+        });
+        return;
+      }
+      const completionTarget = completionAutoFillMealId
+        ? meals.find((meal) => meal.id === completionAutoFillMealId)
+        : undefined;
+      if (completionTarget) {
+        const completedMeal: Meal = {
+          ...completionTarget,
+          title: draft.title.trim() || completionTarget.title,
+          emoji: draft.emoji || completionTarget.emoji,
+          ingredients: draft.ingredients ?? completionTarget.ingredients,
+          difficulty: draft.difficulty,
+          expense: draft.expense,
+          cuisine: draft.cuisine,
+          prepNotes: draft.prepNotes,
+          preferredSides: draft.preferredSides,
+          recipeUrl: draftRecipeUrl,
+          updatedAt: now,
+        };
+        if (isMealIncomplete(completedMeal)) {
+          updateMeal(completedMeal);
+          return;
+        }
+        setPendingCompletionAutoFill({
+          mealId: completionTarget.id,
+          draft: { ...draft, recipeUrl: draftRecipeUrl },
+        });
+        return;
+      }
       const normalizedDraftUrl = normalizeRecipeUrl(draftRecipeUrl);
       const duplicateMeal = normalizedDraftUrl
         ? meals.find(
@@ -1194,6 +1347,8 @@ export default function MealsScreen() {
     [
       activePendingImport,
       addMeal,
+      completionAutoFillMealId,
+      detailAutoFillMealId,
       completeActivePendingImport,
       meals,
       startDay,
@@ -1318,6 +1473,13 @@ export default function MealsScreen() {
     []
   );
 
+  const toggleRatingsOnCards = useCallback(() => {
+    setDisplayOptions((prev) => ({
+      ...prev,
+      ratingMode: prev.ratingMode === "off" ? ratingDisplayMode : "off",
+    }));
+  }, [ratingDisplayMode]);
+
   useEffect(() => {
     setDisplayOptions((prev) => ({ ...prev, ratingMode: ratingDisplayMode }));
   }, [ratingDisplayMode]);
@@ -1353,13 +1515,19 @@ export default function MealsScreen() {
         onPress: () => toggleDisplayOption("showServed"),
       },
       {
+        id: "ratings",
+        label: "Ratings",
+        selected: displayOptions.ratingMode !== "off",
+        onPress: toggleRatingsOnCards,
+      },
+      {
         id: "emoji",
         label: "Meal icon",
         selected: displayOptions.showEmoji,
         onPress: () => toggleDisplayOption("showEmoji"),
       },
     ],
-    [displayOptions, toggleDisplayOption]
+    [displayOptions, toggleDisplayOption, toggleRatingsOnCards]
   );
 
   const menuButtonConfig = useMemo(
@@ -1410,6 +1578,7 @@ export default function MealsScreen() {
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
             onScroll={(event) => {
               mealsListOffsetRef.current = event.nativeEvent.contentOffset.y;
             }}
@@ -1676,10 +1845,18 @@ export default function MealsScreen() {
             : undefined
         }
         autoFillOnOpen={Boolean(pendingSharedRecipeUrl)}
+        autoFillApplyMode={completionAutoFillMealId || detailAutoFillMealId ? "details" : "create"}
         isGalaxyMeal={modalMode === "edit" && selectedMeal?.id === galaxyMealId}
         onDismiss={handleDismissModal}
         onCreateMeal={handleCreateMeal}
         onUpdateMeal={handleUpdateMeal}
+        onLaunchRecipeAutoFill={(recipeUrl) => {
+          if (!selectedMeal) return;
+          setDetailAutoFillMealId(selectedMeal.id);
+          setPendingSharedRecipeUrl(recipeUrl);
+          setModalMode("create");
+          setSelectedMealId(undefined);
+        }}
       />
       <FreezerAmountModal
         visible={Boolean(freezerAmountMeal)}

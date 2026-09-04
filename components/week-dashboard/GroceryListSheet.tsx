@@ -37,6 +37,11 @@ import {
 import { IngredientType } from "../../types/meals";
 import { WeekPlanDay } from "../../hooks/useCurrentWeekPlan";
 import {
+  EAT_OUT_MEAL_ID,
+  isSpecialMealId,
+} from "../../types/specialMeals";
+import { mealHasIngredientInformation } from "../../utils/missingPlannedIngredients";
+import {
   getGroceryListForWeek,
   getGroceryListViewMode,
   reconcileGroceryList,
@@ -60,7 +65,7 @@ type GroceryListContentProps = {
   showHeader?: boolean;
   useSafeArea?: boolean;
   weekNavigator?: ReactNode;
-  missingIngredientsAlert?: ReactNode;
+  onMissingMealPress?: (mealId: string) => void;
 };
 
 type GroceryTabLayout = {
@@ -257,7 +262,7 @@ export function GroceryListContent({
   showHeader = true,
   useSafeArea = true,
   weekNavigator,
-  missingIngredientsAlert,
+  onMissingMealPress,
 }: GroceryListContentProps) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -604,10 +609,28 @@ export function GroceryListContent({
         dayTitle: string;
         mealTitle: string;
         mealEmoji: string;
+        mealId?: string;
+        missingIngredients: boolean;
+        isSpecial: boolean;
         items: GroceryListItem[];
         pantryItems: GroceryListItem[];
       }
     >();
+    days.forEach((day) => {
+      if (!day.mealId || !day.meal || day.mealId === EAT_OUT_MEAL_ID) return;
+      const isSpecial = isSpecialMealId(day.mealId);
+      groups.set(`${day.key}-${day.mealId}`, {
+        dayTitle: day.label,
+        mealTitle: day.meal.title,
+        mealEmoji: day.meal.emoji ?? "",
+        mealId: day.mealId,
+        missingIngredients:
+          !isSpecial && !mealHasIngredientInformation(day.meal),
+        isSpecial,
+        items: [],
+        pantryItems: [],
+      });
+    });
     [...(list?.items ?? []), ...(list?.manualItems ?? [])].forEach((item) => {
       const key =
         item.source === "manual" ? "manual" : `${item.dayKey}-${item.mealId}`;
@@ -618,6 +641,8 @@ export function GroceryListContent({
               dayTitle: "",
               mealTitle: "Your List",
               mealEmoji: "",
+              missingIngredients: false,
+              isSpecial: false,
               items: [],
               pantryItems: [],
             }
@@ -625,6 +650,9 @@ export function GroceryListContent({
               dayTitle: item.dayLabel ?? item.dayName ?? "",
               mealTitle: item.mealTitle ?? "",
               mealEmoji: item.mealEmoji ?? "",
+              mealId: item.mealId,
+              missingIngredients: false,
+              isSpecial: false,
               items: [],
               pantryItems: [],
             });
@@ -637,12 +665,14 @@ export function GroceryListContent({
         dayTitle: "",
         mealTitle: "Your List",
         mealEmoji: "",
+        missingIngredients: false,
+        isSpecial: false,
         items: [],
         pantryItems: [],
       });
     }
     return Array.from(groups.values());
-  }, [list?.items, list?.manualItems, promotedPantrySet]);
+  }, [days, list?.items, list?.manualItems, promotedPantrySet]);
 
   const itemsByCategory = useMemo(() => {
     const categoryRank = new Map(
@@ -877,7 +907,6 @@ export function GroceryListContent({
           }
         }}
       >
-        {viewMode === "meal" ? missingIngredientsAlert : null}
         {viewMode === "meal" ? (
           itemsByMeal.map((group) => {
             const groupKey = `${group.dayTitle}-${group.mealTitle}`;
@@ -889,15 +918,30 @@ export function GroceryListContent({
             return (
               <View key={groupKey} style={styles.mealGroup}>
                 <Pressable
-                  onPress={() =>
+                  onPress={() => {
+                    if (group.missingIngredients && group.mealId) {
+                      onMissingMealPress?.(group.mealId);
+                      return;
+                    }
+                    if (group.isSpecial) return;
                     setCollapsedMealGroups((current) => ({
                       ...current,
                       [groupKey]: !collapsed,
-                    }))
-                  }
+                    }));
+                  }}
                   accessibilityRole="button"
-                  accessibilityState={{ expanded: !collapsed }}
-                  accessibilityLabel={`${collapsed ? "Expand" : "Collapse"} ${group.dayTitle ? `${group.dayTitle} ` : ""}${group.mealTitle}`}
+                  accessibilityState={
+                    group.missingIngredients || group.isSpecial
+                      ? undefined
+                      : { expanded: !collapsed }
+                  }
+                  accessibilityLabel={
+                    group.missingIngredients
+                      ? `${group.dayTitle} ${group.mealTitle}, no ingredients added. Add ingredients.`
+                      : group.isSpecial
+                        ? `${group.dayTitle} ${group.mealTitle}`
+                        : `${collapsed ? "Expand" : "Collapse"} ${group.dayTitle ? `${group.dayTitle} ` : ""}${group.mealTitle}`
+                  }
                   style={({ pressed }) => [
                     styles.mealPlanRow,
                     pressed && styles.mealPlanRowPressed,
@@ -915,30 +959,48 @@ export function GroceryListContent({
                     )}
                   </View>
                   <View style={styles.mealPlanMeal}>
-                    {group.mealEmoji ? (
-                      <MealEmoji value={group.mealEmoji} size={28} />
+                    <View style={styles.mealPlanIdentity}>
+                      {group.mealEmoji ? (
+                        <MealEmoji value={group.mealEmoji} size={28} />
+                      ) : null}
+                      <Text
+                        style={styles.mealPlanTitle}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
+                        {group.mealTitle}
+                      </Text>
+                    </View>
+                    {group.missingIngredients ? (
+                      <View style={styles.missingMealMessage}>
+                        <MaterialCommunityIcons
+                          name="alert-outline"
+                          size={15}
+                          color={theme.color.warning}
+                        />
+                        <Text style={styles.missingMealText}>
+                          No ingredients added
+                        </Text>
+                      </View>
                     ) : null}
-                    <Text
-                      style={styles.mealPlanTitle}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {group.mealTitle}
-                    </Text>
                   </View>
-                  <MealProgressIndicator
-                    checked={checkedCount}
-                    total={group.items.length}
-                    theme={theme}
-                    styles={styles}
-                  />
-                  <MaterialCommunityIcons
-                    name={collapsed ? "chevron-right" : "chevron-down"}
-                    size={28}
-                    color={theme.color.subtleInk}
-                  />
+                  {!group.missingIngredients && !group.isSpecial ? (
+                    <MealProgressIndicator
+                      checked={checkedCount}
+                      total={group.items.length}
+                      theme={theme}
+                      styles={styles}
+                    />
+                  ) : null}
+                  {!group.isSpecial ? (
+                    <MaterialCommunityIcons
+                      name={group.missingIngredients || collapsed ? "chevron-right" : "chevron-down"}
+                      size={28}
+                      color={theme.color.subtleInk}
+                    />
+                  ) : null}
                 </Pressable>
-                {!collapsed ? (
+                {!group.missingIngredients && !group.isSpecial && !collapsed ? (
                   <View style={styles.group}>
                     {group.dayTitle && group.items.length > 0 ? (
                       <Text style={styles.shoppingSectionLabel}>NEED TO BUY · {group.items.length}</Text>
@@ -1345,6 +1407,9 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     mealPlanMeal: {
       flex: 1,
+      gap: 3,
+    },
+    mealPlanIdentity: {
       flexDirection: "row",
       alignItems: "center",
       gap: theme.space.sm,
@@ -1359,6 +1424,18 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       fontWeight: theme.type.weight.bold,
+    },
+    missingMealMessage: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.xs,
+      paddingLeft: 36,
+    },
+    missingMealText: {
+      flex: 1,
+      color: theme.color.warning,
+      fontSize: theme.type.size.xs,
+      fontWeight: theme.type.weight.medium,
     },
     mealProgress: {
       minWidth: 38,

@@ -59,6 +59,24 @@ function RootStack() {
         }}
       />
       <Stack.Screen
+        name="modals/family-profile"
+        options={{
+          presentation: "transparentModal",
+          animation: "fade",
+          headerShown: false,
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      />
+      <Stack.Screen
+        name="modals/subscription-required"
+        options={{
+          presentation: "transparentModal",
+          animation: "fade",
+          headerShown: false,
+          contentStyle: { backgroundColor: "transparent" },
+        }}
+      />
+      <Stack.Screen
         name="modals/rating-style"
         options={{
           presentation: "transparentModal",

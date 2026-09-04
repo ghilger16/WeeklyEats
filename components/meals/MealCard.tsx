@@ -63,10 +63,12 @@ type MealCardProps = {
   mode: "create" | "edit";
   initialMeal: MealDraft | Meal;
   autoFillOnOpen?: boolean;
+  autoFillApplyMode?: "create" | "details";
   isGalaxyMeal?: boolean;
   onClose: () => void;
   onCreateMeal: (draft: MealDraft) => void;
   onUpdateMeal: (meal: Meal) => void;
+  onLaunchRecipeAutoFill?: (recipeUrl: string) => void;
 };
 
 type MealFormValues = MealDraft;
@@ -270,10 +272,12 @@ export default function MealCard({
   mode,
   initialMeal,
   autoFillOnOpen = false,
+  autoFillApplyMode = "create",
   isGalaxyMeal = false,
   onClose,
   onCreateMeal,
   onUpdateMeal,
+  onLaunchRecipeAutoFill,
 }: MealCardProps) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -291,6 +295,7 @@ export default function MealCard({
   const notesSectionOffsetRef = useRef(0);
   const autoFillNotesSectionOffsetRef = useRef(0);
   const detailIngredientInputRef = useRef<TextInput>(null);
+  const detailIngredientEditInputRef = useRef<TextInput>(null);
   const detailScrollOffsetRef = useRef(0);
   const detailKeyboardTopRef = useRef<number | null>(null);
   const autoFillIngredientInputRef = useRef<TextInput>(null);
@@ -352,9 +357,16 @@ export default function MealCard({
   const [isDetailIngredientsEditing, setDetailIngredientsEditing] =
     useState(false);
   const [detailIngredientDraft, setDetailIngredientDraft] = useState("");
+  const [editingDetailIngredientIndex, setEditingDetailIngredientIndex] = useState<number | null>(null);
+  const [editingDetailIngredientDraft, setEditingDetailIngredientDraft] = useState("");
   const [isDetailTitleEditing, setDetailTitleEditing] = useState(false);
   const [detailTitleDraft, setDetailTitleDraft] = useState(() => form.title);
   const [isDetailNotesEditing, setDetailNotesEditing] = useState(false);
+  const [isDetailRecipeExpanded, setDetailRecipeExpanded] = useState(false);
+  const [detailRecipeUrlDraft, setDetailRecipeUrlDraft] = useState("");
+  const [detailRecipeUrlError, setDetailRecipeUrlError] = useState<string | null>(null);
+  const [isDetailAutoFillRequested, setDetailAutoFillRequested] = useState(false);
+  const detailAutoFillInFlightRef = useRef(false);
   const [detailNotesDraft, setDetailNotesDraft] = useState(
     () => form.prepNotes ?? ""
   );
@@ -411,10 +423,17 @@ export default function MealCard({
       setDetailIngredientsExpanded(false);
       setDetailIngredientsEditing(false);
       setDetailIngredientDraft("");
+      setEditingDetailIngredientIndex(null);
+      setEditingDetailIngredientDraft("");
       setDetailTitleEditing(false);
       setDetailTitleDraft(normalized.title);
       setDetailNotesEditing(false);
       setDetailNotesDraft(normalized.prepNotes ?? "");
+      setDetailRecipeExpanded(false);
+      setDetailRecipeUrlDraft("");
+      setDetailRecipeUrlError(null);
+      setDetailAutoFillRequested(false);
+      detailAutoFillInFlightRef.current = false;
     }
   }, [initialMeal, mode]);
 
@@ -613,16 +632,19 @@ export default function MealCard({
 
   const handleAutoFillPress = useCallback(async () => {
     clearError();
-    if (!isEditMode) {
-      setAddMealStep("autofill-loading");
-    }
+    setAddMealStep("autofill-loading");
     const outcome = await requestAutoFill();
     if (!outcome.ok) {
-      if (!isEditMode) {
-        setAddMealStep("entry");
+      if (detailAutoFillInFlightRef.current) {
+        detailAutoFillInFlightRef.current = false;
+        setDetailRecipeUrlError(outcome.error);
+        updateField("recipeUrl", "");
+        setDetailRecipeExpanded(true);
       }
+      setAddMealStep(isEditMode ? "manual" : "entry");
       return;
     }
+    detailAutoFillInFlightRef.current = false;
 
     setCompletedLoadingSteps(3);
 
@@ -655,11 +677,15 @@ export default function MealCard({
     });
     setNewAutoFillIngredient("");
     setIsAutoFillIngredientDeleteMode(false);
-    if (!isEditMode) {
-      setAddMealStep("manual");
-    }
+    setAddMealStep("manual");
     setIsAutoFillPreviewVisible(true);
-  }, [clearError, isEditMode, requestAutoFill]);
+  }, [autoFillOnOpen, clearError, isEditMode, requestAutoFill, updateField]);
+
+  useEffect(() => {
+    if (!isDetailAutoFillRequested || !form.recipeUrl?.trim()) return;
+    setDetailAutoFillRequested(false);
+    void handleAutoFillPress();
+  }, [form.recipeUrl, handleAutoFillPress, isDetailAutoFillRequested]);
 
   useEffect(() => {
     if (!autoFillOnOpen) {
@@ -774,15 +800,40 @@ export default function MealCard({
       return;
     }
 
-    setForm(nextForm);
+    if (autoFillOnOpen && "id" in initialMeal) {
+      onUpdateMeal({
+        ...initialMeal,
+        ...nextForm,
+        prepNotes: nextPrepNotesDraft,
+        updatedAt: new Date().toISOString(),
+      } as Meal);
+      closeAutoFillPreview();
+      onClose();
+      return;
+    }
+
+    const updatedMeal: Meal = {
+      ...(form as Meal),
+      ...nextForm,
+      id: form.id!,
+      prepNotes: nextPrepNotesDraft,
+      updatedAt: new Date().toISOString(),
+    };
+    setForm(updatedMeal);
     setPrepNotesDraft(nextPrepNotesDraft);
+    onUpdateMeal(updatedMeal);
+    triggerMealSaveHaptic();
     closeAutoFillPreview();
   }, [
     autoFillDraft,
     closeAutoFillPreview,
     createMealFromValues,
     form,
+    autoFillOnOpen,
+    initialMeal,
     isEditMode,
+    onClose,
+    onUpdateMeal,
     prepNotesDraft,
   ]);
 
@@ -1121,12 +1172,45 @@ export default function MealCard({
     [form.ingredients, persistDetailIngredients],
   );
 
+  const saveEditedDetailIngredient = useCallback(() => {
+    const index = editingDetailIngredientIndex;
+    if (index === null) return;
+    const name = editingDetailIngredientDraft.trim();
+    if (name) {
+      const next = (form.ingredients ?? [])
+        .map((ingredient, ingredientIndex) => {
+          const normalized = normalizeIngredientValue(ingredient as IngredientValue);
+          return normalized && ingredientIndex === index
+            ? { ...normalized, name }
+            : normalized;
+        })
+        .filter(isIngredient);
+      persistDetailIngredients(next);
+    }
+    setEditingDetailIngredientIndex(null);
+    setEditingDetailIngredientDraft("");
+  }, [editingDetailIngredientDraft, editingDetailIngredientIndex, form.ingredients, persistDetailIngredients]);
+
+  const startEditingDetailIngredient = useCallback((index: number, name: string) => {
+    setDetailIngredientsExpanded(true);
+    setDetailIngredientsEditing(true);
+    setEditingDetailIngredientIndex(index);
+    setEditingDetailIngredientDraft(name);
+    requestAnimationFrame(() => detailIngredientEditInputRef.current?.focus());
+  }, []);
+
   const endDetailIngredientEditing = useCallback(() => {
+    saveEditedDetailIngredient();
     Keyboard.dismiss();
     setDetailIngredientsEditing(false);
     setDetailIngredientsExpanded(false);
     setDetailIngredientDraft("");
-  }, []);
+    setEditingDetailIngredientIndex(null);
+    setEditingDetailIngredientDraft("");
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+    });
+  }, [saveEditedDetailIngredient]);
 
   const handleDetailFamilyRatingChange = useCallback(
     (memberId: string, rating: FamilyRatingValue) => {
@@ -1278,6 +1362,38 @@ export default function MealCard({
     },
     [autoFillError, autoFillResult, clearError, resetAutoFill, updateField]
   );
+
+  const validateDetailRecipeUrl = useCallback((value: string) => {
+    try {
+      const url = new URL(value.trim());
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("protocol");
+      setDetailRecipeUrlError(null);
+      return url.toString();
+    } catch {
+      setDetailRecipeUrlError("That link doesn’t look right. Check the URL and try again.");
+      return null;
+    }
+  }, []);
+
+  const handleSaveDetailRecipeLink = useCallback(() => {
+    const recipeUrl = validateDetailRecipeUrl(detailRecipeUrlDraft);
+    if (!recipeUrl) return;
+    persistDetailPatch({ recipeUrl });
+    setDetailRecipeExpanded(false);
+  }, [detailRecipeUrlDraft, persistDetailPatch, validateDetailRecipeUrl]);
+
+  const handleDetailRecipeAutoFill = useCallback(() => {
+    const recipeUrl = validateDetailRecipeUrl(detailRecipeUrlDraft);
+    if (!recipeUrl) return;
+    if (onLaunchRecipeAutoFill) {
+      Keyboard.dismiss();
+      onLaunchRecipeAutoFill(recipeUrl);
+      return;
+    }
+    detailAutoFillInFlightRef.current = true;
+    updateField("recipeUrl", recipeUrl);
+    setDetailAutoFillRequested(true);
+  }, [detailRecipeUrlDraft, onLaunchRecipeAutoFill, updateField, validateDetailRecipeUrl]);
 
   const renderHeader = (loading = false) => (
     <View style={styles.headerRow}>
@@ -1482,7 +1598,72 @@ export default function MealCard({
               <Text style={styles.recipeActionText}>View original recipe</Text>
               <MaterialCommunityIcons name="open-in-new" size={18} color={theme.color.subtleInk} />
             </Pressable>
-          ) : null}
+          ) : (
+            <View style={styles.detailRecipeSection}>
+              <Text style={styles.detailSectionLabel}>Recipe Link</Text>
+              <View style={[styles.detailRecipeCard, isDetailRecipeExpanded && styles.detailRecipeCardExpanded]}>
+                <Pressable
+                  onPress={() => setDetailRecipeExpanded((current) => !current)}
+                  accessibilityRole="button"
+                  accessibilityLabel={isDetailRecipeExpanded ? "Collapse recipe link" : "Add a recipe link"}
+                  style={({ pressed }) => [styles.detailRecipeHeader, pressed && styles.detailPressed]}
+                >
+                  <MaterialCommunityIcons name="link-variant" size={20} color={theme.color.accent} />
+                  <Text style={styles.detailRecipeHeaderText}>
+                    {isDetailRecipeExpanded ? "Add a recipe link to this meal" : "Add a recipe link"}
+                  </Text>
+                  <MaterialCommunityIcons name={isDetailRecipeExpanded ? "chevron-up" : "chevron-down"} size={22} color={theme.color.subtleInk} />
+                </Pressable>
+                {isDetailRecipeExpanded ? (
+                  <View style={styles.detailRecipeBody}>
+                    <Text style={styles.detailRecipeHelper}>
+                      Paste a recipe link below. You can save it now or use it to fill in this meal.
+                    </Text>
+                    <View style={[styles.detailRecipeInputRow, detailRecipeUrlError && styles.detailRecipeInputError]}>
+                      <MaterialCommunityIcons name="link-variant" size={18} color={theme.color.subtleInk} />
+                      <TextInput
+                        value={detailRecipeUrlDraft}
+                        onChangeText={(value) => {
+                          setDetailRecipeUrlDraft(value);
+                          setDetailRecipeUrlError(null);
+                        }}
+                        placeholder="https://www.example.com/recipe"
+                        placeholderTextColor={theme.color.subtleInk}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="url"
+                        returnKeyType="go"
+                        onSubmitEditing={handleDetailRecipeAutoFill}
+                        style={styles.detailRecipeInput}
+                        accessibilityLabel="Recipe link"
+                      />
+                    </View>
+                    {detailRecipeUrlError ? <Text style={styles.autoFillErrorText} accessibilityRole="alert">{detailRecipeUrlError}</Text> : null}
+                    <Pressable
+                      disabled={!detailRecipeUrlDraft.trim() || isAutoFillLoading}
+                      onPress={handleDetailRecipeAutoFill}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Auto Fill ${form.title} from recipe link`}
+                      style={({ pressed }) => [styles.detailRecipePrimary, (!detailRecipeUrlDraft.trim() || isAutoFillLoading) && styles.autoFillButtonDisabled, pressed && styles.entryButtonPressed]}
+                    >
+                      <MaterialCommunityIcons name="creation" size={18} color={theme.color.ink} />
+                      <Text style={styles.detailRecipePrimaryText}>Auto Fill Recipe</Text>
+                    </Pressable>
+                    <Pressable
+                      disabled={!detailRecipeUrlDraft.trim() || isAutoFillLoading}
+                      onPress={handleSaveDetailRecipeLink}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Save recipe link for ${form.title}`}
+                      style={({ pressed }) => [styles.detailRecipeSecondary, (!detailRecipeUrlDraft.trim() || isAutoFillLoading) && styles.autoFillButtonDisabled, pressed && styles.detailPressed]}
+                    >
+                      <MaterialCommunityIcons name="content-save-outline" size={18} color={theme.color.accent} />
+                      <Text style={styles.detailRecipeSecondaryText}>Save Link for Later</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          )}
 
           <View style={styles.detailSection}>
             <View style={styles.detailSectionHeader}>
@@ -1513,25 +1694,31 @@ export default function MealCard({
                         color={theme.color.accent}
                       />
                     </Pressable>
-                    <Pressable
-                      onTouchStart={(event) => event.stopPropagation()}
-                      onPress={() => {
-                        if (isDetailIngredientsEditing) {
-                          endDetailIngredientEditing();
-                          return;
-                        }
-                        setDetailIngredientsExpanded(true);
-                        setDetailIngredientsEditing(true);
-                        requestAnimationFrame(() =>
-                          detailIngredientInputRef.current?.focus(),
-                        );
-                      }}
-                      style={styles.detailIngredientTextTarget}
-                    >
-                      <Text style={styles.detailIngredientListText} numberOfLines={1}>
-                        {capitalizeMealTitleWords(ingredient.name)}
-                      </Text>
-                    </Pressable>
+                    {editingDetailIngredientIndex === index ? (
+                      <TextInput
+                        ref={detailIngredientEditInputRef}
+                        value={editingDetailIngredientDraft}
+                        onChangeText={setEditingDetailIngredientDraft}
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onSubmitEditing={saveEditedDetailIngredient}
+                        onBlur={saveEditedDetailIngredient}
+                        autoCapitalize="words"
+                        returnKeyType="done"
+                        selectTextOnFocus
+                        style={[styles.detailIngredientTextTarget, styles.detailIngredientEditInput]}
+                        accessibilityLabel={`Edit ${ingredient.name}`}
+                      />
+                    ) : (
+                      <Pressable
+                        onTouchStart={(event) => event.stopPropagation()}
+                        onPress={() => startEditingDetailIngredient(index, ingredient.name)}
+                        style={styles.detailIngredientTextTarget}
+                      >
+                        <Text style={styles.detailIngredientListText} numberOfLines={1}>
+                          {capitalizeMealTitleWords(ingredient.name)}
+                        </Text>
+                      </Pressable>
+                    )}
                     {isDetailIngredientsEditing && pantryStapleEntries.length > 0 ? (
                       <Pressable
                         onTouchStart={(event) => event.stopPropagation()}
@@ -1643,31 +1830,31 @@ export default function MealCard({
                             color={theme.color.accent}
                           />
                         </Pressable>
-                        <Pressable
-                          onTouchStart={(event) => event.stopPropagation()}
-                          onPress={() => {
-                            if (isDetailIngredientsEditing) {
-                              endDetailIngredientEditing();
-                              return;
-                            }
-                            setDetailIngredientsExpanded(true);
-                            setDetailIngredientsEditing(true);
-                            requestAnimationFrame(() =>
-                              detailIngredientInputRef.current?.focus(),
-                            );
-                          }}
-                          style={styles.detailIngredientTextTarget}
-                        >
-                          <Text
-                            style={[
-                              styles.detailIngredientListText,
-                              styles.detailPantryChipText,
-                            ]}
-                            numberOfLines={1}
+                        {editingDetailIngredientIndex === index ? (
+                          <TextInput
+                            ref={detailIngredientEditInputRef}
+                            value={editingDetailIngredientDraft}
+                            onChangeText={setEditingDetailIngredientDraft}
+                            onTouchStart={(event) => event.stopPropagation()}
+                            onSubmitEditing={saveEditedDetailIngredient}
+                            onBlur={saveEditedDetailIngredient}
+                            autoCapitalize="words"
+                            returnKeyType="done"
+                            selectTextOnFocus
+                            style={[styles.detailIngredientTextTarget, styles.detailIngredientEditInput, styles.detailPantryChipText]}
+                            accessibilityLabel={`Edit ${ingredient.name}`}
+                          />
+                        ) : (
+                          <Pressable
+                            onTouchStart={(event) => event.stopPropagation()}
+                            onPress={() => startEditingDetailIngredient(index, ingredient.name)}
+                            style={styles.detailIngredientTextTarget}
                           >
-                            {capitalizeMealTitleWords(ingredient.name)}
-                          </Text>
-                        </Pressable>
+                            <Text style={[styles.detailIngredientListText, styles.detailPantryChipText]} numberOfLines={1}>
+                              {capitalizeMealTitleWords(ingredient.name)}
+                            </Text>
+                          </Pressable>
+                        )}
                         {isDetailIngredientsEditing ? (
                           <Pressable
                             onTouchStart={(event) => event.stopPropagation()}
@@ -1969,7 +2156,7 @@ export default function MealCard({
     );
   }
 
-  if (!isEditMode && addMealStep === "autofill-loading") {
+  if (addMealStep === "autofill-loading") {
     const loadingItems = [
       "Finding the recipe",
       "Adding ingredients",
@@ -2481,7 +2668,7 @@ export default function MealCard({
                     accessibilityLabel="Meal title"
                   />
                   <Text style={styles.autoFillModalDescription}>
-                    Make any changes before adding this meal.
+                    Make any changes before {autoFillApplyMode === "details" ? "applying these details" : "adding this meal"}.
                   </Text>
                 </View>
               </View>
@@ -2792,7 +2979,7 @@ export default function MealCard({
                   disabled={!hasAutoFillSelection}
                   onPress={handleConfirmAutoFill}
                   accessibilityRole="button"
-                  accessibilityLabel="Add meal with the reviewed recipe details"
+                  accessibilityLabel={autoFillApplyMode === "details" ? "Apply reviewed recipe details" : "Add meal with the reviewed recipe details"}
                 >
                   <Text
                     style={[
@@ -2802,7 +2989,7 @@ export default function MealCard({
                         styles.autoFillModalButtonTextDisabled,
                     ]}
                   >
-                    Add Meal
+                    {autoFillApplyMode === "details" ? "Apply Details" : "Add Meal"}
                   </Text>
                 </Pressable>
               </View>
@@ -2922,6 +3109,20 @@ const createStyles = (theme: WeeklyTheme) =>
     detailMutedText: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
     recipeAction: { flexDirection: "row", alignItems: "center", gap: theme.space.sm, padding: theme.space.md, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt },
     recipeActionText: { flex: 1, color: theme.color.accent, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
+    detailRecipeSection: { gap: theme.space.sm },
+    detailRecipeCard: { borderRadius: theme.radius.md, backgroundColor: alpha(theme.color.accent, theme.mode === "dark" ? 0.09 : 0.06), overflow: "hidden" },
+    detailRecipeCardExpanded: { paddingBottom: theme.space.md },
+    detailRecipeHeader: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: theme.space.sm, paddingHorizontal: theme.space.md },
+    detailRecipeHeaderText: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
+    detailRecipeBody: { gap: theme.space.sm, paddingHorizontal: theme.space.md },
+    detailRecipeHelper: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, lineHeight: 20 },
+    detailRecipeInputRow: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: theme.space.sm, paddingHorizontal: theme.space.md, borderRadius: theme.radius.md, backgroundColor: theme.color.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+    detailRecipeInputError: { borderColor: theme.color.danger },
+    detailRecipeInput: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, paddingVertical: 0 },
+    detailRecipePrimary: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm, borderRadius: theme.radius.md, backgroundColor: theme.color.accent },
+    detailRecipePrimaryText: { color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
+    detailRecipeSecondary: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.color.accent, backgroundColor: "transparent" },
+    detailRecipeSecondaryText: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
     detailSection: { gap: theme.space.md },
     detailSectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     detailSectionLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.medium, textTransform: "uppercase", letterSpacing: 0.8 },
@@ -2932,6 +3133,7 @@ const createStyles = (theme: WeeklyTheme) =>
     detailIngredientSwapTarget: { width: 36, minHeight: 38, alignItems: "center", justifyContent: "center" },
     detailIngredientTextTarget: { flex: 1, minHeight: 38, justifyContent: "center" },
     detailIngredientListText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
+    detailIngredientEditInput: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium, textTransform: "capitalize", paddingVertical: 0, borderBottomWidth: 1, borderBottomColor: theme.color.accent },
     detailIngredientsGrid: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm },
     detailChip: { width: "48.5%", height: 44, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderRadius: theme.radius.md, paddingHorizontal: theme.space.md, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
     detailChipEditing: { paddingRight: theme.space.sm },

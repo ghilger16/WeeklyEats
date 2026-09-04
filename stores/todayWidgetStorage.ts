@@ -1,11 +1,20 @@
 import { NativeModules, Platform } from "react-native";
 
-export type TodayWidgetPayload = {
+export type TodayWidgetMeal = {
+  dateISO: string;
   title: string;
   icon: string;
   dateLabel: string;
   sides: string[];
+  prepNote?: string;
   recipeUrl?: string;
+};
+
+export type TodayWidgetPayload = {
+  generatedAtISO: string;
+  today: TodayWidgetMeal;
+  tomorrow?: TodayWidgetMeal;
+  todayOutcome?: "served" | "cookedAlt" | "ateOut" | "skipped";
 };
 
 type TodayWidgetBridgeModule = {

@@ -1,5 +1,8 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import {
   AccessibilityInfo,
@@ -69,6 +72,7 @@ import {
   getWeekStartForDate,
 } from "../../utils/weekDays";
 import { getRemainingPlanningDays } from "../../utils/remainingWeekPlanning";
+import { suggestEmojiForTitle } from "../../utils/emojiCatalog";
 import {
   setFirstFullWeekPlanned,
   setFirstWeekExperienceActive,
@@ -105,6 +109,7 @@ import PinInventory, {
 import CalendarEventLines from "../../components/plan-week/CalendarEventLines";
 import BurstSparkles from "../../components/week-dashboard/BurstSparkles";
 import { useRatingDisplayMode } from "../../hooks/useRatingDisplayMode";
+import { useSubscription } from "../../hooks/useSubscription";
 import InlineDaySearch from "../../components/plan-week/inline/InlineDaySearch";
 import InlineSideEditor from "../../components/plan-week/inline/InlineSideEditor";
 import CompactSidesSummary from "../../components/plan-week/inline/CompactSidesSummary";
@@ -202,11 +207,13 @@ type AutoPlanAnimationPhase =
   | "retrying";
 
 export default function PlanWeekModal() {
+  const safeAreaInsets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string; editDay?: string }>();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals, addMeal, updateMeal } = useMeals();
+  const subscription = useSubscription();
   const { mode: ratingDisplayMode } = useRatingDisplayMode();
   const { orderedDays, startDay } = useWeekStartController();
   const firstExperienceRemainingDays = useMemo(
@@ -226,6 +233,30 @@ export default function PlanWeekModal() {
     params.mode === "first-full" ||
     (isFirstIntroMode && !shouldOfferFirstRemainingDays);
   const isCurrentWeekMode = params.mode === "current";
+  useEffect(() => {
+    const isFreeOrExistingPlanFlow =
+      isFirstIntroMode ||
+      isFirstRemainingMode ||
+      isFirstFullWeekMode ||
+      isRemainingMode ||
+      isCurrentWeekMode;
+    if (
+      !subscription.isLoading &&
+      subscription.status === "subscriptionRequired" &&
+      !isFreeOrExistingPlanFlow
+    ) {
+      router.replace("/modals/subscription-required");
+    }
+  }, [
+    isCurrentWeekMode,
+    isFirstFullWeekMode,
+    isFirstIntroMode,
+    isFirstRemainingMode,
+    isRemainingMode,
+    router,
+    subscription.isLoading,
+    subscription.status,
+  ]);
   const requestedEditDay = isPlannedWeekDayKey(params.editDay)
     ? params.editDay
     : null;
@@ -1826,7 +1857,7 @@ export default function PlanWeekModal() {
         id: createMealId(),
         ...draft,
         title,
-        emoji: draft.emoji,
+        emoji: suggestEmojiForTitle(title) ?? draft.emoji,
         createdAt: now,
         updatedAt: now,
       };
@@ -2591,8 +2622,11 @@ export default function PlanWeekModal() {
   if (showFirstRemainingIntro) {
     return (
       <SafeAreaView
-        style={styles.plannerStepsSafeArea}
-        edges={["top", "left", "right", "bottom"]}
+        style={[
+          styles.plannerStepsSafeArea,
+          { paddingTop: Math.max(safeAreaInsets.top, 44) },
+        ]}
+        edges={["left", "right", "bottom"]}
       >
         <Pressable
           accessibilityRole="button"
@@ -2680,8 +2714,11 @@ export default function PlanWeekModal() {
   if (isFirstRemainingComplete) {
     return (
       <SafeAreaView
-        style={styles.plannerStepsSafeArea}
-        edges={["top", "left", "right", "bottom"]}
+        style={[
+          styles.plannerStepsSafeArea,
+          { paddingTop: Math.max(safeAreaInsets.top, 44) },
+        ]}
+        edges={["left", "right", "bottom"]}
       >
         <Pressable
           accessibilityRole="button"
@@ -2853,8 +2890,11 @@ export default function PlanWeekModal() {
   if (resumePromptVisible) {
     return (
       <SafeAreaView
-        style={styles.plannerStepsSafeArea}
-        edges={["top", "left", "right", "bottom"]}
+        style={[
+          styles.plannerStepsSafeArea,
+          { paddingTop: Math.max(safeAreaInsets.top, 44) },
+        ]}
+        edges={["left", "right", "bottom"]}
       >
         <View style={styles.resumeCard}>
           <Text style={styles.resumeTitle}>Resume Planning?</Text>

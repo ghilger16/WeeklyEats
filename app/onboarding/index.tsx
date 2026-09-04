@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -17,6 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { memberColorPalette } from "../../components/meals/FamilyRatingIcons";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 import { useMeals } from "../../hooks/useMeals";
+import { useSubscription } from "../../hooks/useSubscription";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
 import { WeeklyTheme } from "../../styles/theme";
@@ -86,12 +88,13 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { setStartDay, startDay } = useWeekStartController();
+  const { setStartDay } = useWeekStartController();
   const { addMember } = useFamilyMembers();
   const { meals, addMeal } = useMeals();
+  const subscription = useSubscription();
   const [stepIndex, setStepIndex] = useState(0);
   const [shoppingDay, setShoppingDay] =
-    useState<PlannedWeekDayKey>(startDay);
+    useState<PlannedWeekDayKey | null>(null);
   const [familyMembers, setFamilyMembers] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -139,7 +142,7 @@ export default function OnboardingScreen() {
   }, []);
 
   const finishOnboarding = useCallback(async () => {
-    if (isFinishing) {
+    if (isFinishing || !shoppingDay) {
       return;
     }
 
@@ -447,7 +450,14 @@ export default function OnboardingScreen() {
             </View>
 
             <Pressable
-              style={[styles.primaryButton, styles.shoppingDayContinue]}
+              disabled={!shoppingDay}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !shoppingDay }}
+              style={[
+                styles.primaryButton,
+                styles.shoppingDayContinue,
+                !shoppingDay && styles.primaryButtonDisabled,
+              ]}
               onPress={goNext}
             >
               <Text style={styles.primaryButtonText}>Continue</Text>
@@ -799,64 +809,87 @@ export default function OnboardingScreen() {
         );
       case "paywall":
         return (
-          <View style={styles.step}>
-            <Text style={styles.title}>Try Weekly Eats Pro</Text>
-            <Text style={styles.subtitle}>
-              Unlock the full planner before your first week gets busy.
-            </Text>
-            <View style={styles.priceCard}>
-              <Text style={styles.priceBadge}>Best value</Text>
-              <Text style={styles.priceTitle}>$34.99 / year</Text>
-              <Text style={styles.priceSubtext}>
-                7 days free, then $34.99/year
-              </Text>
-            </View>
-            <View style={styles.secondaryPriceCard}>
-              <Text style={styles.priceTitle}>$4.99 / month</Text>
-            </View>
-            <Pressable
-              style={styles.primaryButton}
-              onPress={finishOnboarding}
-              disabled={isFinishing}
-            >
-              <Text style={styles.primaryButtonText}>
-                {isFinishing ? "Starting..." : "Start Free Trial"}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={styles.skipButton}
-              onPress={finishOnboarding}
-              disabled={isFinishing}
-            >
-              <Text style={styles.skipButtonText}>
-                {isFinishing ? "Finishing..." : "Skip for Now"}
-              </Text>
-            </Pressable>
-            <View style={styles.featureList}>
-              {[
-                "Plan your whole week in seconds",
-                "Build your grocery list automatically",
-                "Remember what your family actually likes",
-                "Keep track of freezer meals",
-                "Get smarter meal suggestions over time",
-              ].map((feature) => (
-                <View style={styles.featureRow} key={feature}>
-                  <MaterialCommunityIcons
-                    name="check-circle"
-                    size={18}
-                    color={theme.color.success}
-                  />
-                  <Text style={styles.featureText}>{feature}</Text>
+          <View style={styles.firstWeekStep}>
+            <View style={styles.firstWeekHeading}>
+              <MaterialCommunityIcons name="calendar-heart" size={56} color={theme.color.accent} />
+              <View style={styles.firstWeekTitleWrap}>
+                <Text style={styles.firstWeekTitle}>Your first week</Text>
+                <View style={styles.firstWeekAccentTitleRow}>
+                  <Text style={styles.firstWeekAccentTitle}>is on us!</Text>
+                  <MaterialCommunityIcons name="heart-plus-outline" size={35} color={theme.color.accent} />
                 </View>
-              ))}
+              </View>
             </View>
-            <View style={styles.faqCard}>
-              <Text style={styles.faqTitle}>Can I use it free?</Text>
-              <Text style={styles.faqText}>
-                Yes. Free keeps the basics available with limits while Pro
-                unlocks the full weekly planning experience.
+            <Text style={styles.firstWeekSubtitle}>
+              Plan and use your first complete weekly plan with no subscription and no charge.
+            </Text>
+            <View style={styles.firstWeekFreeCard}>
+              <View style={styles.firstWeekCardTop}>
+                <View style={styles.firstWeekGiftCircle}>
+                  <MaterialCommunityIcons name="gift-outline" size={45} color={theme.color.accent} />
+                </View>
+                <View style={styles.firstWeekFreeCopy}>
+                  <Text style={styles.priceTitle}>One full week. Free.</Text>
+                  {["Plan 7 dinners", "Get your grocery list", "Track, rate, and make it better"].map((feature) => (
+                    <View style={styles.featureRow} key={feature}>
+                      <MaterialCommunityIcons name="check-circle" size={17} color={theme.color.accent} />
+                      <Text style={styles.featureText}>{feature}</Text>
+                    </View>
+                  ))}
+                </View>
+                <MaterialCommunityIcons name="star-four-points" size={31} color="#FFD3E4" style={styles.firstWeekSparkle} />
+              </View>
+              <Text style={styles.noSubscriptionCopy}>
+                Planning your first week <Text style={styles.noSubscriptionEmphasis}>will not{"\n"}start a subscription.</Text>
               </Text>
+              <View style={styles.firstWeekWaveBack} />
+              <View style={styles.firstWeekWaveFront} />
             </View>
+
+            <View style={styles.weekFeatureSection}>
+              <View style={styles.weekFeatureHeading}>
+                <MaterialCommunityIcons name="heart" size={20} color={theme.color.accent} />
+                <Text style={styles.weekFeatureHeadingText}>Here’s what you can do this week</Text>
+              </View>
+              <View style={styles.weekFeatureList}>
+                {[
+                  ["calendar-heart", "Plan your", "week"],
+                  ["cart-outline", "Create your", "grocery list"],
+                  ["star", "Rate meals", "as you go"],
+                  ["archive-outline", "Track freezer", "meals"],
+                  ["trending-up", "Get smarter", "suggestions"],
+                ].map(([icon, lineOne, lineTwo]) => (
+                  <View style={styles.weekFeatureItem} key={lineOne}>
+                    <View style={styles.weekFeatureIcon}>
+                      <MaterialCommunityIcons name={icon as any} size={25} color={theme.color.accent} />
+                    </View>
+                    <Text style={styles.weekFeatureText}>{lineOne}{"\n"}{lineTwo}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+            <Pressable
+              style={styles.firstWeekPrimaryButton}
+              onPress={finishOnboarding}
+              disabled={isFinishing}
+            >
+              <LinearGradient colors={["#FF3984", "#FF4B91"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.firstWeekPrimaryGradient}>
+                <MaterialCommunityIcons name="calendar-heart" size={24} color="#FFFFFF" />
+                <Text style={styles.firstWeekPrimaryText}>{isFinishing ? "Getting things ready…" : "Plan My First Week Free"}</Text>
+              </LinearGradient>
+            </Pressable>
+            <Pressable style={styles.learnMoreButton} accessibilityRole="button">
+              <Text style={styles.learnMoreText}>Learn More About Weekly Eats</Text>
+            </Pressable>
+            <View style={styles.afterFirstWeekRow}>
+              <MaterialCommunityIcons name="shield-check-outline" size={29} color={theme.color.accent} />
+              <Text style={styles.afterFirstWeekCopy}>After your first free week, you can choose Weekly Eats Pro to keep planning future weeks for $34.99/year.</Text>
+            </View>
+            <View style={styles.restoreDivider} />
+            <Pressable onPress={() => void subscription.restorePurchases()} accessibilityRole="button" accessibilityLabel="Restore purchases" style={styles.restoreButton}>
+              <MaterialCommunityIcons name="restore" size={21} color={theme.color.accent} />
+              <Text style={styles.restoreText}>Already subscribed? <Text style={styles.restoreTextStrong}>Restore Purchases</Text></Text>
+            </Pressable>
           </View>
         );
     }
@@ -1443,6 +1476,80 @@ const createStyles = (theme: WeeklyTheme) =>
       borderWidth: 1,
       borderColor: theme.color.accent,
     },
+    firstWeekStep: { gap: 20, paddingBottom: theme.space.lg },
+    firstWeekHeading: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.lg,
+      paddingHorizontal: 4,
+    },
+    firstWeekTitleWrap: { flex: 1 },
+    firstWeekTitle: { color: theme.color.ink, fontSize: 31, lineHeight: 36, fontWeight: theme.type.weight.bold },
+    firstWeekAccentTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+    firstWeekAccentTitle: { color: theme.color.accent, fontSize: 31, lineHeight: 36, fontWeight: theme.type.weight.bold },
+    firstWeekSubtitle: { color: theme.color.subtleInk, fontSize: 17, lineHeight: 25 },
+    firstWeekFreeCard: {
+      position: "relative",
+      overflow: "hidden",
+      paddingTop: 24,
+      paddingHorizontal: 20,
+      paddingBottom: 48,
+      borderRadius: theme.radius.lg,
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255, 75, 145, 0.14)" : "#FFF0F6",
+      borderWidth: 1,
+      borderColor: theme.color.accent,
+    },
+    firstWeekCardTop: { flexDirection: "row", alignItems: "flex-start", gap: theme.space.lg },
+    firstWeekGiftCircle: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: theme.mode === "dark" ? "rgba(255,75,145,.15)" : "#FFE4EE" },
+    firstWeekFreeCopy: { flex: 1, gap: theme.space.sm },
+    firstWeekSparkle: { position: "absolute", right: 0, top: 0 },
+    noSubscriptionCopy: {
+      marginTop: theme.space.lg,
+      paddingTop: theme.space.lg,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.color.cardOutline,
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      lineHeight: 23,
+      textAlign: "center",
+      zIndex: 2,
+    },
+    noSubscriptionEmphasis: { color: theme.color.accent, fontWeight: theme.type.weight.bold },
+    firstWeekWaveBack: { position: "absolute", left: -35, bottom: -38, width: "72%", height: 63, borderRadius: 80, backgroundColor: "#FF4B91", transform: [{ rotate: "8deg" }] },
+    firstWeekWaveFront: { position: "absolute", right: -45, bottom: -43, width: "72%", height: 70, borderRadius: 80, backgroundColor: "#F92D7E", transform: [{ rotate: "-7deg" }] },
+    weekFeatureSection: { gap: theme.space.md },
+    weekFeatureHeading: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+    weekFeatureHeadingText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+    weekFeatureList: { flexDirection: "row", justifyContent: "space-between", gap: 5 },
+    weekFeatureItem: { flex: 1, alignItems: "center", gap: 6 },
+    weekFeatureIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: theme.mode === "dark" ? "rgba(255,75,145,.15)" : "#FFEAF2" },
+    weekFeatureText: { color: theme.color.ink, fontSize: 11, lineHeight: 15, textAlign: "center" },
+    firstWeekPrimaryButton: { borderRadius: theme.radius.full, overflow: "hidden" },
+    firstWeekPrimaryGradient: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm, paddingHorizontal: theme.space.lg },
+    firstWeekPrimaryText: { color: "#FFFFFF", fontSize: 19, fontWeight: theme.type.weight.bold },
+    learnMoreButton: { minHeight: 54, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.full, backgroundColor: theme.color.surfaceAlt },
+    learnMoreText: { color: theme.color.subtleInk, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+    afterFirstWeekRow: { flexDirection: "row", alignItems: "center", gap: theme.space.md, paddingHorizontal: theme.space.lg },
+    afterFirstWeekCopy: {
+      flex: 1,
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      lineHeight: 20,
+    },
+    restoreDivider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.color.border },
+    restoreButton: {
+      minHeight: 44,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.sm,
+    },
+    restoreText: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+    },
+    restoreTextStrong: { color: theme.color.accent, fontWeight: theme.type.weight.bold },
     secondaryPriceCard: {
       padding: theme.space.lg,
       borderRadius: theme.radius.lg,
@@ -1460,7 +1567,7 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     priceTitle: {
       color: theme.color.ink,
-      fontSize: theme.type.size.h2,
+      fontSize: 19,
       fontWeight: theme.type.weight.bold,
     },
     priceSubtext: {
@@ -1489,7 +1596,8 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     featureText: {
       color: theme.color.ink,
-      fontSize: theme.type.size.base,
+      fontSize: theme.type.size.sm,
+      lineHeight: 19,
     },
     faqCard: {
       gap: theme.space.xs,

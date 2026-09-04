@@ -1,5 +1,6 @@
 import { useRouter } from "expo-router";
-import { ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { DevSettings, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { useMemo } from "react";
 import SettingsRow from "../../../components/settings/SettingsRow";
 import TabParent from "../../../components/tab-parent/TabParent";
@@ -7,7 +8,6 @@ import { useThemeController } from "../../../providers/theme/ThemeController";
 import { useWeekStartController } from "../../../providers/week-start/WeekStartController";
 import { PLANNED_WEEK_DISPLAY_NAMES } from "../../../types/weekPlan";
 import { WeeklyTheme } from "../../../styles/theme";
-import { setOnboardingCompleted } from "../../../stores/onboardingStorage";
 import {
   getFeatureFlagDefaults,
   setFeatureFlagOverride,
@@ -19,6 +19,9 @@ import {
   isFamilyRatingsEligible,
   useRatingDisplayMode,
 } from "../../../hooks/useRatingDisplayMode";
+import { deriveFamilyInitials } from "../../../utils/familyInitials";
+import { memberColorPalette } from "../../../components/meals/FamilyRatingIcons";
+import { useSubscription } from "../../../hooks/useSubscription";
 
 const FEATURE_FLAG_LABELS: Record<keyof FeatureFlags, string> = {
   recipeAutoFillEnabled: "Recipe Auto-fill",
@@ -31,9 +34,12 @@ export default function MoreScreen() {
   const { startDay } = useWeekStartController();
   const { members } = useFamilyMembers();
   const { mode: ratingDisplayMode } = useRatingDisplayMode();
+  const subscription = useSubscription();
   const featureFlags = useFeatureFlags();
   const featureFlagDefaults = getFeatureFlagDefaults();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const familyInitials = useMemo(() => deriveFamilyInitials(members), [members]);
+  const currentFamilyMember = members[0];
 
   const preferenceLabel =
     preference === "system"
@@ -58,8 +64,20 @@ export default function MoreScreen() {
     router.push("/modals/rating-style");
   };
 
+  const openFamilyProfile = () => {
+    if (!currentFamilyMember) return;
+    router.push({
+      pathname: "/modals/family-profile",
+      params: { memberId: currentFamilyMember.id },
+    });
+  };
+
   const resetOnboarding = async () => {
-    await setOnboardingCompleted(false);
+    await AsyncStorage.clear();
+    if (typeof DevSettings.reload === "function") {
+      DevSettings.reload();
+      return;
+    }
     router.replace("/onboarding");
   };
 
@@ -77,6 +95,17 @@ export default function MoreScreen() {
       title="More"
       headerStyle={styles.header}
       titleStyle={styles.headerTitle}
+      profileBtn={
+        currentFamilyMember
+          ? {
+              onPress: openFamilyProfile,
+              initials: familyInitials[currentFamilyMember.id] ?? "?",
+              backgroundColor: memberColorPalette[0],
+              isPro: subscription.status === "subscribed",
+              accessibilityLabel: `Open profile for ${currentFamilyMember.name}, you`,
+            }
+          : undefined
+      }
     >
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -151,6 +180,24 @@ export default function MoreScreen() {
               icon="restart"
               label="Reset Onboarding"
               onPress={resetOnboarding}
+            />
+            <SettingsRow
+              icon="gift-outline"
+              label="Subscription: First Week Free"
+              value={subscription.status === "firstWeekFree" ? "Active" : undefined}
+              onPress={() => void subscription.setDebugStatus("firstWeekFree")}
+            />
+            <SettingsRow
+              icon="lock-outline"
+              label="Subscription: Required"
+              value={subscription.status === "subscriptionRequired" ? "Active" : undefined}
+              onPress={() => void subscription.setDebugStatus("subscriptionRequired")}
+            />
+            <SettingsRow
+              icon="crown-outline"
+              label="Subscription: PRO"
+              value={subscription.status === "subscribed" ? "Active" : undefined}
+              onPress={() => void subscription.setDebugStatus("subscribed")}
             />
           </View>
         ) : null}

@@ -8,6 +8,10 @@ import {
 } from "react";
 import { getMeals, setMeals as persistMeals } from "../stores/mealsStorage";
 import { Meal } from "../types/meals";
+import {
+  DEFAULT_MEAL_EMOJI,
+  suggestEmojiForTitle,
+} from "../utils/emojiCatalog";
 
 export type MealListSubset = "meals" | "favorites";
 export type MealUpdate = Partial<Omit<Meal, "id">> & { id: Meal["id"] };
@@ -83,6 +87,38 @@ const hydrateMeals = async () => {
 const getSnapshot = () => storeMeals;
 const getServerSnapshot = () => storeMeals;
 
+const applySuggestedEmojiToNewMeal = (meal: Meal): Meal => {
+  const suggestedEmoji = suggestEmojiForTitle(meal.title);
+  if (
+    !suggestedEmoji ||
+    (meal.emoji && meal.emoji !== DEFAULT_MEAL_EMOJI)
+  ) {
+    return meal;
+  }
+  return { ...meal, emoji: suggestedEmoji };
+};
+
+const applySuggestedEmojiToTitleUpdate = (
+  existing: Meal,
+  update: MealUpdate,
+): MealUpdate => {
+  const nextTitle = update.title?.trim();
+  if (!nextTitle || nextTitle === existing.title.trim()) return update;
+
+  const emojiWasExplicitlyChanged =
+    update.emoji !== undefined && update.emoji !== existing.emoji;
+  const previousSuggestion = suggestEmojiForTitle(existing.title);
+  const existingEmoji = existing.emoji ?? DEFAULT_MEAL_EMOJI;
+  const iconIsAutoManaged =
+    existingEmoji === DEFAULT_MEAL_EMOJI || existingEmoji === previousSuggestion;
+  if (emojiWasExplicitlyChanged || !iconIsAutoManaged) return update;
+
+  return {
+    ...update,
+    emoji: suggestEmojiForTitle(nextTitle) ?? DEFAULT_MEAL_EMOJI,
+  };
+};
+
 export const useMeals = (): UseMealsResult => {
   const [isRefreshing, setRefreshing] = useState(false);
   const hasHydratedRef = useRef(false);
@@ -128,8 +164,11 @@ export const useMeals = (): UseMealsResult => {
   const addMeal = useCallback(
     (meal: Meal) => {
       applyAndPersist((prev) => {
-        const filtered = prev.filter((existing) => existing.id !== meal.id);
-        return [meal, ...filtered];
+        const normalizedMeal = applySuggestedEmojiToNewMeal(meal);
+        const filtered = prev.filter(
+          (existing) => existing.id !== normalizedMeal.id,
+        );
+        return [normalizedMeal, ...filtered];
       });
     },
     [applyAndPersist]
@@ -139,7 +178,9 @@ export const useMeals = (): UseMealsResult => {
     (update: MealUpdate) => {
       applyAndPersist((prev) =>
         prev.map((meal) =>
-          meal.id === update.id ? { ...meal, ...update } : meal
+          meal.id === update.id
+            ? { ...meal, ...applySuggestedEmojiToTitleUpdate(meal, update) }
+            : meal
         )
       );
     },

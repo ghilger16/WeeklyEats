@@ -30,6 +30,10 @@ export default function FamilyRatingRow({ ratings, onChange, compact = false }: 
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const initials = useMemo(() => deriveFamilyInitials(members), [members]);
+  const fittedMemberWidth: `${number}%` | undefined =
+    members.length > 0 && members.length <= 5
+      ? `${100 / members.length}%`
+      : undefined;
   if (!members.length) return null;
   return (
     <ScrollView
@@ -47,7 +51,11 @@ export default function FamilyRatingRow({ ratings, onChange, compact = false }: 
             onPress={() => onChange(member.id, getNextFamilyRating(value))}
             accessibilityRole="button"
             accessibilityLabel={`${member.name}, ${meta.label}`}
-            style={({ pressed }) => [styles.member, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.member,
+              fittedMemberWidth ? { width: fittedMemberWidth } : null,
+              pressed && styles.pressed,
+            ]}
           >
             <View
               style={[
@@ -77,6 +85,8 @@ export default function FamilyRatingRow({ ratings, onChange, compact = false }: 
             <Text
               style={[styles.rating, { color: meta.color }]}
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
             >
               {value > 0 ? meta.label : " "}
             </Text>
@@ -90,9 +100,9 @@ export default function FamilyRatingRow({ ratings, onChange, compact = false }: 
 const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
     scroll: { width: "100%" },
-    compactScroll: { flexGrow: 0, height: 110 },
-    row: { flexGrow: 1, justifyContent: "center", gap: 0 },
-    member: { width: 62, alignItems: "center", gap: theme.space.xs },
+    compactScroll: { flexGrow: 0, minHeight: 110 },
+    row: { flexGrow: 1, minWidth: "100%", justifyContent: "center" },
+    member: { width: 68, alignItems: "center", gap: theme.space.xs },
     avatar: {
       width: 48,
       height: 48,
@@ -117,13 +127,13 @@ const createStyles = (theme: WeeklyTheme) =>
       justifyContent: "center",
     },
     name: {
-      maxWidth: 62,
+      width: "100%",
       color: theme.color.subtleInk,
       fontSize: theme.type.size.xs,
       textAlign: "center",
     },
     rating: {
-      maxWidth: 62,
+      width: "100%",
       fontSize: theme.type.size.xs,
       fontWeight: theme.type.weight.medium,
       textAlign: "center",

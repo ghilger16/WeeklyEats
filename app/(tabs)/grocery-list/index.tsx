@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import TabParent from "../../../components/tab-parent/TabParent";
@@ -8,10 +8,9 @@ import { useCurrentWeekPlan } from "../../../hooks/useCurrentWeekPlan";
 import { useWeekStartController } from "../../../providers/week-start/WeekStartController";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { getCurrentWeekPlan } from "../../../stores/weekPlanStorage";
-import { alpha, WeeklyTheme } from "../../../styles/theme";
+import { WeeklyTheme } from "../../../styles/theme";
 import { PLANNED_WEEK_ORDER } from "../../../types/weekPlan";
 import { addDays, getWeekStartForDate } from "../../../utils/weekDays";
-import { getPlannedMealsMissingIngredients } from "../../../utils/missingPlannedIngredients";
 
 const toISO = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -30,6 +29,12 @@ const formatRange = (start: Date) => {
 
 export default function GroceryListTab() {
   const router = useRouter();
+  const { weekISO: requestedWeekISOParam } = useLocalSearchParams<{
+    weekISO?: string | string[];
+  }>();
+  const requestedWeekISO = Array.isArray(requestedWeekISOParam)
+    ? requestedWeekISOParam[0]
+    : requestedWeekISOParam;
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { startDay } = useWeekStartController();
@@ -44,6 +49,8 @@ export default function GroceryListTab() {
   );
   const currentWeekISO = toISO(currentWeekStart);
   const nextWeekISO = toISO(nextWeekStart);
+  const requestedWeekIsAvailable =
+    requestedWeekISO === currentWeekISO || requestedWeekISO === nextWeekISO;
   const [selectedWeekISO, setSelectedWeekISO] = useState(currentWeekISO);
   const [selectionTouched, setSelectionTouched] = useState(false);
   const [hasNextWeekPlan, setHasNextWeekPlan] = useState(false);
@@ -62,20 +69,23 @@ export default function GroceryListTab() {
     if (!hasNextPlan && selectedWeekISO === nextWeekISO) {
       setSelectedWeekISO(currentWeekISO);
     }
-    if (!selectionTouched) {
+    if (!selectionTouched && !requestedWeekIsAvailable) {
       setSelectedWeekISO(hasNextPlan ? nextWeekISO : currentWeekISO);
     }
   }, [
     currentWeekISO,
     nextWeekISO,
+    requestedWeekIsAvailable,
     selectedWeekISO,
     selectionTouched,
   ]);
 
   useEffect(() => {
-    setSelectionTouched(false);
-    setSelectedWeekISO(currentWeekISO);
-  }, [currentWeekISO]);
+    setSelectionTouched(requestedWeekIsAvailable);
+    setSelectedWeekISO(
+      requestedWeekIsAvailable ? requestedWeekISO : currentWeekISO,
+    );
+  }, [currentWeekISO, nextWeekISO, requestedWeekISO]);
 
   useEffect(() => {
     void selectDefaultWeek();
@@ -95,24 +105,16 @@ export default function GroceryListTab() {
   };
 
   const showingCurrentWeek = selectedWeekISO === currentWeekISO;
-  const plannedMealsMissingIngredients = useMemo(
-    () => getPlannedMealsMissingIngredients(days),
-    [days],
-  );
-  const missingIngredientCount = plannedMealsMissingIngredients.length;
-
-  const openMissingIngredientsInComplete = useCallback(() => {
+  const openMissingIngredientsInComplete = useCallback((mealId: string) => {
     router.push({
       pathname: "/(tabs)/meals",
       params: {
         completeFromGrocery: "1",
-        plannedMissingMealIds: plannedMealsMissingIngredients
-          .map((meal) => meal.id)
-          .join(","),
+        plannedMissingMealIds: mealId,
         plannedWeekISO: weekStartISO,
       },
     });
-  }, [plannedMealsMissingIngredients, router, weekStartISO]);
+  }, [router, weekStartISO]);
 
   return (
     <TabParent title="Grocery List">
@@ -123,6 +125,9 @@ export default function GroceryListTab() {
           isActive={!isLoading}
           showHeader={false}
           useSafeArea={false}
+          onMissingMealPress={(mealId) =>
+            openMissingIngredientsInComplete(mealId)
+          }
           weekNavigator={
             <View style={styles.weekNavigator}>
               {hasNextWeekPlan ? <Pressable
@@ -175,40 +180,6 @@ export default function GroceryListTab() {
               </Pressable> : null}
             </View>
           }
-          missingIngredientsAlert={
-            missingIngredientCount > 0 ? (
-              <Pressable
-                onPress={openMissingIngredientsInComplete}
-                accessibilityRole="button"
-                accessibilityLabel={`${missingIngredientCount} planned ${missingIngredientCount === 1 ? "meal is" : "meals are"} missing ingredients. Open Meals Complete.`}
-                style={({ pressed }) => [
-                  styles.missingIngredientsAlert,
-                  pressed && styles.missingIngredientsAlertPressed,
-                ]}
-              >
-                <View style={styles.missingIngredientsIcon}>
-                  <MaterialCommunityIcons
-                    name="alert"
-                    size={18}
-                    color={theme.color.warning}
-                  />
-                </View>
-                <View style={styles.missingIngredientsCopy}>
-                  <Text style={styles.missingIngredientsTitle}>
-                    Missing ingredients
-                  </Text>
-                  <Text style={styles.missingIngredientsSubtitle}>
-                    {missingIngredientCount} planned {missingIngredientCount === 1 ? "meal doesn't" : "meals don't"} have ingredients
-                  </Text>
-                </View>
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={24}
-                  color={theme.color.subtleInk}
-                />
-              </Pressable>
-            ) : null
-          }
         />
       </View>
     </TabParent>
@@ -254,38 +225,5 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.accent,
       fontSize: theme.type.size.xs,
       fontWeight: theme.type.weight.bold,
-    },
-    missingIngredientsAlert: {
-      minHeight: 74,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.md,
-      marginBottom: theme.space.md,
-      paddingHorizontal: theme.space.md,
-      paddingVertical: theme.space.sm,
-      borderRadius: theme.radius.lg,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: alpha(theme.color.warning, 0.65),
-      backgroundColor: alpha(theme.color.warning, 0.09),
-    },
-    missingIngredientsAlertPressed: { opacity: 0.72 },
-    missingIngredientsIcon: {
-      width: 34,
-      height: 34,
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: theme.radius.full,
-      backgroundColor: alpha(theme.color.warning, 0.14),
-    },
-    missingIngredientsCopy: { flex: 1, gap: 2 },
-    missingIngredientsTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-      fontWeight: theme.type.weight.bold,
-    },
-    missingIngredientsSubtitle: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      lineHeight: 19,
     },
   });

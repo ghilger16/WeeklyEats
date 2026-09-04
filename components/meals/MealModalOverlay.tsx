@@ -22,10 +22,12 @@ type Props = {
   meal?: Meal | null;
   draftOverrides?: Partial<MealDraft>;
   autoFillOnOpen?: boolean;
+  autoFillApplyMode?: "create" | "details";
   isGalaxyMeal?: boolean;
   onDismiss: () => void;
   onCreateMeal: (draft: MealDraft) => void;
   onUpdateMeal: (meal: Meal) => void;
+  onLaunchRecipeAutoFill?: (recipeUrl: string) => void;
 };
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -36,10 +38,12 @@ export default function MealModalOverlay({
   meal,
   draftOverrides,
   autoFillOnOpen = false,
+  autoFillApplyMode = "create",
   isGalaxyMeal = false,
   onDismiss,
   onCreateMeal,
   onUpdateMeal,
+  onLaunchRecipeAutoFill,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -131,7 +135,7 @@ export default function MealModalOverlay({
 
   const initialMeal = useMemo(() => {
     if (mode === "edit" && meal) {
-      return { ...meal };
+      return { ...meal, ...(draftOverrides ?? {}) };
     }
 
     return {
@@ -162,10 +166,12 @@ export default function MealModalOverlay({
           mode={mode}
           initialMeal={initialMeal}
           autoFillOnOpen={autoFillOnOpen}
+          autoFillApplyMode={autoFillApplyMode}
           isGalaxyMeal={isGalaxyMeal}
           onClose={dismiss}
           onCreateMeal={onCreateMeal}
           onUpdateMeal={onUpdateMeal}
+          onLaunchRecipeAutoFill={onLaunchRecipeAutoFill}
         />
       </SafeAreaView>
     </Animated.View>

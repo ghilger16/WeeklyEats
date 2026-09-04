@@ -8,6 +8,9 @@ import {
   Easing,
   LayoutAnimation,
   Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -28,18 +31,35 @@ import {
   classifyIngredients,
   classifyIngredientType,
 } from "../../utils/ingredientClassification";
+import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
 
 type Props = {
   meal: Meal;
   onApply: (ingredients: Ingredient[]) => void;
   onUpdateDetails: (patch: Pick<Partial<Meal>, "difficulty" | "expense" | "cuisine">) => void;
+  onAutoFill: (
+    patch: Pick<
+      Partial<Meal>,
+      "difficulty" | "expense" | "cuisine" | "prepNotes" | "recipeUrl" | "preferredSides"
+    > & { ingredients?: Ingredient[] },
+  ) => void;
+  onAddAutoFilledMeal: (title: string, patch: AutoFillMealPatch) => void;
+  onReplaceWithAutoFilledMeal: (title: string, patch: AutoFillMealPatch) => void;
+  onLaunchAutoFill?: (recipeUrl: string) => void;
+  autoFillCompletionPending?: boolean;
+  onCompleteAutoFill?: () => void;
   onExpand: () => void;
   onManualIngredientFocus?: () => void;
   onManualIngredientNeedsScroll?: (overlap: number) => void;
   isLastIncomplete?: boolean;
 };
 
-const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManualIngredientFocus, onManualIngredientNeedsScroll, isLastIncomplete = false }: Props) => {
+type AutoFillMealPatch = Pick<
+  Partial<Meal>,
+  "difficulty" | "expense" | "cuisine" | "prepNotes" | "recipeUrl" | "preferredSides"
+> & { ingredients?: Ingredient[] };
+
+const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddAutoFilledMeal, onReplaceWithAutoFilledMeal, onLaunchAutoFill, autoFillCompletionPending = false, onCompleteAutoFill, onExpand, onManualIngredientFocus, onManualIngredientNeedsScroll, isLastIncomplete = false }: Props) => {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [suggestions, setSuggestions] = useState<Ingredient[]>([]);
@@ -53,12 +73,29 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
   const [detailExpense, setDetailExpense] = useState(meal.expense);
   const [detailCuisine, setDetailCuisine] = useState(meal.cuisine);
   const [isCuisineSelectorVisible, setCuisineSelectorVisible] = useState(false);
+  const [isAutoFillPromptVisible, setAutoFillPromptVisible] = useState(false);
+  const [recipeUrlDraft, setRecipeUrlDraft] = useState("");
+  const [pendingDifferentRecipe, setPendingDifferentRecipe] = useState<{
+    title: string;
+    patch: AutoFillMealPatch;
+  } | null>(null);
+  const [pendingAutoFillReview, setPendingAutoFillReview] = useState<{
+    title: string;
+    patch: AutoFillMealPatch;
+  } | null>(null);
   const [reduceMotion, setReduceMotion] = useState(false);
   const cardScale = useRef(new Animated.Value(1)).current;
   const exitProgress = useRef(new Animated.Value(0)).current;
   const manualInputRef = useRef<TextInput>(null);
   const isManualInputFocusedRef = useRef(false);
   const keyboardTopRef = useRef<number | null>(null);
+  const {
+    isLoading: isAutoFillLoading,
+    error: autoFillError,
+    requestAutoFill,
+    resetAutoFill,
+    clearError: clearAutoFillError,
+  } = useRecipeAutoFill(recipeUrlDraft, meal.title);
 
   const ensureManualInputVisible = useCallback(() => {
     const keyboardTop = keyboardTopRef.current;
@@ -72,15 +109,23 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
   }, [onManualIngredientNeedsScroll]);
 
   useEffect(() => {
-    const showSubscription = Keyboard.addListener("keyboardDidShow", (event) => {
+    const handleKeyboardFrame = (event: {
+      endCoordinates: { screenY: number };
+    }) => {
       keyboardTopRef.current = event.endCoordinates.screenY;
       ensureManualInputVisible();
-    });
+      setTimeout(ensureManualInputVisible, 80);
+    };
+    const willShowSubscription = Keyboard.addListener("keyboardWillShow", handleKeyboardFrame);
+    const showSubscription = Keyboard.addListener("keyboardDidShow", handleKeyboardFrame);
+    const frameSubscription = Keyboard.addListener("keyboardWillChangeFrame", handleKeyboardFrame);
     const hideSubscription = Keyboard.addListener("keyboardDidHide", () => {
       keyboardTopRef.current = null;
     });
     return () => {
+      willShowSubscription.remove();
       showSubscription.remove();
+      frameSubscription.remove();
       hideSubscription.remove();
     };
   }, [ensureManualInputVisible]);
@@ -243,9 +288,9 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
     typeof meal.expense !== "number" ? "expense" : null,
     !meal.cuisine ? "cuisine" : null,
   ].filter((label): label is string => Boolean(label));
-  const missingStatus = `Missing ${missingDetailLabels.join(
-    missingDetailLabels.length === 2 ? " and " : ", "
-  )}`;
+  const missingStatus = `${missingDetailLabels.length} Missing ${
+    missingDetailLabels.length === 1 ? "Detail" : "Details"
+  }`;
   const cycleLevel = (value?: number) =>
     typeof value !== "number" ? 1 : value <= 1 ? 3 : value <= 3 ? 5 : 1;
   const difficultyLabel =
@@ -344,6 +389,11 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
     commit();
   }, [finishMeal, meal.cuisine, meal.difficulty, meal.expense, onApply, selectedIngredients]);
 
+  useEffect(() => {
+    if (!autoFillCompletionPending || isCompleting || !onCompleteAutoFill) return;
+    finishMeal(onCompleteAutoFill);
+  }, [autoFillCompletionPending, finishMeal, isCompleting, onCompleteAutoFill]);
+
   const detailsReady =
     typeof detailDifficulty === "number" &&
     typeof detailExpense === "number" &&
@@ -369,6 +419,78 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
     },
     []
   );
+
+  const openAutoFillPrompt = useCallback(() => {
+    setRecipeUrlDraft(meal.recipeUrl ?? "");
+    resetAutoFill();
+    setAutoFillPromptVisible(true);
+    setPendingDifferentRecipe(null);
+    setPendingAutoFillReview(null);
+  }, [meal.recipeUrl, resetAutoFill]);
+
+  const closeAutoFillPrompt = useCallback(() => {
+    if (isAutoFillLoading) return;
+    Keyboard.dismiss();
+    setAutoFillPromptVisible(false);
+    setRecipeUrlDraft("");
+    setPendingDifferentRecipe(null);
+    setPendingAutoFillReview(null);
+    resetAutoFill();
+  }, [isAutoFillLoading, resetAutoFill]);
+
+  const handleRecipeAutoFill = useCallback(async () => {
+    if (onLaunchAutoFill) {
+      const recipeUrl = recipeUrlDraft.trim();
+      if (!recipeUrl) return;
+      Keyboard.dismiss();
+      setAutoFillPromptVisible(false);
+      setRecipeUrlDraft("");
+      onLaunchAutoFill(recipeUrl);
+      return;
+    }
+    const outcome = await requestAutoFill();
+    if (!outcome.ok) return;
+    const ingredients = await classifyIngredients(outcome.data.ingredients ?? []);
+    const patch: AutoFillMealPatch = {
+      recipeUrl: recipeUrlDraft.trim(),
+      ...(ingredients.length ? { ingredients } : {}),
+      ...(typeof outcome.data.difficulty === "number"
+        ? { difficulty: outcome.data.difficulty }
+        : {}),
+      ...(typeof outcome.data.expense === "number"
+        ? { expense: outcome.data.expense }
+        : {}),
+      ...(outcome.data.cuisine ? { cuisine: outcome.data.cuisine } : {}),
+      ...(outcome.data.prepNotes?.trim()
+        ? { prepNotes: outcome.data.prepNotes.trim() }
+        : {}),
+      ...(outcome.data.suggestedSides?.length
+        ? { preferredSides: outcome.data.suggestedSides }
+        : {}),
+    };
+    const detectedTitle = outcome.data.title?.trim() ?? "";
+    const serverMatchConfidence = outcome.data.matchConfidence ?? 0;
+    const isConfidentMismatch =
+      Boolean(detectedTitle) &&
+      outcome.data.matchesExistingMeal === false &&
+      serverMatchConfidence >= 0.75;
+    if (__DEV__) {
+      console.log("[AutoFill Debug] Match decision", {
+        existingTitle: meal.title,
+        detectedTitle,
+        serverMatchesExistingMeal: outcome.data.matchesExistingMeal,
+        serverMatchConfidence,
+        isConfidentMismatch,
+      });
+    }
+    if (isConfidentMismatch) {
+      Keyboard.dismiss();
+      setPendingDifferentRecipe({ title: detectedTitle, patch });
+      return;
+    }
+    Keyboard.dismiss();
+    setPendingAutoFillReview({ title: detectedTitle || meal.title, patch });
+  }, [meal.title, onLaunchAutoFill, recipeUrlDraft, requestAutoFill]);
 
   return (
     <Animated.View
@@ -396,7 +518,22 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
         <View style={styles.emojiWrap}><MealEmoji value={meal.emoji} size={38} /></View>
         <View style={styles.headerText}>
           <View style={styles.titleRow}>
-            <Text style={styles.title} numberOfLines={1}>{meal.title}</Text>
+            <Text style={styles.title} numberOfLines={2}>{meal.title}</Text>
+            {!isCompleting && !meal.recipeUrl?.trim() ? (
+              <Pressable
+                onPress={openAutoFillPrompt}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`Auto fill ${meal.title} from a recipe link`}
+                style={({ pressed }) => [
+                  styles.autoFillBadge,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <MaterialCommunityIcons name="creation" size={14} color={theme.color.accent} />
+                <Text style={styles.autoFillBadgeText}>Auto Fill</Text>
+              </Pressable>
+            ) : null}
           </View>
           <View style={styles.statusRow}>
             {isCompleting ? (
@@ -463,6 +600,8 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
               onFocus={() => {
                 isManualInputFocusedRef.current = true;
                 onManualIngredientFocus?.();
+                ensureManualInputVisible();
+                setTimeout(ensureManualInputVisible, 250);
               }}
               onBlur={() => {
                 isManualInputFocusedRef.current = false;
@@ -558,7 +697,6 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
         onSelect={handleSelectCuisine}
         onClose={() => setCuisineSelectorVisible(false)}
       />
-      {/* Complete-tab recipe Auto Fill was intentionally removed.
       <Modal
         transparent
         visible={isAutoFillPromptVisible}
@@ -576,10 +714,10 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
                 <MaterialCommunityIcons name="creation" size={20} color={theme.color.accent} />
               </View>
               <View style={styles.autoFillPromptCopy}>
-                <Text style={styles.autoFillPromptTitle}>Auto Fill Meal</Text>
-                {!pendingDifferentRecipe ? (
+                <Text style={styles.autoFillPromptTitle}>Auto Fill {meal.title}</Text>
+                {!pendingDifferentRecipe && !pendingAutoFillReview ? (
                   <Text style={styles.autoFillPromptDescription}>
-                    Paste a recipe link to fill in the missing meal details.
+                    Paste a recipe link and we’ll fill in the details for this meal.
                   </Text>
                 ) : null}
               </View>
@@ -610,7 +748,8 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
                 </View>
                 <Pressable
                   onPress={() => {
-                    onReviewAutoFill("add", pendingDifferentRecipe.title, pendingDifferentRecipe.patch);
+                    onAddAutoFilledMeal(pendingDifferentRecipe.title, pendingDifferentRecipe.patch);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
                     setAutoFillPromptVisible(false);
                     setPendingDifferentRecipe(null);
                     setRecipeUrlDraft("");
@@ -633,7 +772,8 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
                 </Pressable>
                 <Pressable
                   onPress={() => {
-                    onReviewAutoFill("replace", pendingDifferentRecipe.title, pendingDifferentRecipe.patch);
+                    onReplaceWithAutoFilledMeal(pendingDifferentRecipe.title, pendingDifferentRecipe.patch);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
                     setAutoFillPromptVisible(false);
                     setPendingDifferentRecipe(null);
                     setRecipeUrlDraft("");
@@ -663,6 +803,52 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
                   <Text style={styles.mismatchCancelText}>Cancel</Text>
                 </Pressable>
               </>
+            ) : pendingAutoFillReview ? (
+              <>
+                <View style={styles.autoFillWarning}>
+                  <MaterialCommunityIcons name="check-circle-outline" size={20} color={theme.color.success} />
+                  <Text style={styles.autoFillWarningText}>Recipe Found</Text>
+                </View>
+                <View style={styles.detectedRecipeCard}>
+                  <MaterialCommunityIcons name="creation" size={22} color={theme.color.accent} />
+                  <View style={styles.detectedRecipeCopy}>
+                    <Text style={styles.detectedRecipeLabel}>Detected recipe</Text>
+                    <Text style={styles.detectedRecipeTitle}>{pendingAutoFillReview.title}</Text>
+                  </View>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    const patch = pendingAutoFillReview.patch;
+                    const fillsIngredients = hasKeyIngredients || Boolean(
+                      patch.ingredients?.some(
+                        (ingredient) => ingredient.ingredientType !== "pantryStaple",
+                      ),
+                    );
+                    const completesMeal =
+                      fillsIngredients &&
+                      typeof (patch.difficulty ?? meal.difficulty) === "number" &&
+                      typeof (patch.expense ?? meal.expense) === "number" &&
+                      Boolean(patch.cuisine ?? meal.cuisine);
+                    const apply = () => onAutoFill(patch);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+                    setAutoFillPromptVisible(false);
+                    setPendingAutoFillReview(null);
+                    setRecipeUrlDraft("");
+                    resetAutoFill();
+                    if (completesMeal) finishMeal(apply);
+                    else apply();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Apply recipe details to ${meal.title}`}
+                  style={({ pressed }) => [styles.autoFillSubmit, pressed && styles.pressed]}
+                >
+                  <MaterialCommunityIcons name="check" size={18} color={theme.color.ink} />
+                  <Text style={styles.autoFillSubmitText}>Apply Details</Text>
+                </Pressable>
+                <Pressable onPress={closeAutoFillPrompt} accessibilityRole="button" accessibilityLabel="Cancel auto fill" style={({ pressed }) => [styles.mismatchCancel, pressed && styles.pressed]}>
+                  <Text style={styles.mismatchCancelText}>Cancel</Text>
+                </Pressable>
+              </>
             ) : (
             <><View style={styles.autoFillInputRow}>
               <MaterialCommunityIcons name="link-variant" size={18} color={theme.color.subtleInk} />
@@ -675,7 +861,7 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
                 }}
                 onSubmitEditing={() => void handleRecipeAutoFill()}
                 editable={!isAutoFillLoading}
-                placeholder="Paste recipe URL…"
+                placeholder="https://www.example.com/recipe"
                 placeholderTextColor={theme.color.subtleInk}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -706,14 +892,15 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onExpand, onManual
                 <MaterialCommunityIcons name="creation" size={18} color={theme.color.ink} />
               )}
               <Text style={styles.autoFillSubmitText}>
-                {isAutoFillLoading ? "Filling Meal…" : "Auto Fill"}
+                {isAutoFillLoading ? "Finding your recipe…" : "Find Recipe"}
               </Text>
             </Pressable>
+            <Text style={styles.autoFillHelper}>Works with most recipe websites.</Text>
             </>
             )}
           </View>
         </KeyboardAvoidingView>
-      </Modal> */}
+      </Modal>
     </View>
     </Animated.View>
   );
@@ -729,6 +916,8 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   headerText: { flex: 1, gap: theme.space.sm },
   titleRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
   title: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
+  autoFillBadge: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: theme.space.sm, borderRadius: theme.radius.full, backgroundColor: "transparent", borderWidth: 1, borderColor: alpha(theme.color.accent, 0.55) },
+  autoFillBadgeText: { color: theme.color.accent, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold },
   statusRow: { flexDirection: "row", alignItems: "center", gap: theme.space.xs },
   statusDot: { width: 8, height: 8, borderRadius: theme.radius.full, backgroundColor: theme.color.warning },
   status: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
@@ -766,6 +955,37 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   detailValue: { color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
   detailValueUnset: { color: theme.color.subtleInk, fontWeight: theme.type.weight.medium },
   detailAdd: { marginLeft: "auto", color: theme.color.accent, fontSize: theme.type.size.title, fontWeight: theme.type.weight.medium },
+  autoFillModalRoot: { flex: 1, justifyContent: "flex-end" },
+  autoFillBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.58)" },
+  autoFillPrompt: { gap: theme.space.lg, paddingHorizontal: theme.space.xl, paddingTop: theme.space.xl, paddingBottom: theme.space["2xl"], borderTopLeftRadius: theme.radius.xl, borderTopRightRadius: theme.radius.xl, backgroundColor: theme.color.bg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  autoFillPromptHeader: { flexDirection: "row", alignItems: "flex-start", gap: theme.space.md },
+  autoFillPromptIcon: { width: 40, height: 40, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.focus },
+  autoFillPromptCopy: { flex: 1, gap: theme.space.xs },
+  autoFillPromptTitle: { color: theme.color.ink, fontSize: theme.type.size.h2, fontWeight: theme.type.weight.bold },
+  autoFillPromptDescription: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, lineHeight: 20 },
+  autoFillClose: { width: 40, height: 40, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.surface },
+  autoFillInputRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: theme.space.sm, paddingHorizontal: theme.space.md, borderRadius: theme.radius.md, backgroundColor: theme.color.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  autoFillInput: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base, paddingVertical: 0 },
+  autoFillError: { color: theme.color.danger, fontSize: theme.type.size.sm },
+  autoFillSubmit: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm, borderRadius: theme.radius.md, backgroundColor: theme.color.accent },
+  autoFillSubmitText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+  autoFillHelper: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, textAlign: "center" },
+  autoFillWarning: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: theme.space.sm, paddingHorizontal: theme.space.md, borderRadius: theme.radius.md, backgroundColor: alpha(theme.color.warning, 0.12) },
+  autoFillWarningText: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
+  autoFillMismatchCopy: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, lineHeight: 20 },
+  detectedRecipeCard: { flexDirection: "row", alignItems: "center", gap: theme.space.md, padding: theme.space.lg, borderRadius: theme.radius.lg, backgroundColor: theme.color.surface },
+  detectedRecipeCopy: { flex: 1, gap: 3 },
+  detectedRecipeLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.medium },
+  detectedRecipeTitle: { color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
+  mismatchAction: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: theme.space.md, padding: theme.space.md, borderRadius: theme.radius.lg, backgroundColor: theme.color.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  mismatchActionPrimary: { borderColor: theme.color.accent, backgroundColor: theme.color.focus },
+  mismatchActionIcon: { width: 42, height: 42, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.surfaceAlt },
+  mismatchActionIconPrimary: { backgroundColor: alpha(theme.color.accent, 0.18) },
+  mismatchActionCopy: { flex: 1, gap: 3 },
+  mismatchActionTitle: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+  mismatchActionDescription: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, lineHeight: 19 },
+  mismatchCancel: { minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.md, backgroundColor: theme.color.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  mismatchCancelText: { color: theme.color.subtleInk, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
 });
 
 export default MealCompletionCard;
