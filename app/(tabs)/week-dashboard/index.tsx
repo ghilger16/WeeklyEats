@@ -183,8 +183,17 @@ export default function WeekDashboardScreen() {
     useState<boolean | null>(null);
   const [isStreakModalOpen, setStreakModalOpen] = useState(false);
   const [isWeekListDragging, setWeekListDragging] = useState(false);
+  const [isWeekCompletionDeferred, setWeekCompletionDeferred] = useState(false);
   const dashboardAnim = useRef(new Animated.Value(0)).current;
   const scrollViewRef = useRef<ScrollView>(null);
+  const thisWeekSectionRef = useRef<View>(null);
+  const dashboardScrollYRef = useRef(0);
+  const weekCompletionDeferredRef = useRef(false);
+  const completionReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (completionReleaseTimerRef.current) clearTimeout(completionReleaseTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!dateControlsEnabled) {
@@ -229,6 +238,12 @@ export default function WeekDashboardScreen() {
     () => (dateControlsEnabled ? overrideDate ?? new Date() : new Date()),
     [dateControlsEnabled, overrideDate]
   );
+  const planningReferenceDate = useMemo(() => {
+    const year = effectiveDate.getFullYear();
+    const month = `${effectiveDate.getMonth() + 1}`.padStart(2, "0");
+    const day = `${effectiveDate.getDate()}`.padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }, [effectiveDate]);
 
   const {
     isLoading,
@@ -684,12 +699,62 @@ export default function WeekDashboardScreen() {
     [logServedMeal, meals, today, updateMeal]
   );
 
+  const focusThisWeekList = useCallback(() => {
+    requestAnimationFrame(() => {
+      const scrollView = scrollViewRef.current;
+      const section = thisWeekSectionRef.current;
+      if (!scrollView || !section) return;
+      section.measureInWindow((_sectionX, sectionY) => {
+        scrollView.scrollTo({
+          y: Math.max(0, dashboardScrollYRef.current + sectionY - 120),
+          animated: true,
+        });
+      });
+    });
+  }, []);
+
   const handleMarkServed = useCallback(
     async (message: string) => {
-      await logTodayOutcome("served", message);
+      const willCompleteWeek = Boolean(
+        today?.meal &&
+        days.filter((day) => Boolean(day.meal)).every((day) => {
+          if (day.plannedDateISO === today.plannedDateISO && day.key === today.key) return true;
+          if (day.status === "past" && day.mealId === EAT_OUT_MEAL_ID) return true;
+          const plannedTime = startOfDay(day.plannedDate).getTime();
+          return servedEntries.some(
+            (entry) =>
+              entry.dayKey === day.key &&
+              startOfDay(new Date(entry.servedAtISO)).getTime() === plannedTime,
+          );
+        }),
+      );
+      if (willCompleteWeek) {
+        weekCompletionDeferredRef.current = true;
+        setWeekCompletionDeferred(true);
+      }
+      try {
+        await logTodayOutcome("served", message);
+      } catch (error) {
+        if (willCompleteWeek) {
+          weekCompletionDeferredRef.current = false;
+          setWeekCompletionDeferred(false);
+        }
+        throw error;
+      }
     },
-    [logTodayOutcome]
+    [days, logTodayOutcome, servedEntries, today]
   );
+
+  const handleTodayServedAnimationComplete = useCallback(() => {
+    if (!weekCompletionDeferredRef.current) return;
+    focusThisWeekList();
+    if (completionReleaseTimerRef.current) clearTimeout(completionReleaseTimerRef.current);
+    completionReleaseTimerRef.current = setTimeout(() => {
+      completionReleaseTimerRef.current = null;
+      weekCompletionDeferredRef.current = false;
+      setWeekCompletionDeferred(false);
+    }, 450);
+  }, [focusThisWeekList]);
 
   const handleTodayFamilyRatingChange = useCallback(
     (memberId: string, rating: FamilyRatingValue) => {
@@ -1585,20 +1650,20 @@ export default function WeekDashboardScreen() {
   }, [router]);
 
   const handlePlanRemainingWeek = useCallback(() => {
-    router.push("/modals/plan-week?mode=remaining");
-  }, [router]);
+    router.push(`/modals/plan-week?mode=remaining&referenceDate=${planningReferenceDate}`);
+  }, [planningReferenceDate, router]);
 
   const handlePlanNextWeek = useCallback(() => {
-    requestFullWeekPlanning("/modals/plan-week");
-  }, [requestFullWeekPlanning]);
+    requestFullWeekPlanning(`/modals/plan-week?referenceDate=${planningReferenceDate}`);
+  }, [planningReferenceDate, requestFullWeekPlanning]);
 
   const handleStartFirstWeekPlanning = useCallback(() => {
-    router.push("/modals/plan-week?mode=first-intro");
-  }, [router]);
+    router.push(`/modals/plan-week?mode=first-intro&referenceDate=${planningReferenceDate}`);
+  }, [planningReferenceDate, router]);
 
   const handlePlanFirstFullWeek = useCallback(() => {
-    router.push("/modals/plan-week?mode=first-full");
-  }, [router]);
+    void requestFullWeekPlanning(`/modals/plan-week?mode=first-full&referenceDate=${planningReferenceDate}`);
+  }, [planningReferenceDate, requestFullWeekPlanning]);
 
   const handlePrevDay = useCallback(() => {
     if (!dateControlsEnabled) {
@@ -1658,10 +1723,10 @@ export default function WeekDashboardScreen() {
   const handleResumePlanning = useCallback(() => {
     router.push(
       shouldUseRemainingResumeProgress
-        ? "/modals/plan-week?mode=remaining"
-        : "/modals/plan-week?mode=current"
+        ? `/modals/plan-week?mode=remaining&referenceDate=${planningReferenceDate}`
+        : `/modals/plan-week?mode=current&referenceDate=${planningReferenceDate}`
     );
-  }, [router, shouldUseRemainingResumeProgress]);
+  }, [planningReferenceDate, router, shouldUseRemainingResumeProgress]);
 
   const renderPlanningCTA = useCallback(
     (mode: "start" | "resume", onPrimary: () => void, onSkip?: () => void) => {
@@ -1995,6 +2060,7 @@ export default function WeekDashboardScreen() {
           servedEntry={todayServedEntry}
           sides={today.sides}
           onMarkServed={handleMarkServed}
+          onServedAnimationComplete={handleTodayServedAnimationComplete}
           onChangeFamilyRating={handleTodayFamilyRatingChange}
           isGalaxyMeal={ratingDisplayMode === "family" && todayIsGalaxyMeal}
           ratingMode={ratingDisplayMode}
@@ -2019,6 +2085,7 @@ export default function WeekDashboardScreen() {
   }, [
     formattedDate,
     handleMarkServed,
+    handleTodayServedAnimationComplete,
     handleTodayFamilyRatingChange,
     handleTodayMealRatingChange,
     handleTodayRemoveFreezer,
@@ -2079,6 +2146,10 @@ export default function WeekDashboardScreen() {
           <ScrollView
             ref={scrollViewRef}
             scrollEnabled={!isWeekListDragging}
+            onScroll={(event) => {
+              dashboardScrollYRef.current = event.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={16}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
@@ -2146,15 +2217,20 @@ export default function WeekDashboardScreen() {
                   ) : null}
                   {todayCard}
                   <TomorrowPreview day={tomorrow} />
-                  <ThisWeekList
-                    days={days}
-                    servedEntries={servedEntries}
-                    onReorder={handleThisWeekReorder}
-                    onDragStateChange={setWeekListDragging}
-                    onDayPress={(day) => {
-                      setSelectedDashboardDay(day);
-                    }}
-                  />
+                  <View ref={thisWeekSectionRef} collapsable={false}>
+                    <ThisWeekList
+                      days={days}
+                      servedEntries={servedEntries}
+                      collapsible
+                      completionEnabled={!showFirstWeekExperience && !isWeekCompletionDeferred}
+                      completionReady={!areServedMealsLoading}
+                      onReorder={handleThisWeekReorder}
+                      onDragStateChange={setWeekListDragging}
+                      onDayPress={(day) => {
+                        setSelectedDashboardDay(day);
+                      }}
+                    />
+                  </View>
                   {nextWeekPlannedDayCount > 0 ? (
                     <ThisWeekList
                       title="Next Week"

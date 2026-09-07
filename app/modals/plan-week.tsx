@@ -123,6 +123,7 @@ import {
 } from "../../types/dayPins";
 import { buildWeekPlanCelebration } from "../../utils/weekPlanCelebration";
 import { rankMealsByIngredientOverlap } from "../../utils/ingredientOverlap";
+import { requiresFullWeekSubscription } from "../../hooks/usePlanningGate";
 import {
   PlanningCalendarEvent,
   formatEventTime,
@@ -209,16 +210,22 @@ type AutoPlanAnimationPhase =
 export default function PlanWeekModal() {
   const safeAreaInsets = useSafeAreaInsets();
   const router = useRouter();
-  const params = useLocalSearchParams<{ mode?: string; editDay?: string }>();
+  const params = useLocalSearchParams<{ mode?: string; editDay?: string; referenceDate?: string }>();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals, addMeal, updateMeal } = useMeals();
   const subscription = useSubscription();
   const { mode: ratingDisplayMode } = useRatingDisplayMode();
   const { orderedDays, startDay } = useWeekStartController();
+  const planningReferenceDate = useMemo(() => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(params.referenceDate ?? "");
+    if (!match) return new Date();
+    const parsed = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return formatDateKey(parsed) === params.referenceDate ? parsed : new Date();
+  }, [params.referenceDate]);
   const firstExperienceRemainingDays = useMemo(
-    () => getRemainingPlanningDays(startDay),
-    [startDay],
+    () => getRemainingPlanningDays(startDay, planningReferenceDate),
+    [planningReferenceDate, startDay],
   );
   const shouldOfferFirstRemainingDays =
     firstExperienceRemainingDays.length >= 1 &&
@@ -233,26 +240,32 @@ export default function PlanWeekModal() {
     params.mode === "first-full" ||
     (isFirstIntroMode && !shouldOfferFirstRemainingDays);
   const isCurrentWeekMode = params.mode === "current";
+  const planningIntent = useMemo(() => {
+    const query = [
+      params.mode ? `mode=${encodeURIComponent(params.mode)}` : null,
+      params.editDay ? `editDay=${encodeURIComponent(params.editDay)}` : null,
+      params.referenceDate
+        ? `referenceDate=${encodeURIComponent(params.referenceDate)}`
+        : null,
+    ].filter((value): value is string => Boolean(value));
+    return `/modals/plan-week${query.length ? `?${query.join("&")}` : ""}`;
+  }, [params.editDay, params.mode, params.referenceDate]);
   useEffect(() => {
-    const isFreeOrExistingPlanFlow =
-      isFirstIntroMode ||
-      isFirstRemainingMode ||
-      isFirstFullWeekMode ||
-      isRemainingMode ||
-      isCurrentWeekMode;
+    const isPartialOrExistingPlanFlow = isRemainingMode || isCurrentWeekMode;
     if (
       !subscription.isLoading &&
-      subscription.status === "subscriptionRequired" &&
-      !isFreeOrExistingPlanFlow
+      requiresFullWeekSubscription(subscription.status) &&
+      !isPartialOrExistingPlanFlow
     ) {
-      router.replace("/modals/subscription-required");
+      router.replace({
+        pathname: "/modals/subscription-required",
+        params: { planningIntent },
+      });
     }
   }, [
     isCurrentWeekMode,
-    isFirstFullWeekMode,
-    isFirstIntroMode,
-    isFirstRemainingMode,
     isRemainingMode,
+    planningIntent,
     router,
     subscription.isLoading,
     subscription.status,
@@ -264,21 +277,22 @@ export default function PlanWeekModal() {
     if (!isRemainingMode) {
       return orderedDays;
     }
-    const remainingDays = getRemainingPlanningDays(startDay);
+    const remainingDays = getRemainingPlanningDays(startDay, planningReferenceDate);
     return remainingDays.length ? remainingDays : orderedDays;
-  }, [isRemainingMode, orderedDays, startDay]);
+  }, [isRemainingMode, orderedDays, planningReferenceDate, startDay]);
   const planningWeekStart = useMemo(
     () =>
       isRemainingMode ||
       isCurrentWeekMode ||
       (isFirstFullWeekMode && firstExperienceRemainingDays.length === 7)
-        ? getWeekStartForDate(startDay)
-        : getNextWeekStartForDate(startDay),
+        ? getWeekStartForDate(startDay, planningReferenceDate)
+        : getNextWeekStartForDate(startDay, planningReferenceDate),
     [
       firstExperienceRemainingDays.length,
       isCurrentWeekMode,
       isFirstFullWeekMode,
       isRemainingMode,
+      planningReferenceDate,
       startDay,
     ],
   );
@@ -2660,7 +2674,7 @@ export default function PlanWeekModal() {
             accessibilityLabel="Plan my first full week"
             onPress={() => {
               setFirstRemainingComplete(false);
-              router.replace("/modals/plan-week?mode=first-full");
+              router.replace(`/modals/plan-week?mode=first-full&referenceDate=${formatDateKey(planningReferenceDate)}`);
             }}
             style={({ pressed }) => [
               styles.firstWeekChoiceCard,
@@ -2866,7 +2880,7 @@ export default function PlanWeekModal() {
             accessibilityLabel="Plan my first full week"
             onPress={() => {
               setFirstRemainingComplete(false);
-              router.replace("/modals/plan-week?mode=first-full");
+              router.replace(`/modals/plan-week?mode=first-full&referenceDate=${formatDateKey(planningReferenceDate)}`);
             }}
             style={styles.firstWeekPrimaryButton}
           >

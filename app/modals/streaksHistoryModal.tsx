@@ -270,7 +270,7 @@ export default function StreaksHistoryModal() {
                 );
               }) : (
                 <View style={styles.historyEmptyWrapper}>
-                  <Text style={styles.historyEmpty}>No planned weeks saved yet.</Text>
+                  <Text style={styles.historyEmpty}>No completed weeks yet.</Text>
                 </View>
               )}
             </ScrollView>

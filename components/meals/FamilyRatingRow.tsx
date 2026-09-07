@@ -25,22 +25,22 @@ const ratingMeta: Record<
   3: { label: "Loved It", icon: "heart", color: "#FF4D8D" },
 };
 
-export default function FamilyRatingRow({ ratings, onChange, compact = false }: Props) {
+export default function FamilyRatingRow({
+  ratings,
+  onChange,
+  compact = false,
+}: Props) {
   const { members } = useFamilyMembers();
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const initials = useMemo(() => deriveFamilyInitials(members), [members]);
-  const fittedMemberWidth: `${number}%` | undefined =
-    members.length > 0 && members.length <= 5
-      ? `${100 / members.length}%`
-      : undefined;
   if (!members.length) return null;
   return (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
       style={[styles.scroll, compact && styles.compactScroll]}
-      contentContainerStyle={styles.row}
+      contentContainerStyle={[styles.row, compact && styles.compactRow]}
     >
       {members.map((member, index) => {
         const value = ratings?.[member.id] ?? 0;
@@ -51,11 +51,7 @@ export default function FamilyRatingRow({ ratings, onChange, compact = false }: 
             onPress={() => onChange(member.id, getNextFamilyRating(value))}
             accessibilityRole="button"
             accessibilityLabel={`${member.name}, ${meta.label}`}
-            style={({ pressed }) => [
-              styles.member,
-              fittedMemberWidth ? { width: fittedMemberWidth } : null,
-              pressed && styles.pressed,
-            ]}
+            style={({ pressed }) => [styles.member, pressed && styles.pressed]}
           >
             <View
               style={[
@@ -101,8 +97,15 @@ const createStyles = (theme: WeeklyTheme) =>
   StyleSheet.create({
     scroll: { width: "100%" },
     compactScroll: { flexGrow: 0, minHeight: 110 },
-    row: { flexGrow: 1, minWidth: "100%", justifyContent: "center" },
-    member: { width: 68, alignItems: "center", gap: theme.space.xs },
+    row: {
+      flexGrow: 1,
+      minWidth: "100%",
+      justifyContent: "center",
+      gap: theme.space.md,
+      paddingHorizontal: theme.space.md,
+    },
+    compactRow: { gap: theme.space.md },
+    member: { width: 65, alignItems: "center", gap: theme.space.xs },
     avatar: {
       width: 48,
       height: 48,

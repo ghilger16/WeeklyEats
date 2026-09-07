@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, AppState } from "react-native";
 import { getFirstFullWeekPlanned } from "../stores/onboardingStorage";
 import {
   SubscriptionDebugStatus,
@@ -23,8 +23,8 @@ export const resolveSubscriptionStatus = (
 
 const showUnavailableMessage = () => {
   Alert.alert(
-    "Subscriptions coming soon",
-    "Purchase management will be available when subscriptions are enabled.",
+    "Subscriptions are not configured",
+    "Add the RevenueCat public SDK key for this platform and create a new native build.",
   );
 };
 
@@ -40,22 +40,41 @@ export const useSubscription = () => {
       subscriptionService.getSnapshot(),
       subscriptionService.getDebugStatus(),
     ]);
-    setStatus(debugStatus ?? resolveSubscriptionStatus(
+    const nextStatus = debugStatus ?? resolveSubscriptionStatus(
         hasPlannedFirstFullWeek,
         snapshot.isActive,
-      ));
+      );
+    setStatus(nextStatus);
     setRenewalDateISO(snapshot.renewalDateISO);
     setLoading(false);
+    return nextStatus;
   }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") void refresh();
+    });
+    return () => subscription.remove();
+  }, [refresh]);
+
   const runAction = useCallback(
-    async (action: () => Promise<{ available: boolean; succeeded: boolean }>) => {
+    async (
+      action: () => Promise<{
+        available: boolean;
+        succeeded: boolean;
+        cancelled?: boolean;
+        message?: string;
+      }>,
+    ) => {
       const result = await action();
       if (!result.available) showUnavailableMessage();
+      else if (!result.succeeded && !result.cancelled && result.message) {
+        Alert.alert("Weekly Eats Pro", result.message);
+      }
       await refresh();
       return result;
     },

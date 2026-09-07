@@ -8,7 +8,10 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_RyxuCHyEDvogmJLlXKKSxqahGIb",
+        "EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID": "weekly_eats_pro",
+        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default"
       },
       "ios": {
         "image": "sdk-54"
@@ -17,7 +20,10 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_RyxuCHyEDvogmJLlXKKSxqahGIb",
+        "EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID": "weekly_eats_pro",
+        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default"
       },
       "ios": {
         "image": "sdk-54"
@@ -26,7 +32,10 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_RyxuCHyEDvogmJLlXKKSxqahGIb",
+        "EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID": "weekly_eats_pro",
+        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default"
       },
       "ios": {
         "image": "sdk-54"

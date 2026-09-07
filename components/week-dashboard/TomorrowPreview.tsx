@@ -4,21 +4,35 @@ import { StyleSheet, Text, View } from "react-native";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../styles/theme";
 import { WeekPlanDay } from "../../hooks/useCurrentWeekPlan";
+import { EAT_OUT_MEAL, EAT_OUT_MEAL_ID } from "../../types/specialMeals";
 import MealEmoji from "../emoji/MealEmoji";
 
 export default function TomorrowPreview({ day }: { day?: WeekPlanDay }) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  if (!day) return null;
+  if (!day?.meal) return null;
+  const isEatOut = day.mealId === EAT_OUT_MEAL_ID;
+  const eatOutNote =
+    isEatOut && day.meal.title !== EAT_OUT_MEAL.title
+      ? day.meal.title.trim()
+      : "";
   return (
     <View style={styles.section}>
       <Text style={styles.label}>TOMORROW</Text>
       <View style={styles.row}>
-        <MealEmoji value={day.meal?.emoji} size={26} />
+        {isEatOut ? (
+          <MaterialCommunityIcons
+            name="silverware-fork-knife"
+            size={26}
+            color={theme.color.accent}
+          />
+        ) : (
+          <MealEmoji value={day.meal.emoji} size={26} />
+        )}
         <View style={styles.copy}>
-          <Text style={styles.title}>{day.meal?.title ?? "Unplanned"}</Text>
-          {day.sides.length ? (
-            <Text style={styles.meta}>{day.sides.join(" · ")}</Text>
+          <Text style={styles.title}>{isEatOut ? "Eat Out" : day.meal.title}</Text>
+          {eatOutNote || day.sides.length ? (
+            <Text style={styles.meta}>{eatOutNote || day.sides.join(" · ")}</Text>
           ) : null}
         </View>
         {day.meal?.isFavorite ? (

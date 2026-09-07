@@ -180,4 +180,30 @@ describe("week planning streak", () => {
     ).resolves.toMatchObject({ count: 0 });
     await expect(getWeekPlanStreak()).resolves.toMatchObject({ count: 0 });
   });
+
+  it("adds only prior weeks to completed history as the streak advances", async () => {
+    const firstWeek = createEmptyCurrentPlannedWeek({
+      weekStartISO: "2026-08-16",
+      weekedPlanned: true,
+    });
+    firstWeek.sun = "tacos";
+    await addWeekPlanHistory(firstWeek);
+    await updateWeekPlanStreak(new Date("2026-08-16T12:00:00.000Z"));
+
+    await expect(getWeekPlanHistory()).resolves.toEqual([]);
+
+    const secondWeek = createEmptyCurrentPlannedWeek({
+      weekStartISO: "2026-08-23",
+      weekedPlanned: true,
+    });
+    secondWeek.sun = "pasta";
+    await addWeekPlanHistory(secondWeek);
+    await expect(
+      updateWeekPlanStreak(new Date("2026-08-23T12:00:00.000Z")),
+    ).resolves.toMatchObject({ count: 1 });
+
+    await expect(getWeekPlanHistory()).resolves.toEqual([
+      expect.objectContaining({ weekStartISO: "2026-08-16" }),
+    ]);
+  });
 });

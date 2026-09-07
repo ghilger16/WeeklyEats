@@ -795,7 +795,17 @@ export const addWeekPlanHistory = async (
 };
 
 export const getWeekPlanHistory = async (): Promise<WeekPlanHistoryEntry[]> => {
-  return getWeekPlanHistoryInternal();
+  const [history, streak] = await Promise.all([
+    getWeekPlanHistoryInternal(),
+    getWeekPlanStreak(),
+  ]);
+  if (!streak.lastCompletedWeekStartIso) return history;
+
+  // The latest planned week is still the active streak baseline. It becomes a
+  // completed history entry only after the following week has been planned.
+  return history.filter(
+    (entry) => entry.weekStartISO !== streak.lastCompletedWeekStartIso,
+  );
 };
 
 export const snapshotMealTitleInWeekPlanHistory = async (

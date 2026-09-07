@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Animated,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -108,7 +109,9 @@ export default function OnboardingScreen() {
     useState<QuickMealTransitionPhase>("idle");
   const [savedQuickMealCount, setSavedQuickMealCount] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [familyKeyboardInset, setFamilyKeyboardInset] = useState(0);
   const familyMemberInputRef = useRef<TextInput | null>(null);
+  const familyListScrollRef = useRef<ScrollView | null>(null);
   const quickMealButtonScale = useRef(new Animated.Value(1)).current;
   const quickMealUnselectedOpacity = useRef(new Animated.Value(1)).current;
   const quickMealSelectedOpacity = useRef(new Animated.Value(1)).current;
@@ -207,6 +210,47 @@ export default function OnboardingScreen() {
     setFamilyMembers((prev) => prev.filter((member) => member.id !== id));
   }, []);
 
+  const scrollFamilyInputIntoView = useCallback(() => {
+    requestAnimationFrame(() => {
+      familyListScrollRef.current?.scrollToEnd({ animated: true });
+    });
+    setTimeout(() => {
+      familyListScrollRef.current?.scrollToEnd({ animated: true });
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    if (step !== "family") {
+      setFamilyKeyboardInset(0);
+      return;
+    }
+
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      familyListScrollRef.current?.getNativeScrollRef()?.measureInWindow((_x, y, _width, height) => {
+        const coveredHeight = Math.max(
+          0,
+          y + height - event.endCoordinates.screenY,
+        );
+        setFamilyKeyboardInset(coveredHeight);
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            familyListScrollRef.current?.scrollToEnd({ animated: true });
+          }, 50);
+        });
+      });
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setFamilyKeyboardInset(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [step]);
+
   const availableQuickMeals = QUICK_MEALS;
 
   const toggleQuickMeal = useCallback((title: string) => {
@@ -248,16 +292,6 @@ export default function OnboardingScreen() {
     });
     setSavedQuickMealCount(selectedMealTitles.size);
 
-    const finishSaving = () => {
-      setQuickMealTransitionPhase("confirmed");
-      quickMealConfirmationOpacity.setValue(0);
-      Animated.timing(quickMealConfirmationOpacity, {
-        toValue: 1,
-        duration: reduceMotion ? 140 : 220,
-        useNativeDriver: true,
-      }).start(() => setSavingQuickMeals(false));
-    };
-
     Animated.sequence([
       Animated.timing(quickMealButtonScale, {
         toValue: 0.94,
@@ -271,41 +305,6 @@ export default function OnboardingScreen() {
       }),
     ]).start(() => {
       setQuickMealTransitionPhase("grouping");
-      if (reduceMotion) {
-        Animated.parallel([
-          Animated.timing(quickMealUnselectedOpacity, {
-            toValue: 0.12,
-            duration: 180,
-            useNativeDriver: true,
-          }),
-          Animated.timing(quickMealSelectedOpacity, {
-            toValue: 0,
-            duration: 180,
-            useNativeDriver: true,
-          }),
-        ]).start(finishSaving);
-        return;
-      }
-      Animated.parallel([
-        Animated.timing(quickMealUnselectedOpacity, {
-          toValue: 0.08,
-          duration: 260,
-          useNativeDriver: true,
-        }),
-        Animated.timing(quickMealGroupProgress, {
-          toValue: 1,
-          duration: 650,
-          useNativeDriver: true,
-        }),
-        Animated.sequence([
-          Animated.delay(390),
-          Animated.timing(quickMealSelectedOpacity, {
-            toValue: 0,
-            duration: 260,
-            useNativeDriver: true,
-          }),
-        ]),
-      ]).start(finishSaving);
     });
   }, [
     addMeal,
@@ -322,6 +321,72 @@ export default function OnboardingScreen() {
     reduceMotion,
     selectedMealTitles,
   ]);
+
+  useEffect(() => {
+    if (quickMealTransitionPhase !== "grouping") return;
+
+    const animation = reduceMotion
+      ? Animated.parallel([
+          Animated.timing(quickMealUnselectedOpacity, {
+            toValue: 0.12,
+            duration: 180,
+            useNativeDriver: true,
+          }),
+          Animated.timing(quickMealSelectedOpacity, {
+            toValue: 0,
+            duration: 180,
+            useNativeDriver: true,
+          }),
+        ])
+      : Animated.parallel([
+          Animated.timing(quickMealUnselectedOpacity, {
+            toValue: 0.08,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+          Animated.timing(quickMealGroupProgress, {
+            toValue: 1,
+            duration: 650,
+            useNativeDriver: true,
+          }),
+          Animated.sequence([
+            Animated.delay(390),
+            Animated.timing(quickMealSelectedOpacity, {
+              toValue: 0,
+              duration: 260,
+              useNativeDriver: true,
+            }),
+          ]),
+        ]);
+
+    animation.start(({ finished }) => {
+      if (!finished) return;
+      quickMealConfirmationOpacity.setValue(0);
+      setQuickMealTransitionPhase("confirmed");
+    });
+    return () => animation.stop();
+  }, [
+    quickMealConfirmationOpacity,
+    quickMealGroupProgress,
+    quickMealSelectedOpacity,
+    quickMealTransitionPhase,
+    quickMealUnselectedOpacity,
+    reduceMotion,
+  ]);
+
+  useEffect(() => {
+    if (quickMealTransitionPhase !== "confirmed") return;
+
+    const animation = Animated.timing(quickMealConfirmationOpacity, {
+      toValue: 1,
+      duration: reduceMotion ? 140 : 220,
+      useNativeDriver: true,
+    });
+    animation.start(({ finished }) => {
+      if (finished) setSavingQuickMeals(false);
+    });
+    return () => animation.stop();
+  }, [quickMealConfirmationOpacity, quickMealTransitionPhase, reduceMotion]);
 
   const renderStep = () => {
     switch (step) {
@@ -484,82 +549,98 @@ export default function OnboardingScreen() {
             </View>
             <View style={styles.familyManagement}>
               <Text style={styles.familySectionLabel}>Your family</Text>
-              {familyMembers.length > 0 ? (
-                <View style={styles.familyList}>
-                  {familyMembers.map((member, index) => (
+              <ScrollView
+                ref={familyListScrollRef}
+                style={styles.familyListScroll}
+                contentContainerStyle={[
+                  styles.familyListContent,
+                  familyKeyboardInset > 0 && {
+                    paddingBottom: familyKeyboardInset + theme.space.xs,
+                  },
+                ]}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={false}
+                onContentSizeChange={() => {
+                  if (familyMemberInputRef.current?.isFocused()) {
+                    scrollFamilyInputIntoView();
+                  }
+                }}
+              >
+                {familyMembers.map((member, index) => (
+                  <View
+                    key={member.id}
+                    style={styles.familyRow}
+                  >
                     <View
-                      key={member.id}
-                      style={styles.familyRow}
+                      style={[
+                        styles.familyAvatar,
+                        {
+                          backgroundColor:
+                            memberColorPalette[
+                              index % memberColorPalette.length
+                            ],
+                        },
+                      ]}
                     >
-                      <View
-                        style={[
-                          styles.familyAvatar,
-                          {
-                            backgroundColor:
-                              memberColorPalette[
-                                index % memberColorPalette.length
-                              ],
-                          },
-                        ]}
-                      >
-                        <Text style={styles.familyAvatarText}>
-                          {familyInitialsMap[member.id] ?? "?"}
-                        </Text>
-                      </View>
-                      <Text style={styles.familyMemberName} numberOfLines={1}>
-                        {member.name}
+                      <Text style={styles.familyAvatarText}>
+                        {familyInitialsMap[member.id] ?? "?"}
                       </Text>
-                      {index === 0 ? (
-                        <Text style={styles.familyYouLabel}>you</Text>
-                      ) : null}
-                      <Pressable
-                        onPress={() => handleRemoveFamilyMember(member.id)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove ${member.name}`}
-                        hitSlop={10}
-                        style={({ pressed }) => [
-                          styles.familyRemoveButton,
-                          pressed && styles.familyControlPressed,
-                        ]}
-                      >
-                        <MaterialCommunityIcons
-                          name="close"
-                          size={19}
-                          color={theme.color.subtleInk}
-                        />
-                      </Pressable>
                     </View>
-                  ))}
-                </View>
-              ) : null}
-              <View style={styles.familyInputRow}>
-                <TextInput
-                  ref={familyMemberInputRef}
-                  value={familyMemberInput}
-                  onChangeText={setFamilyMemberInput}
-                  placeholder="Add a family member"
-                  placeholderTextColor={theme.color.subtleInk}
-                  style={styles.familyTextInput}
-                  autoCapitalize="words"
-                  returnKeyType="done"
-                  onSubmitEditing={handleAddFamilyMember}
-                />
-                <Pressable
-                  onPress={handleAddFamilyMember}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add family member"
-                  style={({ pressed }) => [
-                    styles.familyAddButton,
-                    pressed && styles.familyControlPressed,
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="plus"
-                    size={22}
-                    color={theme.color.accent}
+                    <Text style={styles.familyMemberName} numberOfLines={1}>
+                      {member.name}
+                    </Text>
+                    {index === 0 ? (
+                      <Text style={styles.familyYouLabel}>you</Text>
+                    ) : null}
+                    <Pressable
+                      onPress={() => handleRemoveFamilyMember(member.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${member.name}`}
+                      hitSlop={10}
+                      style={({ pressed }) => [
+                        styles.familyRemoveButton,
+                        pressed && styles.familyControlPressed,
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name="close"
+                        size={19}
+                        color={theme.color.subtleInk}
+                      />
+                    </Pressable>
+                  </View>
+                ))}
+                <View style={styles.familyInputRow}>
+                  <TextInput
+                    ref={familyMemberInputRef}
+                    value={familyMemberInput}
+                    onChangeText={setFamilyMemberInput}
+                    onFocus={scrollFamilyInputIntoView}
+                    placeholder="Add a family member"
+                    placeholderTextColor={theme.color.subtleInk}
+                    style={styles.familyTextInput}
+                    autoCapitalize="words"
+                    returnKeyType="done"
+                    onSubmitEditing={handleAddFamilyMember}
                   />
-                </Pressable>
-              </View>
+                  <Pressable
+                    onPress={handleAddFamilyMember}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add family member"
+                    style={({ pressed }) => [
+                      styles.familyAddButton,
+                      pressed && styles.familyControlPressed,
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name="plus"
+                      size={22}
+                      color={theme.color.accent}
+                    />
+                  </Pressable>
+                </View>
+              </ScrollView>
             </View>
             <Pressable
               style={[
@@ -922,13 +1003,17 @@ export default function OnboardingScreen() {
           )}
           <Text style={styles.progressText}>{progress}</Text>
         </View>
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {renderStep()}
-        </ScrollView>
+        {step === "family" ? (
+          <View style={styles.familyPageContent}>{renderStep()}</View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {renderStep()}
+          </ScrollView>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -997,6 +1082,11 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     scrollContent: {
       flexGrow: 1,
+      paddingHorizontal: theme.space.xl,
+      paddingVertical: theme.space["2xl"],
+    },
+    familyPageContent: {
+      flex: 1,
       paddingHorizontal: theme.space.xl,
       paddingVertical: theme.space["2xl"],
     },
@@ -1219,6 +1309,8 @@ const createStyles = (theme: WeeklyTheme) =>
       textAlign: "center",
     },
     familyManagement: {
+      flex: 1,
+      minHeight: 160,
       gap: theme.space.sm,
     },
     familySectionLabel: {
@@ -1229,8 +1321,12 @@ const createStyles = (theme: WeeklyTheme) =>
       textTransform: "uppercase",
       letterSpacing: 1,
     },
-    familyList: {
+    familyListScroll: {
+      flex: 1,
+    },
+    familyListContent: {
       gap: theme.space.xs,
+      paddingBottom: theme.space.xs,
     },
     familyRow: {
       minHeight: 48,

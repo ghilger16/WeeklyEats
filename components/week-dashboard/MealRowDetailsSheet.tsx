@@ -281,6 +281,10 @@ export default function MealRowDetailsSheet({
     day.status === "past" &&
     !servedEntry &&
     day.mealId !== EAT_OUT_MEAL_ID;
+  const isTonight =
+    day.status === "today" &&
+    !servedEntry &&
+    day.mealId !== EAT_OUT_MEAL_ID;
   const date = day.plannedDate.toLocaleDateString(undefined, {
     weekday: "long",
     month: "short",
@@ -320,7 +324,6 @@ export default function MealRowDetailsSheet({
     }
     setIngredientsExpanded(true);
     setIngredientEditing(true);
-    requestAnimationFrame(() => ingredientInputRef.current?.focus());
   };
   const persistIngredients = (nextIngredients: Ingredient[]) => {
     updateMeal({
@@ -413,9 +416,6 @@ export default function MealRowDetailsSheet({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.sheetContent}
-            onTouchStart={() => {
-              if (isIngredientEditing) endIngredientEditing();
-            }}
           >
           <View style={styles.dateRow}>
             <Text style={styles.date}>{date.toUpperCase()}</Text>
@@ -423,7 +423,7 @@ export default function MealRowDetailsSheet({
               <MaterialCommunityIcons name="close" size={25} color={theme.color.ink} />
             </Pressable>
           </View>
-          {hasIngredients && !isEatOut ? (
+          {!isEatOut ? (
             <Pressable
               onPress={toggleIngredients}
               accessibilityRole="button"
@@ -455,11 +455,23 @@ export default function MealRowDetailsSheet({
               </View>
             </View>
           )}
-          {!isEatOut &&
-          (ingredientsExpanded || isIngredientEditing || !hasIngredients) ? (
+          {!isEatOut && (ingredientsExpanded || isIngredientEditing) ? (
             <View style={styles.ingredientSection}>
               <View style={styles.ingredientGroup}>
-                <Text style={styles.ingredientGroupLabel}>KEY INGREDIENTS</Text>
+                <View style={styles.ingredientGroupHeader}>
+                  <Text style={styles.ingredientGroupLabel}>KEY INGREDIENTS</Text>
+                  <Pressable
+                    onPress={toggleIngredientEditing}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${isIngredientEditing ? "Done editing" : "Edit"} key ingredients`}
+                    hitSlop={8}
+                    style={({ pressed }) => pressed && styles.headerPressed}
+                  >
+                    <Text style={styles.ingredientEditAction}>
+                      {isIngredientEditing ? "Done" : "Edit"}
+                    </Text>
+                  </Pressable>
+                </View>
                 <View style={styles.ingredientRows}>
                   {keyIngredients.map((ingredient) => (
                     <View
@@ -481,15 +493,11 @@ export default function MealRowDetailsSheet({
                           color={theme.color.accent}
                         />
                       </Pressable>
-                      <Pressable
-                        onTouchStart={(event) => event.stopPropagation()}
-                        onPress={toggleIngredientEditing}
-                        style={styles.ingredientTextTarget}
-                      >
+                      <View style={styles.ingredientTextTarget}>
                         <Text style={styles.ingredientText} numberOfLines={1}>
                           {formatIngredientName(ingredient.name)}
                         </Text>
-                      </Pressable>
+                      </View>
                       {isIngredientEditing && pantryStaples.length > 0 ? (
                         <Pressable
                           onTouchStart={(event) => event.stopPropagation()}
@@ -520,13 +528,6 @@ export default function MealRowDetailsSheet({
                         onFocus={() => {
                           setIngredientsExpanded(true);
                           setIngredientEditing(true);
-                        }}
-                        onBlur={() => {
-                          setTimeout(() => {
-                            if (!ingredientInputRef.current?.isFocused()) {
-                              endIngredientEditing();
-                            }
-                          }, 100);
                         }}
                         placeholder="Add Ingredient"
                         placeholderTextColor={theme.color.subtleInk}
@@ -574,15 +575,11 @@ export default function MealRowDetailsSheet({
                             color={theme.color.accent}
                           />
                         </Pressable>
-                        <Pressable
-                          onTouchStart={(event) => event.stopPropagation()}
-                          onPress={toggleIngredientEditing}
-                          style={styles.ingredientTextTarget}
-                        >
+                        <View style={styles.ingredientTextTarget}>
                           <Text style={styles.ingredientText} numberOfLines={1}>
                             {formatIngredientName(ingredient.name)}
                           </Text>
-                        </Pressable>
+                        </View>
                         {isIngredientEditing ? (
                           <Pressable
                             onTouchStart={(event) => event.stopPropagation()}
@@ -669,7 +666,7 @@ export default function MealRowDetailsSheet({
                   {action("Add to Freezer", "snowflake", () => setFreezerVisible(true))}
                   {action("Add Prep Note", "note-edit-outline", beginPrepNoteEditing)}
                 </>
-              ) : isPending
+              ) : isPending || isTonight
                 ? action(
                     "Mark as Served",
                     "calendar-check",
@@ -755,7 +752,9 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   prepNoteInput: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, lineHeight: 20, padding: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.color.accent },
   ingredientSection: { gap: theme.space.lg },
   ingredientGroup: { gap: theme.space.sm },
+  ingredientGroupHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   ingredientGroupLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
+  ingredientEditAction: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
   ingredientRows: { gap: theme.space.xs },
   ingredientRow: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: theme.space.sm },
   ingredientDeleteTarget: { width: 32, minHeight: 38, alignItems: "center", justifyContent: "center" },

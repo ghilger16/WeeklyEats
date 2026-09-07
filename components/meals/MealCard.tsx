@@ -527,7 +527,6 @@ export default function MealCard({
       createManualIngredient(trimmed, ingredientType),
     ]);
     setNewIngredient("");
-    setIsIngredientDeleteMode(false);
   }, [form.ingredients, newIngredient, updateField]);
 
   const handleOpenEmojiPicker = useCallback(() => {
@@ -1423,15 +1422,15 @@ export default function MealCard({
     const difficultyLevel = DIFFICULTY_LEVELS.find(
       (level) => level.value === form.difficulty
     );
-    const difficultyLabel = difficultyLevel?.label ?? "Not set";
+    const difficultyLabel = difficultyLevel?.label ?? "—";
     const difficultyColor = difficultyLevel
       ? theme.color[difficultyLevel.colorKey]
       : undefined;
     const hasExpense = typeof form.expense === "number";
     const expenseLabel = hasExpense
       ? "$".repeat(form.expense! >= 4 ? 3 : form.expense! <= 2 ? 1 : 2)
-      : "Not set";
-    const cuisineLabel = getCuisineLabel(form.cuisine) ?? "Not set";
+      : "—";
+    const cuisineLabel = getCuisineLabel(form.cuisine) ?? "—";
     const freezerValue = getFreezerMealAmount(form as Meal);
     const isFamilyStar =
       useFamilyRatings && familyRatingSummary?.isUnanimousHeart === true;
@@ -1498,11 +1497,6 @@ export default function MealCard({
             detailScrollOffsetRef.current = nativeEvent.contentOffset.y;
           }}
           scrollEventThrottle={16}
-          onTouchStart={() => {
-            if (isDetailIngredientsEditing) {
-              endDetailIngredientEditing();
-            }
-          }}
         >
           <View style={styles.detailHero}>
             <Pressable
@@ -1668,6 +1662,24 @@ export default function MealCard({
           <View style={styles.detailSection}>
             <View style={styles.detailSectionHeader}>
               <Text style={styles.detailSectionLabel}>Key Ingredients</Text>
+              <Pressable
+                onPress={() => {
+                  if (isDetailIngredientsEditing) {
+                    endDetailIngredientEditing();
+                  } else {
+                    setDetailIngredientsExpanded(true);
+                    setDetailIngredientsEditing(true);
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`${isDetailIngredientsEditing ? "Done editing" : "Edit"} key ingredients`}
+                hitSlop={8}
+                style={({ pressed }) => pressed && styles.detailPressed}
+              >
+                <Text style={styles.detailSectionEditAction}>
+                  {isDetailIngredientsEditing ? "Done" : "Edit"}
+                </Text>
+              </Pressable>
             </View>
             <View style={styles.detailIngredientList}>
               {visibleKeyIngredients.map(({ ingredient, index }) => (
@@ -1711,6 +1723,7 @@ export default function MealCard({
                     ) : (
                       <Pressable
                         onTouchStart={(event) => event.stopPropagation()}
+                        disabled={!isDetailIngredientsEditing}
                         onPress={() => startEditingDetailIngredient(index, ingredient.name)}
                         style={styles.detailIngredientTextTarget}
                       >
@@ -1771,13 +1784,6 @@ export default function MealCard({
                   ]}
                   returnKeyType="next"
                   blurOnSubmit={false}
-                  onBlur={() => {
-                    setTimeout(() => {
-                      if (!detailIngredientInputRef.current?.isFocused()) {
-                        endDetailIngredientEditing();
-                      }
-                    }, 100);
-                  }}
                 />
                 {detailIngredientDraft.trim() ? (
                 <Pressable
@@ -1845,10 +1851,11 @@ export default function MealCard({
                             accessibilityLabel={`Edit ${ingredient.name}`}
                           />
                         ) : (
-                          <Pressable
-                            onTouchStart={(event) => event.stopPropagation()}
-                            onPress={() => startEditingDetailIngredient(index, ingredient.name)}
-                            style={styles.detailIngredientTextTarget}
+                      <Pressable
+                        onTouchStart={(event) => event.stopPropagation()}
+                        disabled={!isDetailIngredientsEditing}
+                        onPress={() => startEditingDetailIngredient(index, ingredient.name)}
+                        style={styles.detailIngredientTextTarget}
                           >
                             <Text style={[styles.detailIngredientListText, styles.detailPantryChipText]} numberOfLines={1}>
                               {capitalizeMealTitleWords(ingredient.name)}
@@ -2358,7 +2365,27 @@ export default function MealCard({
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>KEY INGREDIENTS</Text>
+            <View style={styles.detailSectionHeader}>
+              <Text style={styles.sectionLabel}>KEY INGREDIENTS</Text>
+              <Pressable
+                onPress={handleToggleIngredientDeleteMode}
+                disabled={!hasIngredients}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !hasIngredients }}
+                accessibilityLabel={`${isIngredientDeleteMode ? "Done editing" : "Edit"} key ingredients`}
+                hitSlop={8}
+                style={({ pressed }) => pressed && hasIngredients && styles.detailPressed}
+              >
+                <Text
+                  style={[
+                    styles.detailSectionEditAction,
+                    !hasIngredients && styles.ingredientEditActionDisabled,
+                  ]}
+                >
+                  {isIngredientDeleteMode ? "Done" : "Edit"}
+                </Text>
+              </Pressable>
+            </View>
             <View style={styles.ingredientsWrapper}>
               {!hasIngredients ? (
                 <Text style={styles.ingredientsEmpty}>
@@ -2407,40 +2434,9 @@ export default function MealCard({
                 style={styles.ingredientInput}
                 value={newIngredient}
                 onChangeText={setNewIngredient}
-                onFocus={() => setIsIngredientDeleteMode(false)}
                 onSubmitEditing={handleAddIngredient}
                 returnKeyType="done"
               />
-              <Pressable
-                onPress={handleToggleIngredientDeleteMode}
-                disabled={!hasIngredients}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isIngredientDeleteMode
-                    ? "Exit ingredient delete mode"
-                    : "Delete ingredients"
-                }
-                style={({ pressed }) => [
-                  styles.ingredientTrashButton,
-                  pressed && hasIngredients && styles.ingredientTrashButtonPressed,
-                  isIngredientDeleteMode && styles.ingredientTrashButtonActive,
-                  !hasIngredients && styles.ingredientTrashButtonDisabled,
-                ]}
-              >
-                <MaterialCommunityIcons
-                  name={
-                    isIngredientDeleteMode ? "trash-can" : "trash-can-outline"
-                  }
-                  size={18}
-                  color={
-                    !hasIngredients
-                      ? theme.color.border
-                      : isIngredientDeleteMode
-                      ? theme.color.ink
-                      : theme.color.subtleInk
-                  }
-                />
-              </Pressable>
             </View>
             <>
                 <Text style={[styles.sectionLabel, styles.pantrySectionLabel]}>
@@ -2683,7 +2679,24 @@ export default function MealCard({
                 automaticallyAdjustKeyboardInsets
               >
                 <View style={styles.detailSection}>
-                  <Text style={styles.detailSectionLabel}>Key Ingredients</Text>
+                  <View style={styles.detailSectionHeader}>
+                    <Text style={styles.detailSectionLabel}>Key Ingredients</Text>
+                    <Pressable
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setIsAutoFillIngredientDeleteMode((current) => !current);
+                        setNewAutoFillIngredient("");
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${isAutoFillIngredientDeleteMode ? "Done editing" : "Edit"} key ingredients`}
+                      hitSlop={8}
+                      style={({ pressed }) => pressed && styles.detailPressed}
+                    >
+                      <Text style={styles.detailSectionEditAction}>
+                        {isAutoFillIngredientDeleteMode ? "Done" : "Edit"}
+                      </Text>
+                    </Pressable>
+                  </View>
                   <View style={styles.detailIngredientList}>
                     {autoFillKeyIngredientEntries.map(({ ingredient, index }) => (
                       <View key={`${ingredient.name}-${index}`} style={styles.detailIngredientListRow}>
@@ -2701,23 +2714,11 @@ export default function MealCard({
                             color={theme.color.accent}
                           />
                         </Pressable>
-                        <Pressable
-                          onPress={() => {
-                            if (isAutoFillIngredientDeleteMode) {
-                              Keyboard.dismiss();
-                              setIsAutoFillIngredientDeleteMode(false);
-                              setNewAutoFillIngredient("");
-                              return;
-                            }
-                            setIsAutoFillIngredientDeleteMode(true);
-                            requestAnimationFrame(() => autoFillIngredientInputRef.current?.focus());
-                          }}
-                          style={styles.detailIngredientTextTarget}
-                        >
+                        <View style={styles.detailIngredientTextTarget}>
                           <Text style={styles.detailIngredientListText} numberOfLines={1}>
                             {capitalizeMealTitleWords(ingredient.name)}
                           </Text>
-                        </Pressable>
+                        </View>
                         {isAutoFillIngredientDeleteMode && autoFillPantryStapleEntries.length > 0 ? (
                           <Pressable
                             onPress={() => handleToggleAutoFillIngredientType(index)}
@@ -2745,14 +2746,6 @@ export default function MealCard({
                           onChangeText={setNewAutoFillIngredient}
                           onSubmitEditing={handleAddAutoFillIngredient}
                           onFocus={() => setIsAutoFillIngredientDeleteMode(true)}
-                          onBlur={() => {
-                            setTimeout(() => {
-                              if (!autoFillIngredientInputRef.current?.isFocused()) {
-                                setIsAutoFillIngredientDeleteMode(false);
-                                setNewAutoFillIngredient("");
-                              }
-                            }, 100);
-                          }}
                           autoCapitalize="words"
                           returnKeyType="next"
                           blurOnSubmit={false}
@@ -2791,23 +2784,11 @@ export default function MealCard({
                                   color={theme.color.accent}
                                 />
                               </Pressable>
-                              <Pressable
-                                onPress={() => {
-                                  if (isAutoFillIngredientDeleteMode) {
-                                    Keyboard.dismiss();
-                                    setIsAutoFillIngredientDeleteMode(false);
-                                    setNewAutoFillIngredient("");
-                                    return;
-                                  }
-                                  setIsAutoFillIngredientDeleteMode(true);
-                                  requestAnimationFrame(() => autoFillIngredientInputRef.current?.focus());
-                                }}
-                                style={styles.detailIngredientTextTarget}
-                              >
+                              <View style={styles.detailIngredientTextTarget}>
                                 <Text style={[styles.detailIngredientListText, styles.detailPantryChipText]} numberOfLines={1}>
                                   {capitalizeMealTitleWords(ingredient.name)}
                                 </Text>
-                              </Pressable>
+                              </View>
                               {isAutoFillIngredientDeleteMode ? (
                                 <Pressable
                                   onPress={() => handleToggleAutoFillIngredientType(index)}
@@ -3125,6 +3106,8 @@ const createStyles = (theme: WeeklyTheme) =>
     detailRecipeSecondaryText: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
     detailSection: { gap: theme.space.md },
     detailSectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    detailSectionEditAction: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
+    ingredientEditActionDisabled: { color: theme.color.border },
     detailSectionLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.medium, textTransform: "uppercase", letterSpacing: 0.8 },
     detailEditText: { color: theme.color.accent, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold },
     detailIngredientList: { gap: theme.space.xs },

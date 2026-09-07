@@ -55,7 +55,11 @@ export default function FamilyProfileModal() {
   const memberIndex = foundMemberIndex >= 0 ? foundMemberIndex : 0;
   const currentMember = members[memberIndex];
   const isSubscribed = subscription.status === "subscribed";
-  const mealsServed = servedEntries.filter((entry) => entry.outcome !== "skipped").length;
+  const planStatus = subscription.status === "firstWeekFree"
+    ? "Free Week"
+    : subscription.status === "subscriptionRequired"
+      ? "Expired"
+      : "Weekly Eats Pro";
   const memberSince = useMemo(() => {
     const timestamps = [...meals.map((meal) => meal.createdAt), ...servedEntries.map((entry) => entry.servedAtISO)]
       .map((value) => (value ? Date.parse(value) : Number.NaN))
@@ -95,7 +99,7 @@ export default function FamilyProfileModal() {
         </Pressable>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.identity}>
-            {isSubscribed ? <MaterialCommunityIcons name="chef-hat" size={32} color={theme.color.accent} style={styles.crown} /> : null}
+            {isSubscribed ? <MaterialCommunityIcons name="chef-hat" size={32} color={theme.color.accent} style={styles.chefHat} /> : null}
             <View style={[styles.avatar, { backgroundColor: memberColorPalette[memberIndex % memberColorPalette.length] }]}>
               {currentMember ? <Text style={styles.avatarText}>{initials[currentMember.id] ?? "?"}</Text> : <MaterialCommunityIcons name="account-outline" size={34} color="#FFFFFF" />}
             </View>
@@ -103,17 +107,22 @@ export default function FamilyProfileModal() {
           </View>
 
           <View style={styles.stats}>
-            <View style={styles.stat}><Text style={styles.statLabel}>Weeks Planned</Text><Text style={styles.statValue}>{weeksPlanned}</Text></View>
+            <View style={styles.stat}><Text style={styles.statLabel}>Weeks</Text><Text style={styles.statValue}>{weeksPlanned}</Text></View>
             <View style={styles.statDivider} />
-            <View style={styles.stat}><Text style={styles.statLabel}>Meals Served</Text><Text style={styles.statValue}>{mealsServed}</Text></View>
+            <View style={styles.stat}><Text style={styles.statLabel}>Joined</Text><Text style={styles.statValue}>{memberSince}</Text></View>
             <View style={styles.statDivider} />
-            <View style={styles.stat}><Text style={styles.statLabel}>Using Since</Text><Text style={styles.statValue}>{memberSince}</Text></View>
+            <View style={styles.stat}>
+              <Text style={styles.statLabel}>Plan</Text>
+              <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {subscription.isLoading ? "…" : planStatus}
+              </Text>
+            </View>
           </View>
 
           {subscription.isLoading ? <View style={styles.loadingCard}><ActivityIndicator color={theme.color.accent} /></View> : (
             <View style={[styles.statusCard, isSubscribed && styles.proStatusCard]}>
               <View style={styles.statusCopyRow}>
-                <View style={styles.statusIcon}><MaterialCommunityIcons name={isSubscribed ? "crown" : "calendar-check"} size={28} color={theme.color.accent} /></View>
+                <View style={styles.statusIcon}><MaterialCommunityIcons name={isSubscribed ? "chef-hat" : "calendar-check"} size={28} color={theme.color.accent} /></View>
                 <View style={styles.statusCopy}>
                   <Text style={styles.statusTitle}>{subscription.status === "firstWeekFree" ? "Your first week is on us! 🎉" : subscription.status === "subscriptionRequired" ? "Great job! 🎉" : "You're on Weekly Eats PRO"}</Text>
                   <Text style={styles.statusText}>{subscription.status === "firstWeekFree" ? "Plan and enjoy your first full week free.\nNo subscription required." : subscription.status === "subscriptionRequired" ? "You planned your first week. Subscribe to plan your next week and keep making dinner easier." : renewalLabel}</Text>
@@ -122,17 +131,17 @@ export default function FamilyProfileModal() {
             </View>
           )}
 
+          {subscription.status !== "firstWeekFree" ? (
           <View style={styles.actions}>
-            {subscription.status === "firstWeekFree" ? (
-              <ActionRow icon="calendar-week" title="Plan your first week" subtitle="Build your meals and plan your first full week to get started." onPress={() => router.push("/modals/plan-week?mode=first-full")} styles={styles} theme={theme} />
-            ) : subscription.status === "subscriptionRequired" ? <>
-              <ActionRow icon="crown" title="Continue with Weekly Eats" subtitle="$34.99 / year" onPress={() => void subscription.purchaseAnnual()} primary styles={styles} theme={theme} />
+            {subscription.status === "subscriptionRequired" ? <>
+              <ActionRow icon="chef-hat" title="Continue with Weekly Eats" subtitle="$34.99 / year" onPress={() => void subscription.purchaseAnnual()} primary styles={styles} theme={theme} />
               <ActionRow icon="restore" title="Restore Purchases" onPress={() => void subscription.restorePurchases()} styles={styles} theme={theme} />
             </> : <>
               <ActionRow icon="credit-card-outline" title="Manage Subscription" onPress={() => void subscription.manageSubscription()} styles={styles} theme={theme} />
               <ActionRow icon="restore" title="Restore Purchases" onPress={() => void subscription.restorePurchases()} styles={styles} theme={theme} />
             </>}
           </View>
+          ) : null}
 
           <View style={styles.footer}>
             <Text style={styles.savedCopy}>Your meals, plans, and history are always saved locally.</Text>
@@ -155,7 +164,7 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   identity: { minHeight: 94, alignItems: "center", justifyContent: "center", gap: theme.space.xs },
   avatar: { width: 68, height: 68, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#FFFFFF", fontSize: theme.type.size.h1, fontWeight: theme.type.weight.bold },
-  crown: { marginBottom: -12, zIndex: 1 },
+  chefHat: { marginBottom: -12, zIndex: 1 },
   proBadge: { overflow: "hidden", paddingHorizontal: theme.space.sm, paddingVertical: 3, borderRadius: theme.radius.full, color: "#FFFFFF", backgroundColor: theme.color.accent, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold },
   stats: { flexDirection: "row", alignItems: "stretch" },
   stat: { flex: 1, minWidth: 0, alignItems: "center", gap: theme.space.xs, paddingHorizontal: theme.space.xs },
@@ -165,11 +174,11 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   loadingCard: { minHeight: 170, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.lg, backgroundColor: theme.color.surface },
   statusCard: { minHeight: 170, overflow: "hidden", padding: theme.space.lg, borderRadius: theme.radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: alpha(theme.color.accent, 0.45), backgroundColor: alpha(theme.color.accent, theme.mode === "dark" ? 0.12 : 0.06) },
   proStatusCard: { borderColor: alpha(theme.color.success, 0.55) },
-  statusCopyRow: { flexDirection: "row", alignItems: "flex-start", gap: theme.space.md, zIndex: 1 },
+  statusCopyRow: { alignItems: "center", gap: theme.space.md, zIndex: 1 },
   statusIcon: { width: 48, height: 48, flexShrink: 0, alignItems: "center", justifyContent: "center", borderRadius: theme.radius.full, backgroundColor: alpha(theme.color.accent, 0.12) },
-  statusCopy: { flex: 1, gap: theme.space.sm },
-  statusTitle: { color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
-  statusText: { color: theme.color.ink, fontSize: theme.type.size.sm, lineHeight: 21 },
+  statusCopy: { alignItems: "center", gap: theme.space.sm },
+  statusTitle: { color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold, textAlign: "center" },
+  statusText: { color: theme.color.ink, fontSize: theme.type.size.sm, lineHeight: 21, textAlign: "center" },
   actions: { gap: theme.space.md },
   actionRow: { minHeight: 70, flexDirection: "row", alignItems: "center", gap: theme.space.md, paddingHorizontal: theme.space.lg, paddingVertical: theme.space.md, borderRadius: theme.radius.lg, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
   primaryAction: { justifyContent: "center", backgroundColor: theme.color.accent, borderColor: theme.color.accent },

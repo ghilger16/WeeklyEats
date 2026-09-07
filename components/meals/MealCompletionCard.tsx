@@ -32,6 +32,10 @@ import {
   classifyIngredientType,
 } from "../../utils/ingredientClassification";
 import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
+import {
+  getCachedMealIngredientSuggestions,
+  setCachedMealIngredientSuggestions,
+} from "../../stores/mealIngredientSuggestionsStorage";
 
 type Props = {
   meal: Meal;
@@ -64,6 +68,9 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [suggestions, setSuggestions] = useState<Ingredient[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [manualSuggestionKeys, setManualSuggestionKeys] = useState<Set<string>>(
+    new Set(),
+  );
   const [manualKey, setManualKey] = useState("");
   const [isExpanded, setExpanded] = useState(false);
   const [isLoading, setLoading] = useState(true);
@@ -96,6 +103,11 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
     resetAutoFill,
     clearError: clearAutoFillError,
   } = useRecipeAutoFill(recipeUrlDraft, meal.title);
+  const hasKeyIngredients = (meal.ingredients ?? []).some((ingredient) =>
+    typeof ingredient === "string"
+      ? Boolean(ingredient.trim())
+      : Boolean(ingredient.name.trim()) && ingredient.ingredientType !== "pantryStaple"
+  );
 
   const ensureManualInputVisible = useCallback(() => {
     const keyboardTop = keyboardTopRef.current;
@@ -142,6 +154,24 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
   const load = useCallback(async (retry = false) => {
     setLoading(true);
     setHasError(false);
+    if (hasKeyIngredients) {
+      setSuggestions([]);
+      setSelected(new Set());
+      setManualSuggestionKeys(new Set());
+      setLoading(false);
+      return;
+    }
+    const cached = retry
+      ? null
+      : await getCachedMealIngredientSuggestions(meal.id, meal.title);
+    if (cached) {
+      const next = await classifyIngredients(cached);
+      setSuggestions(next);
+      setSelected(new Set());
+      setManualSuggestionKeys(new Set());
+      setLoading(false);
+      return;
+    }
     const outcome = retry
       ? await retryIngredientSuggestions(meal.title)
       : await suggestIngredientsForMealTitle(meal.title);
@@ -154,10 +184,12 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
       ...outcome.data.keyIngredients,
       ...outcome.data.pantryStaples,
     ]);
+    await setCachedMealIngredientSuggestions(meal.id, meal.title, next);
     setSuggestions(next);
     setSelected(new Set());
+    setManualSuggestionKeys(new Set());
     setLoading(false);
-  }, [meal.title]);
+  }, [hasKeyIngredients, meal.id, meal.title]);
 
   useEffect(() => {
     load();
@@ -173,22 +205,24 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
   const addManualIngredient = useCallback(async () => {
     const name = manualKey.trim();
     if (!name) return;
+    const key = name.toLowerCase();
+    const alreadyExists = suggestions.some(
+      (item) => item.name.trim().toLowerCase() === key,
+    );
     const ingredientType = await classifyIngredientType(name);
     const ingredient: Ingredient = {
       name,
       category: "other",
       ingredientType,
     };
-    setSuggestions((current) => {
-      if (current.some((item) => item.name.toLowerCase() === name.toLowerCase())) {
-        return current;
-      }
-      return [...current, ingredient];
-    });
-    setSelected((current) => new Set(current).add(name.toLowerCase()));
+    if (!alreadyExists) {
+      setSuggestions((current) => [...current, ingredient]);
+      setManualSuggestionKeys((current) => new Set(current).add(key));
+    }
+    setSelected((current) => new Set(current).add(key));
     setManualKey("");
     setTimeout(ensureManualInputVisible, 60);
-  }, [ensureManualInputVisible, manualKey]);
+  }, [ensureManualInputVisible, manualKey, suggestions]);
 
   const toggle = (name: string) => {
     const key = name.trim().toLowerCase();
@@ -210,11 +244,27 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
       next.delete(key);
       return next;
     });
+    setManualSuggestionKeys((current) => {
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
   };
 
   const orderedSuggestions = [
-    ...suggestions.filter((item) => item.ingredientType === "keyIngredient"),
-    ...suggestions.filter((item) => item.ingredientType === "pantryStaple"),
+    ...suggestions.filter(
+      (item) =>
+        item.ingredientType === "keyIngredient" &&
+        !manualSuggestionKeys.has(item.name.trim().toLowerCase()),
+    ),
+    ...suggestions.filter(
+      (item) =>
+        item.ingredientType === "pantryStaple" &&
+        !manualSuggestionKeys.has(item.name.trim().toLowerCase()),
+    ),
+    ...suggestions.filter((item) =>
+      manualSuggestionKeys.has(item.name.trim().toLowerCase()),
+    ),
   ];
 
   const renderSuggestions = () => (
@@ -227,9 +277,10 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
             style={styles.ingredientRow}
           >
             <Pressable
-              onPress={() => removeSuggestion(ingredient.name)}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${ingredient.name} from suggestions`}
+              onPress={() => toggle(ingredient.name)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: isSelected }}
+              accessibilityLabel={`${isSelected ? "Deselect" : "Select"} ${ingredient.name}`}
               hitSlop={6}
               style={({ pressed }) => [
                 styles.ingredientBulletSlot,
@@ -237,25 +288,35 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
               ]}
             >
               <MaterialCommunityIcons
-                name="minus-circle-outline"
-                size={19}
+                name={isSelected ? "check" : "plus"}
+                size={20}
                 color={theme.color.accent}
               />
             </Pressable>
-            <Text
-              style={[
-                styles.ingredientText,
-                isSelected && styles.ingredientTextSelected,
-              ]}
-              numberOfLines={1}
-            >
-              {ingredient.name}
-            </Text>
             <Pressable
               onPress={() => toggle(ingredient.name)}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: isSelected }}
               accessibilityLabel={`${isSelected ? "Deselect" : "Select"} ${ingredient.name}`}
+              style={({ pressed }) => [
+                styles.ingredientNameAction,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.ingredientText,
+                  isSelected && styles.ingredientTextSelected,
+                ]}
+                numberOfLines={1}
+              >
+                {ingredient.name}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => removeSuggestion(ingredient.name)}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${ingredient.name} from suggestions`}
               hitSlop={6}
               style={({ pressed }) => [
                 styles.ingredientSelectionAction,
@@ -263,8 +324,8 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
               ]}
             >
               <MaterialCommunityIcons
-                name={isSelected ? "check" : "plus"}
-                size={20}
+                name="close"
+                size={19}
                 color={theme.color.accent}
               />
             </Pressable>
@@ -276,11 +337,6 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
 
   const selectedIngredients = suggestions.filter((item) =>
     selected.has(item.name.toLowerCase())
-  );
-  const hasKeyIngredients = (meal.ingredients ?? []).some((ingredient) =>
-    typeof ingredient === "string"
-      ? Boolean(ingredient.trim())
-      : Boolean(ingredient.name.trim()) && ingredient.ingredientType !== "pantryStaple"
   );
   const missingDetailLabels = [
     !hasKeyIngredients ? "ingredients" : null,
@@ -295,7 +351,7 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
     typeof value !== "number" ? 1 : value <= 1 ? 3 : value <= 3 ? 5 : 1;
   const difficultyLabel =
     typeof detailDifficulty !== "number"
-      ? "Not set"
+      ? "—"
       : detailDifficulty <= 1
       ? "Easy"
       : detailDifficulty <= 3
@@ -311,13 +367,13 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
       : theme.color.danger;
   const expenseLabel =
     typeof detailExpense !== "number"
-      ? "Not set"
+      ? "—"
       : detailExpense <= 1
       ? "$"
       : detailExpense <= 3
       ? "$$"
       : "$$$";
-  const cuisineLabel = getCuisineLabel(detailCuisine) ?? "Not set";
+  const cuisineLabel = getCuisineLabel(detailCuisine) ?? "—";
   const finishMeal = useCallback(
     (commit: () => void) => {
       if (isCompleting) return;
@@ -618,13 +674,17 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
             <Pressable
               disabled={selectedIngredients.length === 0}
               onPress={handleApplyIngredients}
+              accessibilityRole="button"
+              accessibilityLabel={`Add ${selectedIngredients.length} ${selectedIngredients.length === 1 ? "ingredient" : "ingredients"}`}
               style={({ pressed }) => [
                 styles.applyButton,
                 selectedIngredients.length === 0 && styles.disabled,
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.applyText}>Add selected</Text>
+              <Text style={styles.applyText}>
+                Add {selectedIngredients.length} {selectedIngredients.length === 1 ? "Ingredient" : "Ingredients"}
+              </Text>
             </Pressable>
           </View>
         </>
@@ -677,14 +737,21 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
               disabled={!detailsReady}
               onPress={handleSaveDetails}
               accessibilityRole="button"
-              accessibilityLabel="Save meal details"
+              accessibilityLabel={`Complete ${meal.title}`}
               style={({ pressed }) => [
                 styles.applyButton,
                 !detailsReady && styles.disabled,
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.applyText}>Done</Text>
+              <Text
+                style={styles.applyText}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
+                Complete {meal.title}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -930,7 +997,8 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   ingredientRow: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: theme.space.sm },
   ingredientBulletSlot: { width: 32, minHeight: 38, alignItems: "center", justifyContent: "center" },
   ingredientSelectionAction: { width: 36, minHeight: 38, alignItems: "center", justifyContent: "center" },
-  ingredientText: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium, textTransform: "capitalize" },
+  ingredientNameAction: { flex: 1, minHeight: 38, justifyContent: "center" },
+  ingredientText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium, textTransform: "capitalize" },
   ingredientTextSelected: { color: theme.color.accent },
   manualRow: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: theme.space.sm },
   manualBullet: { width: 8, height: 8, borderRadius: theme.radius.full, backgroundColor: theme.color.accent },

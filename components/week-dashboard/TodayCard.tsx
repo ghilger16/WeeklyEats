@@ -51,6 +51,7 @@ type TodayCardProps = {
   servedEntry?: ServedMealEntry;
   sides?: string[];
   onMarkServed?: (message: string) => Promise<void> | void;
+  onServedAnimationComplete?: () => void;
   onSelectOutcome?: (outcome: ServedOutcome) => Promise<void> | void;
   onChangePlans?: () => void;
   onChangeFamilyRating?: (memberId: string, rating: FamilyRatingValue) => void;
@@ -73,6 +74,7 @@ export default function TodayCard({
   servedEntry,
   sides = [],
   onMarkServed,
+  onServedAnimationComplete,
   onChangePlans,
   onChangeFamilyRating,
   isGalaxyMeal = false,
@@ -243,7 +245,9 @@ export default function TodayCard({
       Animated.parallel([
         Animated.spring(checkScale, { toValue: 1, speed: 18, bounciness: 8, useNativeDriver: true }),
         Animated.timing(successOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
-      ]).start();
+      ]).start(({ finished }) => {
+        if (finished) onServedAnimationComplete?.();
+      });
     }
     if (shouldCelebrate) {
     Animated.sequence([
@@ -261,7 +265,9 @@ export default function TodayCard({
     const ratingTimer = setTimeout(() => {
       initializeCarousel();
       setPhase("carousel");
-      Animated.timing(ratingProgress, { toValue: 1, duration: reduceMotion ? 160 : 360, useNativeDriver: true }).start();
+      Animated.timing(ratingProgress, { toValue: 1, duration: reduceMotion ? 160 : 360, useNativeDriver: true }).start(({ finished }) => {
+        if (finished) onServedAnimationComplete?.();
+      });
     }, reduceMotion ? 650 : 1200);
     timersRef.current.push(completionTimer, ratingTimer);
     }
@@ -555,7 +561,7 @@ export default function TodayCard({
       )}
       <BurstSparkles
         progress={sparkleProgress}
-        visible={!reduceMotion && phase === "burst" && !isFlexNight}
+        visible={!reduceMotion && !isFlexNight}
       />
       <FreezerAmountModal
         visible={isFreezerModalVisible}
