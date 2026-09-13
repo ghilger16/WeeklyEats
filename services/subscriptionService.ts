@@ -4,10 +4,13 @@ import Purchases, {
   LOG_LEVEL,
 } from "react-native-purchases";
 import type { CustomerInfo, PurchasesError } from "react-native-purchases";
+import { trackAction } from "./analytics";
 
 export type SubscriptionSnapshot = {
   isActive: boolean;
   renewalDateISO?: string;
+  annualPriceString?: string;
+  monthlyEquivalentPriceString?: string;
 };
 
 export type SubscriptionActionResult = {
@@ -84,12 +87,29 @@ const unavailableResult = (): SubscriptionActionResult => ({
   succeeded: false,
 });
 
+const getAnnualPackage = async () => {
+  const offerings = await Purchases.getOfferings();
+  const offering = OFFERING_ID
+    ? offerings.all[OFFERING_ID]
+    : offerings.current;
+  return offering?.annual ?? null;
+};
+
 export const subscriptionService = {
   async getSnapshot(): Promise<SubscriptionSnapshot> {
     if (!(await configure())) return { isActive: false };
 
     try {
-      return snapshotFromCustomerInfo(await Purchases.getCustomerInfo());
+      const [customerInfo, annualPackage] = await Promise.all([
+        Purchases.getCustomerInfo(),
+        getAnnualPackage().catch(() => null),
+      ]);
+      return {
+        ...snapshotFromCustomerInfo(customerInfo),
+        annualPriceString: annualPackage?.product.priceString,
+        monthlyEquivalentPriceString:
+          annualPackage?.product.pricePerMonthString ?? undefined,
+      };
     } catch (error) {
       if (__DEV__) console.warn("Unable to load RevenueCat customer info", error);
       return { isActive: false };
@@ -100,13 +120,10 @@ export const subscriptionService = {
     if (!(await configure())) return unavailableResult();
 
     try {
-      const offerings = await Purchases.getOfferings();
-      const offering = OFFERING_ID
-        ? offerings.all[OFFERING_ID]
-        : offerings.current;
-      const annualPackage = offering?.annual;
+      const annualPackage = await getAnnualPackage();
 
       if (!annualPackage) {
+        trackAction("subscription_purchase_unavailable");
         return {
           available: true,
           succeeded: false,
@@ -115,12 +132,32 @@ export const subscriptionService = {
         };
       }
 
+      trackAction("subscription_purchase_started", {
+        package_type: "annual",
+      });
       const { customerInfo } = await Purchases.purchasePackage(annualPackage);
+      const succeeded = snapshotFromCustomerInfo(customerInfo).isActive;
+      trackAction(
+        succeeded
+          ? "subscription_purchase_completed"
+          : "subscription_purchase_not_activated",
+        { package_type: "annual" },
+      );
       return {
         available: true,
-        succeeded: snapshotFromCustomerInfo(customerInfo).isActive,
+        succeeded,
       };
     } catch (error) {
+      const purchasesError = error as Partial<PurchasesError>;
+      trackAction(
+        purchasesError.userCancelled
+          ? "subscription_purchase_cancelled"
+          : "subscription_purchase_failed",
+        {
+          package_type: "annual",
+          error_code: purchasesError.code,
+        },
+      );
       return resultFromError(error);
     }
   },
@@ -129,8 +166,12 @@ export const subscriptionService = {
     if (!(await configure())) return unavailableResult();
 
     try {
+      trackAction("subscription_restore_started");
       const customerInfo = await Purchases.restorePurchases();
       const isActive = snapshotFromCustomerInfo(customerInfo).isActive;
+      trackAction("subscription_restore_completed", {
+        entitlement_active: isActive,
+      });
       return {
         available: true,
         succeeded: isActive,
@@ -139,6 +180,10 @@ export const subscriptionService = {
           : "No active Weekly Eats Pro subscription was found.",
       };
     } catch (error) {
+      const purchasesError = error as Partial<PurchasesError>;
+      trackAction("subscription_restore_failed", {
+        error_code: purchasesError.code,
+      });
       return resultFromError(error);
     }
   },

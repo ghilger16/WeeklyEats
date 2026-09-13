@@ -23,13 +23,11 @@ import {
   removeSampleWeekPlanHistory,
 } from "../../stores/weekPlanStorage";
 import { WeeklyTheme } from "../../styles/theme";
-import { Meal } from "../../types/meals";
 import { getSpecialMealById } from "../../types/specialMeals";
-import { PLANNED_WEEK_ORDER } from "../../types/weekPlan";
 import {
-  WeekPlanCelebrationStat,
-  buildWeekPlanCelebration,
-} from "../../utils/weekPlanCelebration";
+  PLANNED_WEEK_DISPLAY_NAMES,
+  PLANNED_WEEK_ORDER,
+} from "../../types/weekPlan";
 import { addDays } from "../../utils/weekDays";
 import MealEmoji from "../../components/emoji/MealEmoji";
 
@@ -44,18 +42,6 @@ const isSampleHistoryEntry = (entry: WeekPlanHistoryEntry) =>
 
 const formatShortDate = (value: Date) =>
   value.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-
-const getDinnerCount = (entry: WeekPlanHistoryEntry) =>
-  entry.summary?.dinnerCount ??
-  PLANNED_WEEK_ORDER.filter((day) => typeof entry.plan[day] === "string").length;
-
-const formatCompactStat = (stat: WeekPlanCelebrationStat) => {
-  if (stat.id === "familyStars" || stat.id === "fiveStars") {
-    return `${stat.icon} ${stat.value} ${stat.value === "1" ? "Star" : "Stars"}`;
-  }
-  if (stat.id === "newMeals") return `${stat.icon} ${stat.value} New`;
-  return `${stat.icon} ${stat.value}`;
-};
 
 export default function StreaksHistoryModal() {
   const router = useRouter();
@@ -121,6 +107,7 @@ export default function StreaksHistoryModal() {
         const specialMeal = getSpecialMealById(id, entry.plan.specialMealTitles?.[day]);
         return [{
           id: `${day}-${id}`,
+          day: PLANNED_WEEK_DISPLAY_NAMES[day],
           emoji: snapshot?.emoji ?? liveMeal?.emoji ?? specialMeal?.emoji ?? GENERIC_MEAL_EMOJI,
           title:
             snapshot?.title ??
@@ -130,27 +117,6 @@ export default function StreaksHistoryModal() {
             "Meal",
         }];
       }),
-    [meals],
-  );
-
-  const getStats = useCallback(
-    (entry: WeekPlanHistoryEntry) => {
-      if (entry.summary) return entry.summary.stats;
-      const snapshotMeals = Object.values(entry.mealSnapshots ?? {});
-      const legacyMeals = snapshotMeals.length
-        ? (snapshotMeals as Meal[])
-        : meals.filter((meal) =>
-            PLANNED_WEEK_ORDER.some((day) => entry.plan[day] === meal.id),
-          );
-      // Older entries did not save the information needed to identify a meal as
-      // new at planning time, so omit only that temporal stat rather than guess.
-      return buildWeekPlanCelebration({
-        plan: entry.plan,
-        meals: legacyMeals,
-        servedMealIds: new Set(legacyMeals.map((meal) => meal.id)),
-        streakCount: 0,
-      }).stats.filter((stat) => stat.id !== "newMeals");
-    },
     [meals],
   );
 
@@ -218,9 +184,6 @@ export default function StreaksHistoryModal() {
               {history.length ? history.map((entry) => {
                 const isExpanded = expandedWeekStartISO === entry.weekStartISO;
                 const mealRows = getMealRows(entry);
-                const dinnerCount = getDinnerCount(entry);
-                const stats = getStats(entry);
-                const statsText = stats.map(formatCompactStat).join(" · ");
                 return (
                   <Pressable
                     key={entry.weekStartISO}
@@ -241,17 +204,6 @@ export default function StreaksHistoryModal() {
                         color={theme.color.subtleInk}
                       />
                     </View>
-                    <Text style={styles.historyMetadata} numberOfLines={1}>
-                      Planned {formatShortDate(new Date(entry.completedAtISO))} · {dinnerCount} {dinnerCount === 1 ? "dinner" : "dinners"}
-                    </Text>
-                    <Text
-                      style={styles.historyStats}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.75}
-                    >
-                      {statsText || "✨ Week planned"}
-                    </Text>
                     {isExpanded ? (
                       <View style={styles.expandedContent}>
                         <View style={styles.expandedDivider} />
@@ -259,6 +211,7 @@ export default function StreaksHistoryModal() {
                         <View style={styles.mealsList}>
                           {mealRows.map((meal) => (
                             <View key={meal.id} style={styles.mealRow}>
+                              <Text style={styles.mealDay}>{meal.day}</Text>
                               <MealEmoji value={meal.emoji} size={22} />
                               <Text style={styles.mealTitle}>{meal.title}</Text>
                             </View>
@@ -362,18 +315,6 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
     fontSize: theme.type.size.base,
     fontWeight: theme.type.weight.bold,
   },
-  historyMetadata: {
-    color: theme.color.subtleInk,
-    fontSize: theme.type.size.sm,
-    marginLeft: 18 + theme.space.sm,
-    marginTop: 3,
-  },
-  historyStats: {
-    color: theme.color.ink,
-    fontSize: theme.type.size.sm,
-    marginLeft: 18 + theme.space.sm,
-    marginTop: 3,
-  },
   expandedContent: { marginTop: theme.space.md },
   expandedDivider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.color.border },
   mealsLabel: {
@@ -386,6 +327,12 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   },
   mealsList: { gap: theme.space.sm, marginTop: theme.space.sm },
   mealRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+  mealDay: {
+    width: 74,
+    color: theme.color.subtleInk,
+    fontSize: theme.type.size.xs,
+    fontWeight: theme.type.weight.bold,
+  },
   mealEmoji: { fontSize: theme.type.size.base, width: 26, textAlign: "center" },
   mealTitle: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm },
   historyEmpty: { color: theme.color.subtleInk, fontSize: theme.type.size.base },

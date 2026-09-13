@@ -1,6 +1,7 @@
+import { useCuisineSides } from "../../../hooks/useCuisineSides";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Keyboard,
   Pressable,
@@ -49,9 +50,10 @@ export default function InlineSideEditor({
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const cuisineOverrides = useCuisineSides();
   const initialOptions = useMemo(
-    () => getSideOptionsForMeal(meal, initialSides),
-    [initialSides, meal],
+    () => getSideOptionsForMeal(meal, initialSides, cuisineOverrides),
+    [initialSides, meal, cuisineOverrides],
   );
   const [options, setOptions] = useState(initialOptions);
   const [selectedSides, setSelectedSides] = useState(() => {
@@ -65,6 +67,13 @@ export default function InlineSideEditor({
     () => new Set(selectedSides.map(normalize)),
     [selectedSides],
   );
+
+  useEffect(() => {
+    setOptions((current) => {
+      const remembered = current.filter((option) => option.isCustom).map((option) => option.name);
+      return getSideOptionsForMeal(meal, [...initialSides, ...remembered], cuisineOverrides);
+    });
+  }, [cuisineOverrides, meal, initialSides]);
 
   const rememberPreferredSide = (side: string) => {
     const next = promoteSavedSides([side], preferredSidesRef.current);
@@ -216,7 +225,7 @@ const SideChip = ({ option, selected, onPress, styles, accent, accentMuted }: Si
     ]}
   >
     <View style={styles.sideChipDot} />
-    <Text numberOfLines={1} style={[styles.sideName, selected && styles.sideNameSelected]}>{option.name}</Text>
+    <Text numberOfLines={2} style={[styles.sideName, selected && styles.sideNameSelected]}>{option.name}</Text>
     <MaterialCommunityIcons
       name={selected ? "check" : "plus"}
       size={15}
@@ -234,10 +243,10 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   sideGroup: { gap: theme.space.sm },
   sideGroupLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, textTransform: "uppercase", letterSpacing: 0.7 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm },
-  sideChip: { width: "48.5%", height: 44, paddingHorizontal: theme.space.md, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderRadius: theme.radius.md, backgroundColor: theme.color.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  sideChip: { width: "48.5%", minHeight: 60, paddingVertical: theme.space.sm, paddingHorizontal: theme.space.md, flexDirection: "row", alignItems: "center", gap: theme.space.sm, borderRadius: theme.radius.md, backgroundColor: theme.color.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
   sideChipSelected: { borderColor: theme.color.accent, backgroundColor: alpha(theme.color.accent, 0.12) },
   sideChipDot: { width: 7, height: 7, borderRadius: theme.radius.full, backgroundColor: theme.color.accent },
-  sideName: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
+  sideName: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, lineHeight: 20, fontWeight: theme.type.weight.medium },
   sideNameSelected: { color: theme.color.accent },
   customInputRow: { minHeight: 48, flexDirection: "row", alignItems: "center", borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
   input: { flex: 1, minHeight: 48, paddingHorizontal: theme.space.md, color: theme.color.ink, fontSize: theme.type.size.base },

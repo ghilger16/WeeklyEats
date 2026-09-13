@@ -19,6 +19,7 @@ import {
 import {
   createEmptyCurrentPlannedWeek,
   createEmptyCurrentWeekSides,
+  PLANNED_WEEK_ORDER,
 } from "../../types/weekPlan";
 
 describe("week planning drafts", () => {
@@ -119,8 +120,9 @@ describe("week plan history snapshots", () => {
       weekStartISO: "2026-08-16",
       weekedPlanned: true,
     });
-    plan.sun = "tacos";
-    plan.mon = "tacos";
+    PLANNED_WEEK_ORDER.forEach((day) => {
+      plan[day] = "tacos";
+    });
 
     await addWeekPlanHistory(plan, {
       meals: [
@@ -140,6 +142,7 @@ describe("week plan history snapshots", () => {
         },
       ],
       servedMealIds: new Set(),
+      isComplete: true,
     });
 
     const [entry] = await getWeekPlanHistory();
@@ -147,10 +150,22 @@ describe("week plan history snapshots", () => {
       title: "Chicken Tacos",
       emoji: "🌮",
     });
-    expect(entry.summary).toMatchObject({ dinnerCount: 2 });
+    expect(entry.summary).toMatchObject({ dinnerCount: 7 });
     expect(entry.summary?.stats.map((stat) => stat.id)).toEqual(
       expect.arrayContaining(["familyStars", "newMeals", "effort", "expense"]),
     );
+  });
+
+  it("does not record a completed partial week", async () => {
+    const plan = createEmptyCurrentPlannedWeek({
+      weekStartISO: "2026-08-16",
+      weekedPlanned: true,
+    });
+    plan.sun = "tacos";
+
+    await addWeekPlanHistory(plan, { isComplete: true });
+
+    await expect(getWeekPlanHistory()).resolves.toEqual([]);
   });
 });
 
@@ -159,50 +174,57 @@ describe("week planning streak", () => {
     await AsyncStorage.clear();
   });
 
-  it("uses the first planned week as a baseline and starts at the next consecutive week", async () => {
+  it("counts each consecutive completed week beginning with the first", async () => {
     await expect(
       updateWeekPlanStreak(new Date("2026-08-16T12:00:00.000Z")),
-    ).resolves.toMatchObject({ count: 0 });
-    await expect(
-      updateWeekPlanStreak(new Date("2026-08-23T12:00:00.000Z")),
     ).resolves.toMatchObject({ count: 1 });
     await expect(
-      updateWeekPlanStreak(new Date("2026-08-30T12:00:00.000Z")),
+      updateWeekPlanStreak(new Date("2026-08-23T12:00:00.000Z")),
     ).resolves.toMatchObject({ count: 2 });
+    await expect(
+      updateWeekPlanStreak(new Date("2026-08-30T12:00:00.000Z")),
+    ).resolves.toMatchObject({ count: 3 });
   });
 
   it("does not increment twice for the same week and resets after a gap", async () => {
     const week = new Date("2026-08-16T12:00:00.000Z");
     await updateWeekPlanStreak(week);
-    await expect(updateWeekPlanStreak(week)).resolves.toMatchObject({ count: 0 });
+    await expect(updateWeekPlanStreak(week)).resolves.toMatchObject({ count: 1 });
     await expect(
       updateWeekPlanStreak(new Date("2026-08-30T12:00:00.000Z")),
-    ).resolves.toMatchObject({ count: 0 });
-    await expect(getWeekPlanStreak()).resolves.toMatchObject({ count: 0 });
+    ).resolves.toMatchObject({ count: 1 });
+    await expect(getWeekPlanStreak()).resolves.toMatchObject({ count: 1 });
   });
 
-  it("adds only prior weeks to completed history as the streak advances", async () => {
+  it("adds a week to history as soon as that week is completed", async () => {
     const firstWeek = createEmptyCurrentPlannedWeek({
       weekStartISO: "2026-08-16",
       weekedPlanned: true,
     });
-    firstWeek.sun = "tacos";
-    await addWeekPlanHistory(firstWeek);
+    PLANNED_WEEK_ORDER.forEach((day) => {
+      firstWeek[day] = "tacos";
+    });
+    await addWeekPlanHistory(firstWeek, { isComplete: true });
     await updateWeekPlanStreak(new Date("2026-08-16T12:00:00.000Z"));
 
-    await expect(getWeekPlanHistory()).resolves.toEqual([]);
+    await expect(getWeekPlanHistory()).resolves.toEqual([
+      expect.objectContaining({ weekStartISO: "2026-08-16" }),
+    ]);
 
     const secondWeek = createEmptyCurrentPlannedWeek({
       weekStartISO: "2026-08-23",
       weekedPlanned: true,
     });
-    secondWeek.sun = "pasta";
-    await addWeekPlanHistory(secondWeek);
+    PLANNED_WEEK_ORDER.forEach((day) => {
+      secondWeek[day] = "pasta";
+    });
+    await addWeekPlanHistory(secondWeek, { isComplete: true });
     await expect(
       updateWeekPlanStreak(new Date("2026-08-23T12:00:00.000Z")),
-    ).resolves.toMatchObject({ count: 1 });
+    ).resolves.toMatchObject({ count: 2 });
 
     await expect(getWeekPlanHistory()).resolves.toEqual([
+      expect.objectContaining({ weekStartISO: "2026-08-23" }),
       expect.objectContaining({ weekStartISO: "2026-08-16" }),
     ]);
   });

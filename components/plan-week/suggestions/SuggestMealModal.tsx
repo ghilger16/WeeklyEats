@@ -968,7 +968,7 @@ export default function SuggestMealModal({
             ) : mode === "flexNight" ? (
               <>
                 <View style={styles.confirmationView}>
-                  <Text style={styles.confirmationEmoji}>🔄</Text>
+                  <MealEmoji value="🔄" size={styles.confirmationEmoji.fontSize} />
                   <Text style={styles.confirmationTitle}>Flex Night</Text>
                   <Text style={styles.confirmationSubtitle}>
                     Leave this night flexible for leftovers, freezer meals, or

@@ -6,6 +6,10 @@ import {
 } from "../utils/ingredientOverlap";
 import { Meal } from "../types/meals";
 
+jest.mock("@react-native-async-storage/async-storage", () =>
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock"),
+);
+
 const meal = (id: string, ingredients: Meal["ingredients"]): Meal => ({
   id,
   title: id,
@@ -45,7 +49,7 @@ describe("ingredient overlap", () => {
       planned,
     );
 
-    expect(overlap.sharedIngredients).toEqual(["chicken breasts", "Carrot"]);
+    expect(overlap.sharedIngredients).toEqual(["Chicken Breast", "Carrot"]);
     expect(overlap.sharedCount).toBe(2);
     expect(overlap.candidateIngredientCount).toBe(2);
   });
@@ -77,4 +81,14 @@ describe("ingredient overlap", () => {
       "Chicken · Carrots · Garlic · Onion +1",
     );
   });
+});
+
+it("counts canonical recipe variants once while preserving distinct ingredients", () => {
+  const overlap = getIngredientOverlap(
+    meal("candidate", ["Frozen Corn Kernels", "Fresh Corn", "Canned Black Beans", "Creamed Corn", "Corn Tortillas"]),
+    [meal("planned", ["Corn", "Black Beans", "Flour Tortillas"])],
+  );
+  expect(overlap.sharedIngredients).toEqual(["Corn", "Black Beans"]);
+  expect(overlap.sharedCount).toBe(2);
+  expect(overlap.candidateIngredientCount).toBe(4);
 });

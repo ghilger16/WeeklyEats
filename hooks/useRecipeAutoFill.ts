@@ -1,4 +1,5 @@
-import { useCallback, useState } from "react";
+import { useFamilyMembers } from "./useFamilyMembers";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   autoFillMealFromUrl,
   RecipeAutoFillOutcome,
@@ -21,9 +22,14 @@ export const useRecipeAutoFill = (
   url: string | undefined,
   existingMealTitle?: string,
 ) => {
+  const { members } = useFamilyMembers();
+  const householdSize = members.length || 4;
+  const requestVersion = useRef(0);
+  useEffect(() => () => { requestVersion.current += 1; }, []);
   const [state, setState] = useState<AutoFillState>(initialState);
 
   const requestAutoFill = useCallback(async () => {
+    const version = ++requestVersion.current;
     if (!url || url.trim().length === 0) {
       setState((prev) => ({
         ...prev,
@@ -37,7 +43,9 @@ export const useRecipeAutoFill = (
 
     setState({ isLoading: true, error: null, result: null });
 
-    const outcome = await autoFillMealFromUrl(url, existingMealTitle);
+    const outcome = await autoFillMealFromUrl(url, existingMealTitle, householdSize);
+
+    if (version !== requestVersion.current) return outcome;
 
     if (outcome.ok) {
       setState({ isLoading: false, error: null, result: outcome.data });
@@ -46,9 +54,10 @@ export const useRecipeAutoFill = (
     }
 
     return outcome;
-  }, [existingMealTitle, url]);
+  }, [existingMealTitle, url, householdSize]);
 
   const resetAutoFill = useCallback(() => {
+    requestVersion.current += 1;
     setState(initialState);
   }, []);
 

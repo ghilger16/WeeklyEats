@@ -1,3 +1,4 @@
+import { canonicalIngredientName } from "../../utils/ingredientNormalization";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   ReactNode,
@@ -49,6 +50,7 @@ import {
   setGroceryListViewMode,
 } from "../../stores/groceryListStorage";
 import MealEmoji from "../emoji/MealEmoji";
+import { trackAction } from "../../services/analytics";
 
 type Props = {
   visible: boolean;
@@ -140,7 +142,7 @@ const normalizeIngredient = (
   ingredientType: IngredientType;
 } | null => {
   if (typeof ingredient === "string") {
-    const name = ingredient.trim();
+    const name = canonicalIngredientName(ingredient);
     return name
       ? { name, category: "other", ingredientType: "keyIngredient" }
       : null;
@@ -149,7 +151,7 @@ const normalizeIngredient = (
     return null;
   }
   const name =
-    typeof ingredient.name === "string" ? ingredient.name.trim() : "";
+    canonicalIngredientName(ingredient.name);
   if (!name) {
     return null;
   }
@@ -287,6 +289,7 @@ export function GroceryListContent({
   const indicatorX = useRef(new Animated.Value(0)).current;
   const indicatorWidth = useRef(new Animated.Value(0)).current;
   const contentScrollRef = useRef<ScrollView>(null);
+  const trackedOpenWeekRef = useRef<string | null>(null);
   const animationDuration = theme.motion.duration.normal;
 
   const animateIndicator = useCallback(
@@ -341,6 +344,7 @@ export function GroceryListContent({
 
   useEffect(() => {
     if (!isActive) {
+      trackedOpenWeekRef.current = null;
       return;
     }
     let cancelled = false;
@@ -358,6 +362,15 @@ export function GroceryListContent({
         await setGroceryListForWeek(weekId, generated);
         if (!cancelled) {
           setList(generated);
+          if (trackedOpenWeekRef.current !== weekId) {
+            trackedOpenWeekRef.current = weekId;
+            trackAction("grocery_list_opened", {
+              planned_day_count: days.filter((day) => Boolean(day.mealId)).length,
+              generated_item_count: generated.items.length,
+              manual_item_count: generated.manualItems.length,
+              checked_item_count: generated.checkedItems.length,
+            });
+          }
         }
       },
     );
@@ -428,6 +441,17 @@ export function GroceryListContent({
     const nextChecked = isChecked
       ? list.checkedItems.filter((id) => id !== itemId)
       : [...list.checkedItems, itemId];
+    const wasComplete = shoppingItems.length > 0 &&
+      shoppingItems.every((item) => checkedSet.has(item.id));
+    const nextCheckedSet = new Set(nextChecked);
+    const isComplete = shoppingItems.length > 0 &&
+      shoppingItems.every((item) => nextCheckedSet.has(item.id));
+    if (!wasComplete && isComplete) {
+      trackAction("grocery_list_completed", {
+        item_count: shoppingItems.length,
+        manual_item_count: list.manualItems.length,
+      });
+    }
     persistList({ ...list, checkedItems: nextChecked });
   };
 
@@ -440,6 +464,17 @@ export function GroceryListContent({
     const nextChecked = allChecked
       ? list.checkedItems.filter((id) => !itemIdSet.has(id))
       : Array.from(new Set([...list.checkedItems, ...itemIds]));
+    const wasComplete = shoppingItems.length > 0 &&
+      shoppingItems.every((item) => checkedSet.has(item.id));
+    const nextCheckedSet = new Set(nextChecked);
+    const isComplete = shoppingItems.length > 0 &&
+      shoppingItems.every((item) => nextCheckedSet.has(item.id));
+    if (!wasComplete && isComplete) {
+      trackAction("grocery_list_completed", {
+        item_count: shoppingItems.length,
+        manual_item_count: list.manualItems.length,
+      });
+    }
     persistList({ ...list, checkedItems: nextChecked });
   };
 
@@ -484,6 +519,9 @@ export function GroceryListContent({
     persistList({
       ...list,
       manualItems: [...list.manualItems, item],
+    });
+    trackAction("grocery_manual_item_added", {
+      manual_item_count_after: list.manualItems.length + 1,
     });
   };
 
@@ -915,6 +953,10 @@ export function GroceryListContent({
             const checkedCount = group.items.filter((item) =>
               checkedSet.has(item.id),
             ).length;
+            const groupItemIds = group.items.flatMap((item) =>
+              sharedIngredientUsage.get(item.name.trim().toLocaleLowerCase())?.itemIds ?? [item.id],
+            );
+            const allSelected = groupItemIds.length > 0 && groupItemIds.every((id) => checkedSet.has(id));
             return (
               <View key={groupKey} style={styles.mealGroup}>
                 <Pressable
@@ -1003,7 +1045,21 @@ export function GroceryListContent({
                 {!group.missingIngredients && !group.isSpecial && !collapsed ? (
                   <View style={styles.group}>
                     {group.dayTitle && group.items.length > 0 ? (
-                      <Text style={styles.shoppingSectionLabel}>NEED TO BUY · {group.items.length}</Text>
+                      <View style={styles.shoppingSectionHeader}>
+                        <Text style={styles.shoppingSectionLabel}>NEED TO BUY · {group.items.length}</Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`${allSelected ? "Deselect" : "Select"} all ingredients for ${group.mealTitle} and close drawer`}
+                          onPress={() => {
+                            toggleItems(groupItemIds);
+                            setCollapsedMealGroups((current) => ({ ...current, [groupKey]: true }));
+                          }}
+                          hitSlop={8}
+                          style={({ pressed }) => pressed && styles.itemRowPressed}
+                        >
+                          <Text style={styles.selectAllText}>{allSelected ? "Deselect All" : "Select All"}</Text>
+                        </Pressable>
+                      </View>
                     ) : null}
                     {group.items.map(renderItem)}
                     {group.dayTitle && group.pantryItems.length > 0 ? (
@@ -1464,6 +1520,17 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: theme.color.surfaceAlt,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: theme.color.cardOutline,
+    },
+    shoppingSectionHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: theme.space.sm,
+    },
+    selectAllText: {
+      color: theme.color.accent,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.medium,
     },
     shoppingSectionLabel: {
       color: theme.color.ink,

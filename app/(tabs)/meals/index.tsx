@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
   GestureHandlerRootView,
   RectButton,
@@ -1253,6 +1253,21 @@ export default function MealsScreen() {
     setCompletionAutoFillMealId(null);
     setDetailAutoFillMealId(null);
   }, [resetActivePendingImport]);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        Keyboard.dismiss();
+        handleDismissModal();
+        handleFreezerModalClose();
+        setDisplaySheetOpen(false);
+        setMealPickerVisible(false);
+        setPlannedMealDeletion(null);
+        setPendingSuggestMeal(null);
+        setSuggestToastVisible(false);
+      };
+    }, [handleDismissModal, handleFreezerModalClose]),
+  );
 
   const handleCreateMeal = useCallback(
     (draft: MealDraft) => {

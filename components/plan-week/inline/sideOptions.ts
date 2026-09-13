@@ -1,5 +1,5 @@
 import { Meal } from "../../../types/meals";
-import { getSideSuggestions } from "../../../utils/cuisineSideSuggestions";
+import { CuisineSideOverrides, getSideSuggestions } from "../../../utils/cuisineSideSuggestions";
 
 export type SideOption = {
   name: string;
@@ -29,6 +29,7 @@ export const promoteSavedSides = (
 export const getSideOptionsForMeal = (
   meal: Meal,
   existingSides: string[] = [],
+  cuisineOverrides: CuisineSideOverrides = {},
 ): SideOption[] => {
   const seen = new Set<string>();
   const options: SideOption[] = [];
@@ -40,6 +41,7 @@ export const getSideOptionsForMeal = (
   );
   const suggestedSides = getSideSuggestions({
     cuisine: meal.cuisine,
+    cuisineOverrides,
     savedSides,
   });
 

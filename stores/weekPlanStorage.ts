@@ -33,13 +33,13 @@ type WeekPlanDraftMap = Record<string, WeekPlanDraft>;
 export type WeekPlanStreak = {
   count: number;
   lastCompletedWeekStartIso: string | null;
-  calculationVersion?: 2;
+  calculationVersion?: 3;
 };
 
 const defaultStreak: WeekPlanStreak = {
   count: 0,
   lastCompletedWeekStartIso: null,
-  calculationVersion: 2,
+  calculationVersion: 3,
 };
 
 const isValidDayKey = (value: unknown): value is PlannedWeekDayKey =>
@@ -50,6 +50,7 @@ type WeekSidesMap = Record<string, CurrentWeekSides>;
 export type WeekPlanHistoryEntry = {
   weekStartISO: string;
   completedAtISO: string;
+  completionVersion?: 1;
   plan: CurrentPlannedWeek;
   mealTitles?: Record<string, string>;
   mealSnapshots?: Record<
@@ -608,19 +609,16 @@ export const getWeekPlanStreak = async (): Promise<WeekPlanStreak> => {
     ) {
       return defaultStreak;
     }
-    const isCurrentCalculation = parsed.calculationVersion === 2;
+    // Version 3 counts fully resolved weeks. Older versions counted a plan as
+    // soon as it was saved, so those values cannot be carried forward safely.
+    if (parsed.calculationVersion !== 3) return defaultStreak;
     return {
-      // The original calculation counted the baseline week as streak 1.
-      // Normalize existing data so a streak begins with the next consecutive
-      // planned week instead.
-      count: isCurrentCalculation
-        ? Math.max(0, parsed.count ?? 0)
-        : Math.max(0, (parsed.count ?? 0) - 1),
+      count: Math.max(0, parsed.count ?? 0),
       lastCompletedWeekStartIso:
         typeof parsed.lastCompletedWeekStartIso === "string"
           ? parsed.lastCompletedWeekStartIso
           : null,
-      calculationVersion: 2,
+      calculationVersion: 3,
     };
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to get plan streak", error);
@@ -638,7 +636,7 @@ export const updateWeekPlanStreak = async (
   let nextCount = current.count ?? 0;
 
   if (!lastStartIso) {
-    nextCount = 0;
+    nextCount = 1;
   } else if (lastStartIso === nextStartIso) {
     nextCount = current.count;
   } else {
@@ -646,13 +644,13 @@ export const updateWeekPlanStreak = async (
     const nextStart = new Date(`${nextStartIso}T00:00:00.000Z`);
     const diffMs = nextStart.getTime() - last.getTime();
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-    nextCount = diffDays === 7 ? current.count + 1 : 0;
+    nextCount = diffDays === 7 ? current.count + 1 : 1;
   }
 
   const next: WeekPlanStreak = {
     count: nextCount,
     lastCompletedWeekStartIso: nextStartIso,
-    calculationVersion: 2,
+    calculationVersion: 3,
   };
 
   try {
@@ -661,6 +659,36 @@ export const updateWeekPlanStreak = async (
     console.warn("[weekPlanStorage] Failed to persist plan streak", error);
   }
 
+  return next;
+};
+
+export const recalculateWeekPlanStreak = async (): Promise<WeekPlanStreak> => {
+  const history = await getWeekPlanHistoryInternal();
+  const starts = history
+    .map((entry) => entry.weekStartISO.slice(0, 10))
+    .sort((a, b) => b.localeCompare(a));
+  if (!starts.length) {
+    await AsyncStorage.setItem(WEEK_PLAN_STREAK_KEY, JSON.stringify(defaultStreak));
+    return defaultStreak;
+  }
+
+  let count = 1;
+  for (let index = 1; index < starts.length; index += 1) {
+    const newer = new Date(`${starts[index - 1]}T00:00:00.000Z`);
+    const older = new Date(`${starts[index]}T00:00:00.000Z`);
+    const diffDays = Math.round(
+      (newer.getTime() - older.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    if (diffDays !== 7) break;
+    count += 1;
+  }
+
+  const next: WeekPlanStreak = {
+    count,
+    lastCompletedWeekStartIso: starts[0],
+    calculationVersion: 3,
+  };
+  await AsyncStorage.setItem(WEEK_PLAN_STREAK_KEY, JSON.stringify(next));
   return next;
 };
 
@@ -692,6 +720,7 @@ const getWeekPlanHistoryInternal = async (): Promise<WeekPlanHistoryEntry[]> => 
         return {
           weekStartISO: maybe.weekStartISO.slice(0, 10),
           completedAtISO: maybe.completedAtISO,
+          completionVersion: maybe.completionVersion === 1 ? 1 : undefined,
           plan: normalizedPlan,
           mealTitles:
             maybe.mealTitles && typeof maybe.mealTitles === "object"
@@ -710,7 +739,10 @@ const getWeekPlanHistoryInternal = async (): Promise<WeekPlanHistoryEntry[]> => 
               : undefined,
         } as WeekPlanHistoryEntry;
       })
-      .filter(Boolean) as WeekPlanHistoryEntry[];
+      .filter(
+        (entry): entry is WeekPlanHistoryEntry =>
+          Boolean(entry?.completionVersion === 1),
+      );
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to read history", error);
     return [];
@@ -733,12 +765,26 @@ export const addWeekPlanHistory = async (
     maxEntries?: number;
     meals?: Meal[];
     servedMealIds?: Set<string>;
+    isComplete?: boolean;
   } = {}
 ): Promise<void> => {
-  const { maxEntries = 100, meals = [], servedMealIds = new Set<string>() } =
-    options;
+  const {
+    maxEntries = 100,
+    meals = [],
+    servedMealIds = new Set<string>(),
+    isComplete = false,
+  } = options;
   const startISO = plan.weekStartISO;
-  if (!startISO || !isValidISODateString(startISO) || !plan.weekedPlanned) {
+  const isFullWeek = PLANNED_WEEK_ORDER.every(
+    (day) => typeof plan[day] === "string",
+  );
+  if (
+    !isComplete ||
+    !isFullWeek ||
+    !startISO ||
+    !isValidISODateString(startISO) ||
+    !plan.weekedPlanned
+  ) {
     return;
   }
   const existing = await getWeekPlanHistoryInternal();
@@ -775,6 +821,7 @@ export const addWeekPlanHistory = async (
   deduped.unshift({
     weekStartISO: startISO.slice(0, 10),
     completedAtISO,
+    completionVersion: 1,
     plan,
     mealTitles: plannedMeals.reduce<Record<string, string>>((titles, meal) => {
       titles[meal.id] = meal.title;
@@ -795,17 +842,7 @@ export const addWeekPlanHistory = async (
 };
 
 export const getWeekPlanHistory = async (): Promise<WeekPlanHistoryEntry[]> => {
-  const [history, streak] = await Promise.all([
-    getWeekPlanHistoryInternal(),
-    getWeekPlanStreak(),
-  ]);
-  if (!streak.lastCompletedWeekStartIso) return history;
-
-  // The latest planned week is still the active streak baseline. It becomes a
-  // completed history entry only after the following week has been planned.
-  return history.filter(
-    (entry) => entry.weekStartISO !== streak.lastCompletedWeekStartIso,
-  );
+  return getWeekPlanHistoryInternal();
 };
 
 export const snapshotMealTitleInWeekPlanHistory = async (

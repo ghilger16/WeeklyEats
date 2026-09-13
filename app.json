@@ -4,7 +4,7 @@
     "slug": "WeeklyEats",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/weicon.png",
+    "icon": "./assets/app-icon-pink.png",
     "userInterfaceStyle": "automatic",
     "scheme": "weeklyeats",
     "newArchEnabled": true,
@@ -34,6 +34,14 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-datadog",
+        {
+          "errorTracking": {
+            "serviceName": "weekly-eats"
+          }
+        }
+      ],
       [
         "expo-calendar",
         {

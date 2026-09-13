@@ -54,7 +54,7 @@ export const getRecentlyAddedUnservedMeals = (
       .filter((entry) => entry.outcome === "served" && Boolean(entry.mealId))
       .map((entry) => entry.mealId as string),
   );
-  const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+  const cutoff = now - 6 * 7 * 24 * 60 * 60 * 1000;
 
   return meals
     .filter((meal) => {

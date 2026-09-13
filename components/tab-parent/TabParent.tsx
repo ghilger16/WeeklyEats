@@ -42,6 +42,7 @@ type ProfileButtonProps = {
 };
 
 type Props = {
+  uniformActionSize?: boolean;
   title?: string;
   header?: ReactNode;
   children: ReactNode;
@@ -80,6 +81,7 @@ export default function TabParent({
   profileBtn,
   streak,
   smartLevel,
+  uniformActionSize = false,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -130,6 +132,7 @@ export default function TabParent({
                 onPress={streak.onPress}
                 style={({ pressed }) => [
                   styles.streakPill,
+                  uniformActionSize && styles.uniformAction,
                   streak.onPress && pressed && styles.streakPillPressed,
                 ]}
                 accessibilityRole={streak.onPress ? "button" : "text"}
@@ -149,6 +152,7 @@ export default function TabParent({
                 onPress={smartLevel.onPress}
                 style={({ pressed }) => [
                   styles.streakPill,
+                  uniformActionSize && styles.uniformAction,
                   smartLevel.onPress && pressed && styles.streakPillPressed,
                 ]}
                 accessibilityRole={smartLevel.onPress ? "button" : "text"}
@@ -218,6 +222,7 @@ export default function TabParent({
               <Pressable
                 style={({ pressed }) => [
                   styles.iconButton,
+                  uniformActionSize && styles.uniformAction,
                   pressed && styles.iconButtonPressed,
                 ]}
                 hitSlop={theme.space.xs}
@@ -313,6 +318,14 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     streakPillPressed: {
       opacity: 0.9,
+    },
+    uniformAction: {
+      width: 48,
+      height: 40,
+      paddingHorizontal: 4,
+      paddingVertical: 0,
+      justifyContent: "center",
+      borderRadius: 20,
     },
     iconButton: {
       width: 40,

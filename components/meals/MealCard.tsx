@@ -1,3 +1,5 @@
+import { IngredientValue, getIngredientName, normalizeIngredientValue, isIngredient, prepareRecipeMealDraft } from "../../utils/recipeMealDraft";
+import RecipeAutoFillProgress from "./RecipeAutoFillProgress";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import MealEmoji from "../emoji/MealEmoji";
 import * as Haptics from "expo-haptics";
@@ -30,7 +32,6 @@ import {
   IngredientType,
   Meal,
   MealDraft,
-  ShoppingCategory,
 } from "../../types/meals";
 import { useFeatureFlag } from "../../hooks/useFeatureFlags";
 import { useRecipeAutoFill } from "../../hooks/useRecipeAutoFill";
@@ -54,7 +55,6 @@ import {
 } from "../../utils/familyRatings";
 import {
   classifyIngredientType,
-  classifyIngredients,
   normalizeIngredientClassificationName,
   setIngredientClassificationPreference,
 } from "../../utils/ingredientClassification";
@@ -76,39 +76,6 @@ type MealFormValues = MealDraft;
 type AddMealStep = "entry" | "manual" | "autofill-loading";
 
 const SLIDER_STEPS = 5;
-
-type IngredientValue =
-  | string
-  | { name?: unknown; category?: unknown; ingredientType?: unknown };
-
-const SHOPPING_CATEGORIES: ShoppingCategory[] = [
-  "produce",
-  "meat",
-  "seafood",
-  "dairy",
-  "bakery",
-  "deli",
-  "frozen",
-  "pantry",
-  "canned",
-  "pastaAndRice",
-  "spices",
-  "condiments",
-  "baking",
-  "beverages",
-  "snacks",
-  "household",
-  "other",
-];
-
-const normalizeCategory = (value: unknown): ShoppingCategory =>
-  typeof value === "string" &&
-  SHOPPING_CATEGORIES.includes(value as ShoppingCategory)
-    ? (value as ShoppingCategory)
-    : "other";
-
-const normalizeIngredientType = (value: unknown): IngredientType =>
-  value === "pantryStaple" ? "pantryStaple" : "keyIngredient";
 
 const clampSliderValue = (value: number) =>
   Math.min(Math.max(Math.round(value), 1), SLIDER_STEPS);
@@ -166,44 +133,6 @@ type AutoFillPreviewDraft = {
   preferredSides?: string[];
 };
 
-const getIngredientName = (ingredient: IngredientValue) => {
-  if (typeof ingredient === "string") {
-    return ingredient.trim();
-  }
-  if (
-    ingredient &&
-    typeof ingredient === "object" &&
-    typeof ingredient.name === "string"
-  ) {
-    return ingredient.name.trim();
-  }
-  return "";
-};
-
-const normalizeIngredientValue = (
-  ingredient: IngredientValue
-): Ingredient | null => {
-  const name = getIngredientName(ingredient);
-  if (!name) {
-    return null;
-  }
-  if (typeof ingredient === "string") {
-    return {
-      name,
-      category: "other",
-      ingredientType: "keyIngredient",
-    };
-  }
-  return {
-    name,
-    category: normalizeCategory(ingredient.category),
-    ingredientType: normalizeIngredientType(ingredient.ingredientType),
-  };
-};
-
-const isIngredient = (ingredient: Ingredient | null): ingredient is Ingredient =>
-  Boolean(ingredient);
-
 const createManualIngredient = (
   name: string,
   ingredientType: IngredientType = "keyIngredient"
@@ -253,7 +182,7 @@ const normalizeMeal = (meal: MealDraft | Meal): MealFormValues => ({
       : undefined,
   expense:
     typeof meal.expense === "number"
-      ? snapToLevelValue(meal.expense, EXPENSE_LEVELS)
+      ? clampSliderValue(meal.expense)
       : undefined,
   cuisine: meal.cuisine ?? undefined,
   prepNotes: meal.prepNotes ?? "",
@@ -351,7 +280,6 @@ export default function MealCard({
   const [addMealStep, setAddMealStep] = useState<AddMealStep>(
     mode === "edit" ? "manual" : "entry"
   );
-  const [completedLoadingSteps, setCompletedLoadingSteps] = useState(0);
   const [isDetailIngredientsExpanded, setDetailIngredientsExpanded] =
     useState(false);
   const [isDetailIngredientsEditing, setDetailIngredientsEditing] =
@@ -418,7 +346,6 @@ export default function MealCard({
     setShowTitleRequiredError(false);
     autoFillTriggeredRef.current = false;
     setAddMealStep(mode === "edit" ? "manual" : "entry");
-    setCompletedLoadingSteps(0);
     if (!isSameMeal) {
       setDetailIngredientsExpanded(false);
       setDetailIngredientsEditing(false);
@@ -436,24 +363,6 @@ export default function MealCard({
       detailAutoFillInFlightRef.current = false;
     }
   }, [initialMeal, mode]);
-
-  useEffect(() => {
-    if (addMealStep !== "autofill-loading" || !isAutoFillLoading) {
-      return;
-    }
-
-    setCompletedLoadingSteps(0);
-    const findingTimer = setTimeout(() => setCompletedLoadingSteps(1), 350);
-    const ingredientsTimer = setTimeout(
-      () => setCompletedLoadingSteps(2),
-      1100
-    );
-
-    return () => {
-      clearTimeout(findingTimer);
-      clearTimeout(ingredientsTimer);
-    };
-  }, [addMealStep, isAutoFillLoading]);
 
   useEffect(() => {
     setPrepNotesDraft((prev) => {
@@ -645,35 +554,7 @@ export default function MealCard({
     }
     detailAutoFillInFlightRef.current = false;
 
-    setCompletedLoadingSteps(3);
-
-    const normalizedDifficulty =
-      typeof outcome.data.difficulty === "number"
-        ? snapToLevelValue(outcome.data.difficulty, DIFFICULTY_LEVELS)
-        : undefined;
-    const normalizedExpense =
-      typeof outcome.data.expense === "number"
-        ? snapToLevelValue(outcome.data.expense, EXPENSE_LEVELS)
-        : undefined;
-
-    const normalizedIngredients = Array.isArray(outcome.data.ingredients)
-      ? (outcome.data.ingredients as IngredientValue[])
-          .map(normalizeIngredientValue)
-          .filter(isIngredient)
-      : [];
-    const classifiedIngredients = await classifyIngredients(
-      normalizedIngredients,
-    );
-
-    setAutoFillDraft({
-      title: outcome.data.title?.trim() ?? "",
-      ingredients: classifiedIngredients,
-      cuisine: outcome.data.cuisine,
-      difficulty: normalizedDifficulty,
-      expense: normalizedExpense,
-      prepNotes: outcome.data.prepNotes?.trim() ?? "",
-      preferredSides: outcome.data.suggestedSides ?? [],
-    });
+    setAutoFillDraft(await prepareRecipeMealDraft(outcome.data));
     setNewAutoFillIngredient("");
     setIsAutoFillIngredientDeleteMode(false);
     setAddMealStep("manual");
@@ -2028,7 +1909,6 @@ export default function MealCard({
           mealEmoji={form.emoji}
           onSelect={(cuisine) => {
             persistDetailPatch({ cuisine });
-            setCuisineSelectorVisible(false);
           }}
           onClose={() => setCuisineSelectorVisible(false)}
         />
@@ -2164,48 +2044,10 @@ export default function MealCard({
   }
 
   if (addMealStep === "autofill-loading") {
-    const loadingItems = [
-      "Finding the recipe",
-      "Adding ingredients",
-      "Organizing your grocery list",
-    ];
     return (
       <View style={styles.container}>
         {renderHeader(true)}
-        <View style={styles.loadingContent}>
-          <View style={styles.loadingMagicIcon}>
-            <MaterialCommunityIcons
-              name="magic-staff"
-              size={58}
-              color={theme.color.accent}
-            />
-          </View>
-          <Text style={styles.loadingTitle}>Creating your meal…</Text>
-          <View style={styles.loadingChecklist}>
-            {loadingItems.map((label, index) => {
-              const complete = completedLoadingSteps > index;
-              return (
-                <View style={styles.loadingRow} key={label}>
-                  <MaterialCommunityIcons
-                    name={complete ? "check-circle" : "circle-outline"}
-                    size={21}
-                    color={complete ? theme.color.accent : theme.color.border}
-                  />
-                  <Text style={styles.loadingRowText}>{label}</Text>
-                </View>
-              );
-            })}
-          </View>
-          <View style={styles.loadingTrack}>
-            <View
-              style={[
-                styles.loadingProgress,
-                { width: `${Math.max(12, completedLoadingSteps * 33.333)}%` },
-              ]}
-            />
-          </View>
-          <Text style={styles.loadingHelper}>This may take a few seconds</Text>
-        </View>
+        <RecipeAutoFillProgress complete={!isAutoFillLoading} />
       </View>
     );
   }
@@ -2983,7 +2825,6 @@ export default function MealCard({
               mealEmoji={autoFillPreviewEmoji}
               onSelect={(cuisine) => {
                 updateAutoFillDraft("cuisine", cuisine);
-                closeAutoFillCuisineSelector();
               }}
               onClose={closeAutoFillCuisineSelector}
             />
@@ -3288,60 +3129,6 @@ const createStyles = (theme: WeeklyTheme) =>
       color: theme.color.subtleInk,
       fontSize: theme.type.size.sm,
       lineHeight: 20,
-    },
-    loadingContent: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingHorizontal: theme.space["2xl"],
-      paddingBottom: 72,
-    },
-    loadingMagicIcon: {
-      width: 96,
-      height: 96,
-      alignItems: "center",
-      justifyContent: "center",
-      marginBottom: theme.space.lg,
-    },
-    loadingTitle: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.h1,
-      fontWeight: theme.type.weight.bold,
-      marginBottom: theme.space.xl,
-      textAlign: "center",
-    },
-    loadingChecklist: {
-      width: "100%",
-      maxWidth: 320,
-      gap: theme.space.lg,
-      marginBottom: theme.space.xl,
-    },
-    loadingRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: theme.space.md,
-    },
-    loadingRowText: {
-      color: theme.color.ink,
-      fontSize: theme.type.size.base,
-    },
-    loadingTrack: {
-      width: "100%",
-      maxWidth: 320,
-      height: 7,
-      overflow: "hidden",
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.surfaceAlt,
-    },
-    loadingProgress: {
-      height: "100%",
-      borderRadius: theme.radius.full,
-      backgroundColor: theme.color.accent,
-    },
-    loadingHelper: {
-      color: theme.color.subtleInk,
-      fontSize: theme.type.size.sm,
-      marginTop: theme.space.md,
     },
     section: {
       gap: theme.space.md,

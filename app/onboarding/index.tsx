@@ -4,9 +4,12 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  Alert,
   Animated,
+  Easing,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -17,6 +20,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { memberColorPalette } from "../../components/meals/FamilyRatingIcons";
+import MealEmoji from "../../components/emoji/MealEmoji";
+import {
+  BEEF_STIR_FRY_EMOJI_TOKEN,
+  CHILI_EMOJI_TOKEN,
+  MAC_AND_CHEESE_EMOJI_TOKEN,
+  MEATLOAF_EMOJI_TOKEN,
+} from "../../components/emoji/customEmojiRegistry";
 import { useFamilyMembers } from "../../hooks/useFamilyMembers";
 import { useMeals } from "../../hooks/useMeals";
 import { useSubscription } from "../../hooks/useSubscription";
@@ -34,7 +44,13 @@ import {
   setOnboardingCompleted,
 } from "../../stores/onboardingStorage";
 import { deriveFamilyInitials } from "../../utils/familyInitials";
-import { createMealId, Meal } from "../../types/meals";
+import {
+  createMealId,
+  Meal,
+  MealIngredient,
+  ShoppingCategory,
+} from "../../types/meals";
+import { trackAction } from "../../services/analytics";
 
 type OnboardingStep =
   | "welcome"
@@ -53,33 +69,65 @@ const STEPS: OnboardingStep[] = [
   "paywall",
 ];
 
+type QuickMealOption = Pick<
+  Meal,
+  "title" | "emoji" | "difficulty" | "expense" | "cuisine"
+> & { ingredients: readonly MealIngredient[] };
+
+const keyIngredient = (
+  name: string,
+  category: ShoppingCategory,
+) => ({ name, category, ingredientType: "keyIngredient" as const });
+
+const pantryStaple = (
+  name: string,
+  category: ShoppingCategory,
+) => ({ name, category, ingredientType: "pantryStaple" as const });
+
 const QUICK_MEALS = [
-  { title: "Tacos", emoji: "🌮" },
-  { title: "Spaghetti", emoji: "🍝" },
-  { title: "Pizza", emoji: "🍕" },
-  { title: "Burgers", emoji: "🍔" },
-  { title: "Grilled Chicken", emoji: "🍗" },
-  { title: "Stir Fry", emoji: "🥦" },
-  { title: "Salmon", emoji: "🐟" },
-  { title: "Mac & Cheese", emoji: "🧀" },
-  { title: "Quesadillas", emoji: "🫓" },
-  { title: "Meatloaf", emoji: "🍖" },
-  { title: "Chili", emoji: "🍲" },
-  { title: "Ramen", emoji: "🍜" },
-] as const;
+  { title: "Tacos", emoji: "🌮", cuisine: "mexican", difficulty: 1, expense: 2, ingredients: [keyIngredient("Ground beef", "meat"), keyIngredient("Taco shells", "pantry"), keyIngredient("Shredded cheese", "dairy"), keyIngredient("Lettuce", "produce"), keyIngredient("Tomatoes", "produce"), pantryStaple("Taco seasoning", "spices"), pantryStaple("Salsa", "condiments")] },
+  { title: "Spaghetti", emoji: "🍝", cuisine: "italian", difficulty: 1, expense: 1, ingredients: [keyIngredient("Spaghetti", "pastaAndRice"), keyIngredient("Ground beef", "meat"), keyIngredient("Marinara sauce", "pantry"), keyIngredient("Parmesan cheese", "dairy"), pantryStaple("Garlic", "produce"), pantryStaple("Italian seasoning", "spices")] },
+  { title: "Pizza", emoji: "🍕", cuisine: "italian", difficulty: 2, expense: 2, ingredients: [keyIngredient("Pizza dough", "bakery"), keyIngredient("Pizza sauce", "pantry"), keyIngredient("Mozzarella cheese", "dairy"), keyIngredient("Pepperoni", "deli"), pantryStaple("Olive oil", "pantry"), pantryStaple("Italian seasoning", "spices")] },
+  { title: "Burgers", emoji: "🍔", cuisine: "american", difficulty: 1, expense: 2, ingredients: [keyIngredient("Ground beef", "meat"), keyIngredient("Hamburger buns", "bakery"), keyIngredient("Sliced cheese", "dairy"), keyIngredient("Lettuce", "produce"), keyIngredient("Tomatoes", "produce"), keyIngredient("Onion", "produce"), pantryStaple("Ketchup", "condiments"), pantryStaple("Mustard", "condiments")] },
+  { title: "Grilled Chicken", emoji: "🍗", cuisine: "american", difficulty: 2, expense: 2, ingredients: [keyIngredient("Chicken breasts", "meat"), keyIngredient("Lemon", "produce"), pantryStaple("Olive oil", "pantry"), pantryStaple("Garlic", "produce"), pantryStaple("Salt", "spices"), pantryStaple("Black pepper", "spices")] },
+  { title: "Stir Fry", emoji: BEEF_STIR_FRY_EMOJI_TOKEN, cuisine: "chinese", difficulty: 2, expense: 2, ingredients: [keyIngredient("Beef strips", "meat"), keyIngredient("Broccoli", "produce"), keyIngredient("Bell peppers", "produce"), keyIngredient("Rice", "pastaAndRice"), keyIngredient("Stir-fry sauce", "condiments"), pantryStaple("Soy sauce", "condiments"), pantryStaple("Cooking oil", "pantry")] },
+  { title: "Salmon", emoji: "🐟", cuisine: "american", difficulty: 2, expense: 4, ingredients: [keyIngredient("Salmon fillets", "seafood"), keyIngredient("Lemon", "produce"), pantryStaple("Olive oil", "pantry"), pantryStaple("Garlic", "produce"), pantryStaple("Salt", "spices"), pantryStaple("Black pepper", "spices")] },
+  { title: "Mac & Cheese", emoji: MAC_AND_CHEESE_EMOJI_TOKEN, cuisine: "american", difficulty: 2, expense: 2, ingredients: [keyIngredient("Elbow macaroni", "pastaAndRice"), keyIngredient("Cheddar cheese", "dairy"), keyIngredient("Milk", "dairy"), keyIngredient("Butter", "dairy"), pantryStaple("Flour", "baking"), pantryStaple("Salt", "spices")] },
+  { title: "Quesadillas", emoji: "🫓", cuisine: "mexican", difficulty: 1, expense: 1, ingredients: [keyIngredient("Flour tortillas", "bakery"), keyIngredient("Shredded cheese", "dairy"), keyIngredient("Chicken", "meat"), keyIngredient("Bell peppers", "produce"), keyIngredient("Salsa", "condiments"), pantryStaple("Cooking oil", "pantry")] },
+  { title: "Meatloaf", emoji: MEATLOAF_EMOJI_TOKEN, cuisine: "american", difficulty: 3, expense: 2, ingredients: [keyIngredient("Ground beef", "meat"), keyIngredient("Eggs", "dairy"), keyIngredient("Breadcrumbs", "pantry"), keyIngredient("Onion", "produce"), keyIngredient("Milk", "dairy"), pantryStaple("Ketchup", "condiments"), pantryStaple("Worcestershire sauce", "condiments")] },
+  { title: "Chili", emoji: CHILI_EMOJI_TOKEN, cuisine: "texMex", difficulty: 2, expense: 2, ingredients: [keyIngredient("Ground beef", "meat"), keyIngredient("Kidney beans", "canned"), keyIngredient("Diced tomatoes", "canned"), keyIngredient("Tomato sauce", "canned"), keyIngredient("Onion", "produce"), pantryStaple("Chili powder", "spices"), pantryStaple("Cumin", "spices")] },
+  { title: "Ramen", emoji: "🍜", cuisine: "japanese", difficulty: 2, expense: 2, ingredients: [keyIngredient("Ramen noodles", "pastaAndRice"), keyIngredient("Chicken broth", "pantry"), keyIngredient("Eggs", "dairy"), keyIngredient("Green onions", "produce"), keyIngredient("Mushrooms", "produce"), pantryStaple("Soy sauce", "condiments"), pantryStaple("Sesame oil", "condiments")] },
+] as const satisfies readonly QuickMealOption[];
 
 const normalizeMealTitle = (title: string) => title.trim().toLowerCase();
 
 type QuickMealTransitionPhase = "idle" | "grouping" | "confirmed";
+type ShoppingDayFlowPhase = "selecting" | "transitioning" | "flow";
 
-const createQuickMeal = (title: string, emoji: string): Meal => ({
+type TravelingChipLayout = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  translateX: number;
+  translateY: number;
+  targetWidth: number;
+  targetHeight: number;
+};
+
+const createQuickMeal = (option: QuickMealOption): Meal => ({
   id: createMealId(),
-  title: title.trim(),
-  emoji,
+  title: option.title.trim(),
+  emoji: option.emoji,
+  ingredients: [...(option.ingredients ?? [])],
+  difficulty: option.difficulty,
+  expense: option.expense,
+  cuisine: option.cuisine,
   rating: 0,
   servedCount: 0,
   showServedCount: false,
-  plannedCostTier: 2,
+  plannedCostTier:
+    !option.expense || option.expense <= 2 ? 1 : option.expense >= 4 ? 3 : 2,
   locked: false,
   isFavorite: false,
   createdAt: new Date().toISOString(),
@@ -96,6 +144,10 @@ export default function OnboardingScreen() {
   const [stepIndex, setStepIndex] = useState(0);
   const [shoppingDay, setShoppingDay] =
     useState<PlannedWeekDayKey | null>(null);
+  const [shoppingDayFlowPhase, setShoppingDayFlowPhase] =
+    useState<ShoppingDayFlowPhase>("selecting");
+  const [travelingChipLayout, setTravelingChipLayout] =
+    useState<TravelingChipLayout | null>(null);
   const [familyMembers, setFamilyMembers] = useState<
     Array<{ id: string; name: string }>
   >([]);
@@ -112,6 +164,19 @@ export default function OnboardingScreen() {
   const [familyKeyboardInset, setFamilyKeyboardInset] = useState(0);
   const familyMemberInputRef = useRef<TextInput | null>(null);
   const familyListScrollRef = useRef<ScrollView | null>(null);
+  const shoppingDayStepRef = useRef<View | null>(null);
+  const selectedShoppingDayRef = useRef<View | null>(null);
+  const shoppingDayDestinationRef = useRef<View | null>(null);
+  const shoppingInitialOpacity = useRef(new Animated.Value(1)).current;
+  const shoppingInitialTranslateY = useRef(new Animated.Value(0)).current;
+  const shoppingFlowHeaderProgress = useRef(new Animated.Value(0)).current;
+  const shoppingChipProgress = useRef(new Animated.Value(0)).current;
+  const shoppingChipOpacity = useRef(new Animated.Value(1)).current;
+  const shoppingShopCardProgress = useRef(new Animated.Value(0)).current;
+  const shoppingPlanCardProgress = useRef(new Animated.Value(0)).current;
+  const shoppingDinnerCardProgress = useRef(new Animated.Value(0)).current;
+  const shoppingCardRotation = useRef(new Animated.Value(0)).current;
+  const shoppingConnectorsProgress = useRef(new Animated.Value(0)).current;
   const quickMealButtonScale = useRef(new Animated.Value(1)).current;
   const quickMealUnselectedOpacity = useRef(new Animated.Value(1)).current;
   const quickMealSelectedOpacity = useRef(new Animated.Value(1)).current;
@@ -120,6 +185,10 @@ export default function OnboardingScreen() {
 
   const step = STEPS[stepIndex];
   const progress = `${stepIndex + 1} / ${STEPS.length}`;
+
+  useEffect(() => {
+    trackAction("onboarding_started");
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -136,13 +205,252 @@ export default function OnboardingScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    shoppingCardRotation.setValue(0);
+    if (step !== "shoppingDay" || shoppingDayFlowPhase !== "flow" || reduceMotion) return;
+
+    // Advance clockwise only. Reset after a full lap, where 3 and 0
+    // represent the same positions, so the cards never animate backwards.
+    let nextPosition = 0;
+    let completedRotations = 0;
+    let animation: Animated.CompositeAnimation | undefined;
+    const interval = setInterval(() => {
+      if (nextPosition === 3) {
+        shoppingCardRotation.setValue(0);
+        nextPosition = 0;
+      }
+      nextPosition += 1;
+      animation = Animated.timing(shoppingCardRotation, {
+        toValue: nextPosition,
+        duration: 550,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: false,
+        isInteraction: false,
+      });
+      animation.start(({ finished }) => {
+        if (finished && nextPosition === 3) {
+          completedRotations += 1;
+          if (completedRotations === 2) clearInterval(interval);
+        }
+      });
+    }, 3000);
+
+    return () => {
+      clearInterval(interval);
+      animation?.stop();
+    };
+  }, [reduceMotion, shoppingCardRotation, shoppingDayFlowPhase, step]);
+
   const goNext = useCallback(() => {
     setStepIndex((prev) => Math.min(prev + 1, STEPS.length - 1));
   }, []);
 
   const goBack = useCallback(() => {
+    if (step === "shoppingDay" && shoppingDayFlowPhase === "flow") {
+      shoppingInitialOpacity.setValue(1);
+      shoppingInitialTranslateY.setValue(0);
+      shoppingFlowHeaderProgress.setValue(0);
+      shoppingChipProgress.setValue(0);
+      shoppingChipOpacity.setValue(0);
+      shoppingShopCardProgress.setValue(0);
+      shoppingPlanCardProgress.setValue(0);
+      shoppingDinnerCardProgress.setValue(0);
+      shoppingConnectorsProgress.setValue(0);
+      setTravelingChipLayout(null);
+      setShoppingDayFlowPhase("selecting");
+      return;
+    }
     setStepIndex((prev) => Math.max(prev - 1, 0));
-  }, []);
+  }, [
+    shoppingChipOpacity,
+    shoppingChipProgress,
+    shoppingConnectorsProgress,
+    shoppingDayFlowPhase,
+    shoppingDinnerCardProgress,
+    shoppingFlowHeaderProgress,
+    shoppingInitialOpacity,
+    shoppingInitialTranslateY,
+    shoppingPlanCardProgress,
+    shoppingShopCardProgress,
+    step,
+  ]);
+
+  const runShoppingDayFlowTransition = useCallback(
+    (layout: TravelingChipLayout | null) => {
+      setTravelingChipLayout(layout);
+      setShoppingDayFlowPhase("transitioning");
+      shoppingInitialOpacity.setValue(1);
+      shoppingInitialTranslateY.setValue(0);
+      shoppingFlowHeaderProgress.setValue(0);
+      shoppingChipProgress.setValue(0);
+      shoppingChipOpacity.setValue(layout && !reduceMotion ? 1 : 0);
+      shoppingShopCardProgress.setValue(0);
+      shoppingPlanCardProgress.setValue(0);
+      shoppingDinnerCardProgress.setValue(0);
+      shoppingConnectorsProgress.setValue(0);
+
+      const duration = reduceMotion ? 180 : 520;
+      const animation = reduceMotion
+        ? Animated.parallel([
+            Animated.timing(shoppingInitialOpacity, {
+              toValue: 0,
+              duration,
+              useNativeDriver: true,
+            }),
+            Animated.timing(shoppingFlowHeaderProgress, {
+              toValue: 1,
+              duration,
+              useNativeDriver: true,
+            }),
+            Animated.timing(shoppingShopCardProgress, {
+              toValue: 1,
+              duration,
+              useNativeDriver: true,
+            }),
+            Animated.timing(shoppingPlanCardProgress, {
+              toValue: 1,
+              duration,
+              useNativeDriver: true,
+            }),
+            Animated.timing(shoppingDinnerCardProgress, {
+              toValue: 1,
+              duration,
+              useNativeDriver: true,
+            }),
+            Animated.timing(shoppingConnectorsProgress, {
+              toValue: 1,
+              duration,
+              useNativeDriver: true,
+            }),
+          ])
+        : Animated.parallel([
+            Animated.parallel([
+              Animated.timing(shoppingInitialOpacity, {
+                toValue: 0,
+                duration: 210,
+                useNativeDriver: true,
+              }),
+              Animated.timing(shoppingInitialTranslateY, {
+                toValue: -14,
+                duration: 250,
+                useNativeDriver: true,
+              }),
+              Animated.sequence([
+                Animated.delay(90),
+                Animated.timing(shoppingFlowHeaderProgress, {
+                  toValue: 1,
+                  duration: 260,
+                  useNativeDriver: true,
+                }),
+              ]),
+            ]),
+            Animated.sequence([
+              Animated.delay(90),
+              Animated.timing(shoppingChipProgress, {
+                toValue: 1,
+                duration,
+                easing: Easing.bezier(0.22, 0.76, 0.28, 1),
+                useNativeDriver: false,
+              }),
+              Animated.parallel([
+                Animated.timing(shoppingShopCardProgress, {
+                  toValue: 1,
+                  duration: 180,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(shoppingChipOpacity, {
+                  toValue: 0,
+                  duration: 100,
+                  // This opacity is applied to the same view whose width and
+                  // height morph with shoppingChipProgress. Keeping every
+                  // animation on that view on the JS driver prevents the
+                  // native driver from attempting unsupported layout styles.
+                  useNativeDriver: false,
+                }),
+              ]),
+              Animated.stagger(80, [
+                Animated.timing(shoppingPlanCardProgress, {
+                  toValue: 1,
+                  duration: 210,
+                  easing: Easing.out(Easing.cubic),
+                  useNativeDriver: true,
+                }),
+                Animated.timing(shoppingDinnerCardProgress, {
+                  toValue: 1,
+                  duration: 210,
+                  easing: Easing.out(Easing.cubic),
+                  useNativeDriver: true,
+                }),
+              ]),
+              Animated.timing(shoppingConnectorsProgress, {
+                toValue: 1,
+                duration: 140,
+                useNativeDriver: true,
+              }),
+            ]),
+          ]);
+
+      animation.start(({ finished }) => {
+        if (finished) setShoppingDayFlowPhase("flow");
+      });
+    },
+    [
+      reduceMotion,
+      shoppingChipOpacity,
+      shoppingChipProgress,
+      shoppingConnectorsProgress,
+      shoppingDinnerCardProgress,
+      shoppingFlowHeaderProgress,
+      shoppingInitialOpacity,
+      shoppingInitialTranslateY,
+      shoppingPlanCardProgress,
+      shoppingShopCardProgress,
+    ],
+  );
+
+  const handleShoppingDayContinue = useCallback(() => {
+    if (!shoppingDay || shoppingDayFlowPhase === "transitioning") return;
+    if (shoppingDayFlowPhase === "flow") {
+      goNext();
+      return;
+    }
+    if (reduceMotion) {
+      runShoppingDayFlowTransition(null);
+      return;
+    }
+
+    const root = shoppingDayStepRef.current;
+    const source = selectedShoppingDayRef.current;
+    const destination = shoppingDayDestinationRef.current;
+    if (!root || !source || !destination) {
+      runShoppingDayFlowTransition(null);
+      return;
+    }
+    root.measureInWindow((rootX, rootY) => {
+      source.measureInWindow((sourceX, sourceY, sourceWidth, sourceHeight) => {
+        destination.measureInWindow(
+          (targetX, targetY, targetWidth, targetHeight) => {
+            runShoppingDayFlowTransition({
+              left: sourceX - rootX,
+              top: sourceY - rootY,
+              width: sourceWidth,
+              height: sourceHeight,
+              translateX: targetX - sourceX,
+              translateY: targetY - sourceY,
+              targetWidth,
+              targetHeight,
+            });
+          },
+        );
+      });
+    });
+  }, [
+    goNext,
+    reduceMotion,
+    runShoppingDayFlowTransition,
+    shoppingDay,
+    shoppingDayFlowPhase,
+  ]);
 
   const finishOnboarding = useCallback(async () => {
     if (isFinishing || !shoppingDay) {
@@ -164,11 +472,19 @@ export default function OnboardingScreen() {
       setFirstWeekExperienceActive(true),
       setFirstFullWeekPlanned(false),
     ]);
+    trackAction("onboarding_completed", {
+      grocery_day_set: true,
+      grocery_day: shoppingDay,
+      family_member_count: familyMembers.filter((member) => member.name.trim())
+        .length,
+      meal_library_size: meals.length,
+    });
     router.replace("/week-dashboard");
   }, [
     addMember,
     familyMembers,
     isFinishing,
+    meals.length,
     router,
     setStartDay,
     shoppingDay,
@@ -287,7 +603,7 @@ export default function OnboardingScreen() {
     availableQuickMeals.forEach((option) => {
       const key = normalizeMealTitle(option.title);
       if (!selectedMealTitles.has(key) || existingTitles.has(key)) return;
-      addMeal(createQuickMeal(option.title, option.emoji));
+      addMeal(createQuickMeal(option));
       existingTitles.add(key);
     });
     setSavedQuickMealCount(selectedMealTitles.size);
@@ -388,6 +704,256 @@ export default function OnboardingScreen() {
     return () => animation.stop();
   }, [quickMealConfirmationOpacity, quickMealTransitionPhase, reduceMotion]);
 
+  const renderShoppingDayStep = () => {
+    const selectedDayName = shoppingDay
+      ? PLANNED_WEEK_DISPLAY_NAMES[shoppingDay]
+      : "Shopping day";
+    const rotatingSlotStyle = (initialSlot: number) => {
+      // Clockwise: top, bottom-right, bottom-left.
+      const slots = [
+        { left: "14%", top: 0, width: "72%" },
+        { left: "56%", top: 225, width: "44%" },
+        { left: "0%", top: 225, width: "44%" },
+      ];
+      const positions = [0, 1, 2, 3].map((offset) => slots[(initialSlot + offset) % 3]);
+      return {
+        position: "absolute" as const,
+        zIndex: 1,
+        left: shoppingCardRotation.interpolate({ inputRange: [0, 1, 2, 3], outputRange: positions.map((slot) => slot.left) }),
+        top: shoppingCardRotation.interpolate({ inputRange: [0, 1, 2, 3], outputRange: positions.map((slot) => slot.top) }),
+        width: shoppingCardRotation.interpolate({ inputRange: [0, 1, 2, 3], outputRange: positions.map((slot) => slot.width) }),
+      };
+    };
+    const animatedCardStyle = (progress: Animated.Value, fromX: number) => ({
+      opacity: progress,
+      transform: [
+        {
+          translateX: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [fromX, 0],
+          }),
+        },
+        {
+          translateY: progress.interpolate({
+            inputRange: [0, 1],
+            outputRange: [14, 0],
+          }),
+        },
+      ],
+    });
+
+    return (
+      <View ref={shoppingDayStepRef} collapsable={false} style={styles.shoppingDayStep}>
+        <View style={styles.shoppingDayTransitionStage}>
+          <Animated.View
+            pointerEvents={shoppingDayFlowPhase === "selecting" ? "auto" : "none"}
+            accessibilityElementsHidden={shoppingDayFlowPhase !== "selecting"}
+            importantForAccessibility={shoppingDayFlowPhase === "selecting" ? "auto" : "no-hide-descendants"}
+            style={[
+              styles.shoppingDayMain,
+              {
+                opacity: shoppingInitialOpacity,
+                transform: [{ translateY: shoppingInitialTranslateY }],
+              },
+            ]}
+          >
+            <View style={styles.shoppingDayHero}>
+              <View style={styles.shoppingDayIconWrap}>
+                <MaterialCommunityIcons name="cart-heart" size={50} color={theme.color.accent} />
+                <MaterialCommunityIcons name="creation" size={15} color={theme.color.warning} style={styles.shoppingDaySparkle} />
+              </View>
+              <Text style={styles.shoppingDayTitle}>Shop once.{"\n"}Enjoy all week.</Text>
+              <Text style={styles.shoppingDaySubtitle}>
+                Choosing one shopping day helps you plan better, save money,
+                and keep your week running smoothly.
+              </Text>
+            </View>
+
+            <View style={styles.shoppingDaySelection}>
+              <Text style={styles.shoppingDayPrompt}>What’s your grocery day?</Text>
+              <View style={[styles.dayGrid, styles.shoppingDayGrid]}>
+                {PLANNED_WEEK_ORDER.map((day) => {
+                  const selected = shoppingDay === day;
+                  return (
+                    <View
+                      key={day}
+                      ref={selected ? selectedShoppingDayRef : undefined}
+                      collapsable={false}
+                    >
+                      <Pressable
+                        onPress={() => setShoppingDay(day)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected }}
+                        accessibilityLabel={PLANNED_WEEK_DISPLAY_NAMES[day]}
+                        style={[styles.dayChip, styles.shoppingDayChip, selected && styles.dayChipSelected]}
+                      >
+                        <Text style={[styles.dayChipText, selected && styles.dayChipTextSelected]}>
+                          {PLANNED_WEEK_DISPLAY_NAMES[day].slice(0, 3)}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          </Animated.View>
+
+          <View
+            pointerEvents="none"
+            accessibilityElementsHidden={shoppingDayFlowPhase === "selecting"}
+            importantForAccessibility={shoppingDayFlowPhase === "selecting" ? "no-hide-descendants" : "auto"}
+            style={styles.shoppingFlowLayer}
+          >
+            <Animated.View
+              style={[
+                styles.shoppingFlowHeader,
+                {
+                  opacity: shoppingFlowHeaderProgress,
+                  transform: [{
+                    translateY: shoppingFlowHeaderProgress.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
+                  }],
+                },
+              ]}
+            >
+              <Text style={styles.shoppingFlowTitle}>Your plan, simplified</Text>
+              <Text style={styles.shoppingFlowSubtitle}>Plan, shop, and enjoy — on repeat.</Text>
+            </Animated.View>
+
+            <View style={styles.shoppingFlowLoop}>
+              <Animated.View style={rotatingSlotStyle(2)}>
+                <Animated.View style={[styles.shoppingFlowCard, styles.shoppingFlowSecondaryCard, styles.shoppingFlowPlanCard, styles.shoppingFlowRotatingCard, animatedCardStyle(shoppingPlanCardProgress, -18)]}>
+                  <View style={styles.shoppingFlowSecondaryIcon}>
+                    <MaterialCommunityIcons name="format-list-checks" size={27} color={theme.color.accent} />
+                  </View>
+                  <View style={styles.shoppingFlowSecondaryContent}>
+                    <Text style={styles.shoppingFlowSecondaryTitle}>Plan once</Text>
+                    <Text style={styles.shoppingFlowSecondaryCopy}>Choose your meals for the week.</Text>
+                  </View>
+                </Animated.View>
+              </Animated.View>
+
+              <Animated.View style={rotatingSlotStyle(0)}>
+                <Animated.View
+                  style={[
+                    styles.shoppingFlowCard,
+                    styles.shoppingFlowShopCard,
+                    styles.shoppingFlowRotatingCard,
+                    {
+                      opacity: shoppingShopCardProgress,
+                      transform: [{
+                        scale: shoppingShopCardProgress.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }),
+                      }],
+                    },
+                  ]}
+                >
+                  <View style={styles.shoppingFlowPrimaryIcon}>
+                    <MaterialCommunityIcons name="cart-outline" size={30} color={theme.color.accent} />
+                  </View>
+                  <Text style={styles.shoppingFlowCardTitle}>Shop once</Text>
+                  <View
+                    ref={shoppingDayDestinationRef}
+                    collapsable={false}
+                    style={styles.shoppingFlowDayPill}
+                  >
+                    <MaterialCommunityIcons name="calendar-check-outline" size={17} color={theme.color.accent} />
+                    <Animated.Text
+                      style={[
+                        styles.shoppingFlowDayPillText,
+                        {
+                          fontSize: shoppingCardRotation.interpolate({
+                            inputRange: [0, 1, 2, 3],
+                            outputRange: [
+                              theme.type.size.sm,
+                              theme.type.size.xs,
+                              theme.type.size.xs,
+                              theme.type.size.sm,
+                            ],
+                          }),
+                        },
+                      ]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                    >
+                      Every {selectedDayName}
+                    </Animated.Text>
+                  </View>
+                  <Text style={styles.shoppingFlowCardCopy}>Get everything you need in one trip.</Text>
+                </Animated.View>
+              </Animated.View>
+
+              <Animated.View style={rotatingSlotStyle(1)}>
+                <Animated.View style={[styles.shoppingFlowCard, styles.shoppingFlowSecondaryCard, styles.shoppingFlowDinnerCard, styles.shoppingFlowRotatingCard, animatedCardStyle(shoppingDinnerCardProgress, 18)]}>
+                  <View style={styles.shoppingFlowSecondaryIcon}>
+                    <MaterialCommunityIcons name="bowl-mix-outline" size={28} color={theme.color.accent} />
+                  </View>
+                  <View style={styles.shoppingFlowSecondaryContent}>
+                    <Text style={styles.shoppingFlowSecondaryTitle}>Cook &amp; Serve</Text>
+                    <Text style={styles.shoppingFlowSecondaryCopy}>Know what’s for dinner all week.</Text>
+                  </View>
+                </Animated.View>
+              </Animated.View>
+
+              <Animated.View style={[styles.shoppingFlowPlanToShop, { opacity: shoppingConnectorsProgress }]}>
+                <MaterialCommunityIcons name="arrow-top-right" size={19} color={theme.color.accent} />
+              </Animated.View>
+              <Animated.View style={[styles.shoppingFlowShopToDinner, { opacity: shoppingConnectorsProgress }]}>
+                <MaterialCommunityIcons name="arrow-bottom-right" size={19} color={theme.color.accent} />
+              </Animated.View>
+              <Animated.View style={[styles.shoppingFlowDinnerToPlan, { opacity: shoppingConnectorsProgress }]}>
+                <MaterialCommunityIcons name="arrow-left" size={19} color={theme.color.accent} />
+              </Animated.View>
+            </View>
+          </View>
+        </View>
+
+        <Pressable
+          disabled={!shoppingDay || shoppingDayFlowPhase === "transitioning"}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !shoppingDay || shoppingDayFlowPhase === "transitioning" }}
+          style={[
+            styles.primaryButton,
+            styles.shoppingDayContinue,
+            (!shoppingDay || shoppingDayFlowPhase === "transitioning") && styles.primaryButtonDisabled,
+          ]}
+          onPress={handleShoppingDayContinue}
+        >
+          <Text style={styles.primaryButtonText}>Continue</Text>
+        </Pressable>
+
+        {travelingChipLayout && shoppingDayFlowPhase === "transitioning" ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.shoppingTravelingChip,
+              {
+                left: travelingChipLayout.left,
+                top: travelingChipLayout.top,
+                width: shoppingChipProgress.interpolate({ inputRange: [0, 1], outputRange: [travelingChipLayout.width, travelingChipLayout.targetWidth] }),
+                height: shoppingChipProgress.interpolate({ inputRange: [0, 1], outputRange: [travelingChipLayout.height, travelingChipLayout.targetHeight] }),
+                borderRadius: shoppingChipProgress.interpolate({ inputRange: [0, 1], outputRange: [theme.radius.md, theme.radius.full] }),
+                backgroundColor: shoppingChipProgress.interpolate({ inputRange: [0, 1], outputRange: [theme.color.accent, theme.mode === "dark" ? "#442735" : "#FFE7F0"] }),
+                opacity: shoppingChipOpacity,
+                transform: [
+                  { translateX: shoppingChipProgress.interpolate({ inputRange: [0, 1], outputRange: [0, travelingChipLayout.translateX] }) },
+                  { translateY: shoppingChipProgress.interpolate({ inputRange: [0, 1], outputRange: [0, travelingChipLayout.translateY] }) },
+                ],
+              },
+            ]}
+          >
+            <Animated.Text style={[styles.shoppingTravelingShortText, { opacity: shoppingChipProgress.interpolate({ inputRange: [0, 0.35, 0.58, 1], outputRange: [1, 1, 0, 0] }) }]}>
+              {selectedDayName.slice(0, 3)}
+            </Animated.Text>
+            <Animated.View style={[styles.shoppingTravelingFullContent, { opacity: shoppingChipProgress.interpolate({ inputRange: [0, 0.48, 0.72, 1], outputRange: [0, 0, 1, 1] }) }]}>
+              <MaterialCommunityIcons name="calendar-check-outline" size={17} color={theme.color.accent} />
+              <Text style={styles.shoppingTravelingFullText}>Every {selectedDayName}</Text>
+            </Animated.View>
+          </Animated.View>
+        ) : null}
+      </View>
+    );
+  };
+
   const renderStep = () => {
     switch (step) {
       case "welcome":
@@ -453,82 +1019,7 @@ export default function OnboardingScreen() {
           </View>
         );
       case "shoppingDay":
-        return (
-          <View style={styles.shoppingDayStep}>
-            <View style={styles.shoppingDayMain}>
-              <View style={styles.shoppingDayHero}>
-                <View style={styles.shoppingDayIconWrap}>
-                  <MaterialCommunityIcons
-                    name="cart-heart"
-                    size={50}
-                    color={theme.color.accent}
-                  />
-                  <MaterialCommunityIcons
-                    name="creation"
-                    size={15}
-                    color={theme.color.warning}
-                    style={styles.shoppingDaySparkle}
-                  />
-                </View>
-                <Text style={styles.shoppingDayTitle}>
-                  Shop once.{"\n"}Enjoy all week.
-                </Text>
-                <Text style={styles.shoppingDaySubtitle}>
-                  Choosing one shopping day helps you plan better, save money,
-                  and keep your week running smoothly.
-                </Text>
-              </View>
-
-              <View style={styles.shoppingDaySelection}>
-                <Text style={styles.shoppingDayPrompt}>
-                  What’s your grocery day?
-                </Text>
-                <View style={[styles.dayGrid, styles.shoppingDayGrid]}>
-                  {PLANNED_WEEK_ORDER.map((day) => {
-                    const selected = shoppingDay === day;
-                    return (
-                      <Pressable
-                        key={day}
-                        onPress={() => setShoppingDay(day)}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected }}
-                        accessibilityLabel={PLANNED_WEEK_DISPLAY_NAMES[day]}
-                        style={[
-                          styles.dayChip,
-                          styles.shoppingDayChip,
-                          selected && styles.dayChipSelected,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.dayChipText,
-                            selected && styles.dayChipTextSelected,
-                          ]}
-                        >
-                          {PLANNED_WEEK_DISPLAY_NAMES[day].slice(0, 3)}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            </View>
-
-            <Pressable
-              disabled={!shoppingDay}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !shoppingDay }}
-              style={[
-                styles.primaryButton,
-                styles.shoppingDayContinue,
-                !shoppingDay && styles.primaryButtonDisabled,
-              ]}
-              onPress={goNext}
-            >
-              <Text style={styles.primaryButtonText}>Continue</Text>
-            </Pressable>
-          </View>
-        );
+        return renderShoppingDayStep();
       case "family":
         return (
           <View style={styles.familyStep}>
@@ -770,7 +1261,11 @@ export default function OnboardingScreen() {
                             pressed && styles.quickMealChipPressed,
                           ]}
                         >
-                          <Text style={styles.quickMealEmoji}>{meal.emoji}</Text>
+                          <MealEmoji
+                            value={meal.emoji}
+                            size={22}
+                            style={styles.quickMealEmoji}
+                          />
                           <Text style={styles.quickMealText} numberOfLines={2}>{meal.title}</Text>
                           {selected ? (
                             <MaterialCommunityIcons name="check-circle" size={18} color={theme.color.ink} />
@@ -832,7 +1327,14 @@ export default function OnboardingScreen() {
                       {availableQuickMeals
                         .filter((meal) => selectedMealTitles.has(normalizeMealTitle(meal.title)))
                         .slice(0, 6)
-                        .map((meal) => <Text key={normalizeMealTitle(meal.title)} style={styles.quickMealSummaryEmoji}>{meal.emoji}</Text>)}
+                        .map((meal) => (
+                          <MealEmoji
+                            key={normalizeMealTitle(meal.title)}
+                            value={meal.emoji}
+                            size={20}
+                            style={styles.quickMealSummaryEmoji}
+                          />
+                        ))}
                     </View>
                     {selectedMealTitles.size > 0 ? (
                       <Pressable
@@ -901,9 +1403,6 @@ export default function OnboardingScreen() {
                 </View>
               </View>
             </View>
-            <Text style={styles.firstWeekSubtitle}>
-              Plan and use your first complete weekly plan with no subscription and no charge.
-            </Text>
             <View style={styles.firstWeekFreeCard}>
               <View style={styles.firstWeekCardTop}>
                 <View style={styles.firstWeekGiftCircle}>
@@ -959,12 +1458,20 @@ export default function OnboardingScreen() {
                 <Text style={styles.firstWeekPrimaryText}>{isFinishing ? "Getting things ready…" : "Plan My First Week Free"}</Text>
               </LinearGradient>
             </Pressable>
-            <Pressable style={styles.learnMoreButton} accessibilityRole="button">
+            <Pressable
+              style={styles.learnMoreButton}
+              accessibilityRole="link"
+              onPress={() => {
+                void Linking.openURL("https://weeklyeats.site").catch(() => {
+                  Alert.alert("Couldn’t open the website", "Please try again in a moment.");
+                });
+              }}
+            >
               <Text style={styles.learnMoreText}>Learn More About Weekly Eats</Text>
             </Pressable>
             <View style={styles.afterFirstWeekRow}>
               <MaterialCommunityIcons name="shield-check-outline" size={29} color={theme.color.accent} />
-              <Text style={styles.afterFirstWeekCopy}>After your first free week, you can choose Weekly Eats Pro to keep planning future weeks for $34.99/year.</Text>
+              <Text style={styles.afterFirstWeekCopy}>After your first free week, you can choose Weekly Eats Pro to keep planning future weeks{subscription.annualPriceString ? ` for ${subscription.annualPriceString}/year` : " with an annual subscription"}.</Text>
             </View>
             <View style={styles.restoreDivider} />
             <Pressable onPress={() => void subscription.restorePurchases()} accessibilityRole="button" accessibilityLabel="Restore purchases" style={styles.restoreButton}>
@@ -988,7 +1495,9 @@ export default function OnboardingScreen() {
             <Pressable
               onPress={goBack}
               disabled={
-                isSavingQuickMeals || quickMealTransitionPhase !== "idle"
+                isSavingQuickMeals ||
+                quickMealTransitionPhase !== "idle" ||
+                shoppingDayFlowPhase === "transitioning"
               }
               style={styles.backButton}
             >
@@ -1105,6 +1614,11 @@ const createStyles = (theme: WeeklyTheme) =>
       minHeight: 570,
       justifyContent: "space-between",
       gap: theme.space.xl,
+      position: "relative",
+    },
+    shoppingDayTransitionStage: {
+      minHeight: 500,
+      position: "relative",
     },
     shoppingDayHero: {
       alignItems: "center",
@@ -1114,6 +1628,7 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     shoppingDayMain: {
       gap: theme.space["2xl"] + theme.space.sm,
+      minHeight: 500,
     },
     shoppingDayIconWrap: {
       width: 88,
@@ -1162,6 +1677,205 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     shoppingDayContinue: {
       width: "100%",
+    },
+    shoppingFlowLayer: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      paddingHorizontal: theme.space.xs,
+    },
+    shoppingFlowHeader: {
+      alignItems: "center",
+      gap: theme.space.xs,
+      marginBottom: theme.space.md,
+    },
+    shoppingFlowTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.h1,
+      lineHeight: theme.type.size.h1 * 1.15,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    shoppingFlowSubtitle: {
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      lineHeight: theme.type.size.sm * 1.35,
+      textAlign: "center",
+    },
+    shoppingFlowCard: {
+      alignItems: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.cardOutline,
+      shadowColor: "#000000",
+      shadowOffset: { width: 0, height: 7 },
+      shadowOpacity: theme.mode === "dark" ? 0.2 : 0.08,
+      shadowRadius: 14,
+      elevation: 3,
+    },
+    shoppingFlowShopCard: {
+      position: "absolute",
+      top: 0,
+      left: "14%",
+      width: "72%",
+      minHeight: 185,
+      justifyContent: "center",
+      gap: theme.space.xs,
+      paddingHorizontal: theme.space.sm,
+      paddingVertical: theme.space.sm,
+      borderRadius: theme.radius.xl,
+      borderWidth: 1.5,
+      backgroundColor: theme.color.surface,
+    },
+    shoppingFlowRotatingCard: {
+      position: "relative",
+      top: 0,
+      bottom: undefined,
+      left: 0,
+      right: undefined,
+      width: "100%",
+      minHeight: 185,
+    },
+    shoppingFlowPrimaryIcon: {
+      width: 48,
+      height: 48,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255,75,145,0.17)" : "#FFE7F0",
+    },
+    shoppingFlowCardTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.title,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    shoppingFlowDayPill: {
+      maxWidth: "100%",
+      minHeight: 38,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.xs,
+      paddingHorizontal: theme.space.xs,
+      borderRadius: theme.radius.full,
+      backgroundColor:
+        theme.mode === "dark" ? "#442735" : "#FFE7F0",
+    },
+    shoppingFlowDayPillText: {
+      flexShrink: 1,
+      textAlign: "center",
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
+    },
+    shoppingFlowCardCopy: {
+      maxWidth: 220,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.sm,
+      lineHeight: theme.type.size.sm * 1.25,
+      textAlign: "center",
+    },
+    shoppingFlowLoop: {
+      width: "100%",
+      height: 410,
+      position: "relative",
+    },
+    shoppingFlowPlanToShop: {
+      position: "absolute",
+      zIndex: 0,
+      top: 188,
+      left: "24%",
+      transform: [{ rotate: "-10deg" }],
+    },
+    shoppingFlowShopToDinner: {
+      position: "absolute",
+      zIndex: 0,
+      top: 188,
+      right: "24%",
+      transform: [{ rotate: "10deg" }],
+    },
+    shoppingFlowDinnerToPlan: {
+      position: "absolute",
+      zIndex: 0,
+      top: 300,
+      left: "44%",
+      right: "44%",
+      height: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    shoppingFlowSecondaryCard: {
+      position: "absolute",
+      bottom: 20,
+      zIndex: 1,
+      width: "44%",
+      minHeight: 165,
+      justifyContent: "center",
+      gap: theme.space.xs,
+      paddingHorizontal: theme.space.sm,
+      paddingVertical: theme.space.sm,
+      borderRadius: theme.radius.xl,
+    },
+    shoppingFlowPlanCard: {
+      left: 0,
+      backgroundColor: theme.color.surface,
+    },
+    shoppingFlowDinnerCard: {
+      right: 0,
+      backgroundColor: theme.color.surface,
+    },
+    shoppingFlowSecondaryIcon: {
+      width: 42,
+      height: 42,
+      borderRadius: theme.radius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor:
+        theme.mode === "dark" ? "rgba(255,75,145,0.15)" : "#FFE7F0",
+    },
+    shoppingFlowSecondaryContent: {
+      alignItems: "center",
+      gap: 2,
+    },
+    shoppingFlowSecondaryTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+      textAlign: "center",
+    },
+    shoppingFlowSecondaryCopy: {
+      flexShrink: 1,
+      color: theme.color.subtleInk,
+      fontSize: theme.type.size.xs,
+      lineHeight: theme.type.size.xs * 1.3,
+      textAlign: "center",
+    },
+    shoppingTravelingChip: {
+      position: "absolute",
+      zIndex: 20,
+      elevation: 20,
+      overflow: "hidden",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    shoppingTravelingShortText: {
+      position: "absolute",
+      color: theme.color.ink,
+      fontSize: theme.type.size.base,
+      fontWeight: theme.type.weight.bold,
+    },
+    shoppingTravelingFullContent: {
+      position: "absolute",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: theme.space.xs,
+    },
+    shoppingTravelingFullText: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm,
+      fontWeight: theme.type.weight.bold,
     },
     logoMark: {
       width: 96,
@@ -1583,7 +2297,6 @@ const createStyles = (theme: WeeklyTheme) =>
     firstWeekTitle: { color: theme.color.ink, fontSize: 31, lineHeight: 36, fontWeight: theme.type.weight.bold },
     firstWeekAccentTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
     firstWeekAccentTitle: { color: theme.color.accent, fontSize: 31, lineHeight: 36, fontWeight: theme.type.weight.bold },
-    firstWeekSubtitle: { color: theme.color.subtleInk, fontSize: 17, lineHeight: 25 },
     firstWeekFreeCard: {
       position: "relative",
       overflow: "hidden",
@@ -1591,20 +2304,19 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingHorizontal: 20,
       paddingBottom: 48,
       borderRadius: theme.radius.lg,
-      backgroundColor:
-        theme.mode === "dark" ? "rgba(255, 75, 145, 0.14)" : "#FFF0F6",
+      backgroundColor: theme.color.surface,
       borderWidth: 1,
-      borderColor: theme.color.accent,
+      borderColor: theme.color.border,
     },
     firstWeekCardTop: { flexDirection: "row", alignItems: "flex-start", gap: theme.space.lg },
-    firstWeekGiftCircle: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: theme.mode === "dark" ? "rgba(255,75,145,.15)" : "#FFE4EE" },
+    firstWeekGiftCircle: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.surfaceAlt },
     firstWeekFreeCopy: { flex: 1, gap: theme.space.sm },
     firstWeekSparkle: { position: "absolute", right: 0, top: 0 },
     noSubscriptionCopy: {
       marginTop: theme.space.lg,
       paddingTop: theme.space.lg,
       borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: theme.color.cardOutline,
+      borderTopColor: theme.color.border,
       color: theme.color.ink,
       fontSize: theme.type.size.base,
       lineHeight: 23,
@@ -1612,14 +2324,14 @@ const createStyles = (theme: WeeklyTheme) =>
       zIndex: 2,
     },
     noSubscriptionEmphasis: { color: theme.color.accent, fontWeight: theme.type.weight.bold },
-    firstWeekWaveBack: { position: "absolute", left: -35, bottom: -38, width: "72%", height: 63, borderRadius: 80, backgroundColor: "#FF4B91", transform: [{ rotate: "8deg" }] },
-    firstWeekWaveFront: { position: "absolute", right: -45, bottom: -43, width: "72%", height: 70, borderRadius: 80, backgroundColor: "#F92D7E", transform: [{ rotate: "-7deg" }] },
+    firstWeekWaveBack: { position: "absolute", left: -35, bottom: -38, width: "72%", height: 63, borderRadius: 80, backgroundColor: theme.color.surfaceAlt, transform: [{ rotate: "8deg" }] },
+    firstWeekWaveFront: { position: "absolute", right: -45, bottom: -43, width: "72%", height: 70, borderRadius: 80, backgroundColor: theme.color.border, transform: [{ rotate: "-7deg" }] },
     weekFeatureSection: { gap: theme.space.md },
     weekFeatureHeading: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
     weekFeatureHeadingText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
     weekFeatureList: { flexDirection: "row", justifyContent: "space-between", gap: 5 },
     weekFeatureItem: { flex: 1, alignItems: "center", gap: 6 },
-    weekFeatureIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: theme.mode === "dark" ? "rgba(255,75,145,.15)" : "#FFEAF2" },
+    weekFeatureIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.surfaceAlt },
     weekFeatureText: { color: theme.color.ink, fontSize: 11, lineHeight: 15, textAlign: "center" },
     firstWeekPrimaryButton: { borderRadius: theme.radius.full, overflow: "hidden" },
     firstWeekPrimaryGradient: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm, paddingHorizontal: theme.space.lg },

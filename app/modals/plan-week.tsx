@@ -50,10 +50,8 @@ import {
   WeekPlanDraft,
   setCurrentWeekPlan,
   setCurrentWeekSides,
-  addWeekPlanHistory,
   getWeekPlanHistory,
   getWeekPlanStreak,
-  updateWeekPlanStreak,
   WeekPlanHistoryEntry,
 } from "../../stores/weekPlanStorage";
 import { useWeekStartController } from "../../providers/week-start/WeekStartController";
@@ -71,6 +69,7 @@ import {
   getNextWeekStartForDate,
   getWeekStartForDate,
 } from "../../utils/weekDays";
+import { trackAction } from "../../services/analytics";
 import { getRemainingPlanningDays } from "../../utils/remainingWeekPlanning";
 import { suggestEmojiForTitle } from "../../utils/emojiCatalog";
 import {
@@ -310,6 +309,7 @@ export default function PlanWeekModal() {
   });
   const { entries: servedEntries } = useServedMeals();
   const initializedRef = useRef(false);
+  const planMilestonesTrackedRef = useRef(new Set<string>());
   const didOpenRequestedEditDayRef = useRef(false);
   const plannerScrollRef = useRef<ScrollView>(null);
   const plannerDayOffsetsRef = useRef<Partial<Record<PlannedWeekDayKey, number>>>(
@@ -743,11 +743,40 @@ export default function PlanWeekModal() {
   const isDayPlanningStep = Boolean(activeWizardAction);
 
   useEffect(() => {
+    const plannedDayCount = sessionDays.filter((day) =>
+      Boolean(plannedWeek[day]),
+    ).length;
+    const milestones = [
+      { key: "first_meal", reached: plannedDayCount >= 1 },
+      { key: "three_meals", reached: plannedDayCount >= 3 },
+      {
+        key: "full_week",
+        reached: sessionDays.length > 0 && plannedDayCount === sessionDays.length,
+      },
+    ];
+    milestones.forEach(({ key, reached }) => {
+      if (!reached || planMilestonesTrackedRef.current.has(key)) return;
+      planMilestonesTrackedRef.current.add(key);
+      trackAction("week_plan_milestone_reached", {
+        milestone: key,
+        planned_day_count: plannedDayCount,
+        available_day_count: sessionDays.length,
+        planning_scope: isRemainingMode ? "remaining" : "full",
+      });
+    });
+  }, [isRemainingMode, plannedWeek, sessionDays]);
+
+  useEffect(() => {
     setActiveDayIndex(0);
   }, [sessionDays]);
 
   useFocusEffect(
     useCallback(() => {
+      planMilestonesTrackedRef.current.clear();
+      trackAction("week_plan_started", {
+        planning_scope: isRemainingMode ? "remaining" : "full",
+        is_first_full_week: isFirstFullWeekMode,
+      });
       // Expo can retain this modal route after it closes. Rehydrate whenever it
       // becomes active so suggestions added from Meals and externally changed
       // plans are reflected in the dynamic inspiration pools.
@@ -775,7 +804,12 @@ export default function PlanWeekModal() {
         isActive = false;
         initializedRef.current = false;
       };
-    }, [planningWeekStartISO, refreshStoredPlan]),
+    }, [
+      isFirstFullWeekMode,
+      isRemainingMode,
+      planningWeekStartISO,
+      refreshStoredPlan,
+    ]),
   );
 
   useEffect(() => {
@@ -1234,6 +1268,11 @@ export default function PlanWeekModal() {
       return;
     }
 
+    trackAction("auto_plan_used", {
+      generated_day_count: assignments.length,
+      planning_scope: isRemainingMode ? "remaining" : "full",
+    });
+
     const ownedDays: AutoPlanSession["ownedDays"] = {};
     const nextPlan = { ...plannedWeek };
     const nextSides = { ...daySidesMap };
@@ -1311,6 +1350,11 @@ export default function PlanWeekModal() {
       });
       if (!assignments.length) return;
 
+      trackAction("auto_plan_try_another", {
+        generated_day_count: assignments.length,
+        mode: "alternate_week",
+      });
+
       const nextPlan: CurrentPlannedWeek = {
         ...plannedWeek,
         weekedPlanned: false,
@@ -1382,6 +1426,11 @@ export default function PlanWeekModal() {
       ),
     });
     if (!assignments.length) return;
+
+    trackAction("auto_plan_try_another", {
+      generated_day_count: assignments.length,
+      mode: "replace_generated_meals",
+    });
 
     const nextPlan = { ...basePlan, weekedPlanned: false };
     const nextOwnedDays: AutoPlanSession["ownedDays"] = {};
@@ -2303,9 +2352,7 @@ export default function PlanWeekModal() {
     }
     setIsCelebratingSave(true);
     setCelebratedDayIndex(null);
-    const streak = isRemainingMode
-      ? await getWeekPlanStreak()
-      : await updateWeekPlanStreak(planningWeekStart);
+    const streak = await getWeekPlanStreak();
     const delay = (duration: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, duration));
     for (let index = 0; index < sessionDays.length; index += 1) {
@@ -2365,23 +2412,28 @@ export default function PlanWeekModal() {
         setCurrentWeekSides(planningWeekStartISO, daySidesMap),
         clearWeekPlanDraft(planningWeekStartISO),
       ];
-      if (!isRemainingMode) {
-        saveTasks.push(
-          addWeekPlanHistory(completedPlan, {
-            meals,
-            servedMealIds: new Set(
-              servedEntries
-                .filter(
-                  (entry): entry is typeof entry & { mealId: string } =>
-                    entry.outcome === "served" &&
-                    typeof entry.mealId === "string",
-                )
-                .map((entry) => entry.mealId),
-            ),
-          }),
-        );
-      }
       await Promise.all(saveTasks);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const groceryDay = new Date(planningWeekStart);
+      groceryDay.setHours(0, 0, 0, 0);
+      const daysBeforeGroceryDay = Math.ceil(
+        (groceryDay.getTime() - today.getTime()) / 86_400_000,
+      );
+      const plannedDayCount = sessionDays.filter((day) =>
+        Boolean(completedPlan[day]),
+      ).length;
+      trackAction("week_plan_completed", {
+        planning_scope: isRemainingMode ? "remaining" : "full",
+        planned_day_count: plannedDayCount,
+        available_day_count: sessionDays.length,
+        is_complete_week: plannedDayCount === sessionDays.length,
+        ready_before_grocery_day: daysBeforeGroceryDay >= 0,
+        days_before_grocery_day: daysBeforeGroceryDay,
+        used_auto_plan: Boolean(autoPlanSession),
+        auto_plan_manual_edit_count: autoPlanSession?.manualChanges ?? 0,
+        is_first_full_week: isFirstFullWeekMode,
+      });
       setResumeDraft(null);
       setAutoPlanSession(null);
       setAlternateWeekSnapshot(null);
@@ -2422,10 +2474,13 @@ export default function PlanWeekModal() {
     isFirstFullWeekMode,
     isFirstIntroMode,
     isFirstRemainingMode,
+    autoPlanSession,
+    planningWeekStart,
     planningWeekStartISO,
     daySidesMap,
     meals,
     servedEntries,
+    sessionDays,
   ]);
 
   const handleToastComplete = useCallback(() => {
@@ -3017,6 +3072,11 @@ export default function PlanWeekModal() {
                 </View>
               ) : null}
 
+              <View style={styles.planningSectionHeader}>
+                <MaterialCommunityIcons name="lightbulb-on-outline" size={20} color={theme.color.accent} />
+                <Text accessibilityRole="header" style={styles.planningSectionTitle}>Inspiration</Text>
+                <Text style={styles.planningSectionHint}>Get ideas or auto-build your week.</Text>
+              </View>
               <MealInspirationSection
                 pools={mealPools}
                 orderedDays={sessionDays}
@@ -3083,6 +3143,11 @@ export default function PlanWeekModal() {
                 </View>
               ) : null}
 
+              <View style={styles.planningSectionHeader}>
+                <MaterialCommunityIcons name="format-list-bulleted" size={20} color={theme.color.accent} />
+                <Text accessibilityRole="header" style={styles.planningSectionTitle}>Plan Each Day</Text>
+                <Text style={styles.planningSectionHint}>Tap a day to choose a specific meal.</Text>
+              </View>
               <View
                 style={styles.weekRowsList}
                 onLayout={(event) => {
@@ -3321,6 +3386,11 @@ export default function PlanWeekModal() {
                             day={day}
                             onBack={() => setAddingMealDay(null)}
                             onSave={(title) => commitInlineNewMeal(day, title)}
+                            onImport={(meal) => {
+                              addMeal(meal);
+                              setAddingMealDay(null);
+                              assignInlineMeal(day, meal);
+                            }}
                             onExpandedLayout={() => focusExpandedDay(day)}
                           />
                         ) : isEditingEatOut ? (
@@ -3983,6 +4053,24 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     plannerSection: {
       gap: theme.space.md,
+    },
+    planningSectionHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: theme.space.sm,
+      marginBottom: -theme.space.xs,
+    },
+    planningSectionTitle: {
+      color: theme.color.ink,
+      fontSize: theme.type.size.sm * 1.1,
+      fontWeight: theme.type.weight.bold,
+    },
+    planningSectionHint: {
+      flex: 1,
+      color: theme.color.subtleInk,
+      fontSize: 11,
+      lineHeight: 15.4,
+      textAlign: "right",
     },
     weekRowsSection: {
       gap: theme.space.lg,

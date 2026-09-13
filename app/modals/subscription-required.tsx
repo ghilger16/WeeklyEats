@@ -1,17 +1,21 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Href, useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSubscription } from "../../hooks/useSubscription";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { WeeklyTheme, alpha } from "../../styles/theme";
+import { trackAction } from "../../services/analytics";
 
 const BENEFITS = [
   { icon: "calendar-week" as const, title: "Plan unlimited weeks" },
   { icon: "cart-outline" as const, title: "Build your grocery list automatically" },
   { icon: "star" as const, title: "Get smarter suggestions" },
 ];
+
+const PRIVACY_POLICY_URL = "https://weeklyeats.site/privacy";
+const TERMS_OF_USE_URL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/";
 
 export default function SubscriptionRequiredModal() {
   const router = useRouter();
@@ -21,6 +25,15 @@ export default function SubscriptionRequiredModal() {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const subscription = useSubscription();
   const [isPurchasing, setPurchasing] = useState(false);
+  const annualPriceLabel = subscription.annualPriceString
+    ? `${subscription.annualPriceString} / year`
+    : "Annual subscription";
+
+  useEffect(() => {
+    trackAction("paywall_viewed", {
+      trigger: planningIntent ? "plan_week" : "unknown",
+    });
+  }, [planningIntent]);
 
   const continuePlanning = async () => {
     if (isPurchasing) return;
@@ -62,22 +75,28 @@ export default function SubscriptionRequiredModal() {
             ))}
           </View>
 
-          <View style={styles.offer} accessible accessibilityLabel="Weekly Eats Pro, thirty-four dollars and ninety-nine cents per year, less than three dollars per month">
+          <View style={styles.offer} accessible accessibilityLabel={`Weekly Eats Pro, ${annualPriceLabel}, auto-renewing annual subscription`}>
             <View style={styles.offerIcon}><MaterialCommunityIcons name="chef-hat" size={34} color={theme.color.accent} /></View>
             <View style={styles.flexCopy}>
               <Text style={styles.offerTitle}>Weekly Eats Pro</Text>
-              <Text style={styles.price}>$34.99 / year</Text>
-              <Text style={styles.bodyText}>Less than $3/month</Text>
+              <Text style={styles.price}>{annualPriceLabel}</Text>
+              {subscription.monthlyEquivalentPriceString ? <Text style={styles.bodyText}>{subscription.monthlyEquivalentPriceString} per month</Text> : null}
             </View>
           </View>
 
-          <Pressable disabled={isPurchasing} onPress={() => void continuePlanning()} accessibilityRole="button" accessibilityLabel="Continue Planning" style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
-            {isPurchasing ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryText}>Continue Planning</Text>}
+          <Pressable disabled={isPurchasing} onPress={() => void continuePlanning()} accessibilityRole="button" accessibilityLabel={`Subscribe to Weekly Eats Pro for ${annualPriceLabel}`} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
+            {isPurchasing ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryText}>Subscribe &amp; Continue</Text>}
           </Pressable>
           <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Not Now" style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}><Text style={styles.secondaryText}>Not Now</Text></Pressable>
           <Pressable onPress={() => void restoreAndContinue()} accessibilityRole="button" accessibilityLabel="Restore Purchases" style={({ pressed }) => [styles.restore, pressed && styles.pressed]}>
             <MaterialCommunityIcons name="restore" size={20} color={theme.color.accent} /><Text style={styles.restoreText}>Restore Purchases</Text>
           </Pressable>
+          <Text style={styles.renewalDisclosure}>Payment will be charged to your Apple Account. Subscription renews automatically each year unless cancelled at least 24 hours before the end of the current period. Manage or cancel in your Apple Account settings.</Text>
+          <View style={styles.legalLinks}>
+            <Pressable onPress={() => void Linking.openURL(PRIVACY_POLICY_URL)} accessibilityRole="link" accessibilityLabel="Open Privacy Policy"><Text style={styles.legalLinkText}>Privacy Policy</Text></Pressable>
+            <Text style={styles.legalSeparator}>•</Text>
+            <Pressable onPress={() => void Linking.openURL(TERMS_OF_USE_URL)} accessibilityRole="link" accessibilityLabel="Open Terms of Use"><Text style={styles.legalLinkText}>Terms of Use</Text></Pressable>
+          </View>
           <Text style={styles.reassurance}>Your meals, plans, and history will always be here.</Text>
         </ScrollView>
       </SafeAreaView>
@@ -111,6 +130,10 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   secondaryText: { color: theme.color.ink, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
   restore: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm },
   restoreText: { color: theme.color.accent, fontSize: theme.type.size.base, fontWeight: theme.type.weight.medium },
+  renewalDisclosure: { color: theme.color.subtleInk, fontSize: 11, lineHeight: 15, textAlign: "center" },
+  legalLinks: { minHeight: 28, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.sm },
+  legalLinkText: { color: theme.color.accent, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, textDecorationLine: "underline" },
+  legalSeparator: { color: theme.color.subtleInk, fontSize: theme.type.size.xs },
   reassurance: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, lineHeight: 19, textAlign: "center" },
   pressed: { opacity: 0.75 },
 });

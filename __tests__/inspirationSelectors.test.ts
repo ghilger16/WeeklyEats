@@ -83,13 +83,19 @@ describe("inspiration selectors", () => {
     ]);
   });
 
-  it("returns only unserved meals added within the last 30 days", () => {
+  it("returns only unserved meals added within the last six weeks", () => {
     const now = new Date("2026-08-10T12:00:00.000Z").getTime();
     const meals = [
       meal("newest", { createdAt: "2026-08-09T12:00:00.000Z" }),
       meal("recent", { createdAt: "2026-07-20T12:00:00.000Z" }),
       meal("served-history", { createdAt: "2026-08-08T12:00:00.000Z" }),
       meal("served-count", { createdAt: "2026-08-07T12:00:00.000Z", servedCount: 1 }),
+      meal("five-weeks", { createdAt: "2026-07-06T12:00:00.000Z" }),
+      meal("six-weeks", { createdAt: "2026-06-29T12:00:00.000Z" }),
+      meal("too-old", { createdAt: "2026-06-29T11:59:59.999Z" }),
+      meal("future", { createdAt: "2026-08-11T12:00:00.000Z" }),
+      meal("missing-date"),
+      meal("invalid-date", { createdAt: "invalid" }),
       meal("old", { createdAt: "2026-06-01T12:00:00.000Z" }),
     ];
     const history = [
@@ -104,6 +110,6 @@ describe("inspiration selectors", () => {
 
     expect(
       getRecentlyAddedUnservedMeals(meals, history, now).map((item) => item.id),
-    ).toEqual(["newest", "recent"]);
+    ).toEqual(["newest", "recent", "five-weeks", "six-weeks"]);
   });
 });

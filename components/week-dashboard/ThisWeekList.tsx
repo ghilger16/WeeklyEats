@@ -34,6 +34,8 @@ type Props = {
   onDragStateChange?: (isDragging: boolean) => void;
   completionEnabled?: boolean;
   completionReady?: boolean;
+  onCompletionChange?: (isComplete: boolean) => void;
+  hideHeader?: boolean;
 };
 
 const entryForDay = (day: WeekPlanDay, entries: ServedMealEntry[]) => {
@@ -71,6 +73,8 @@ export default function ThisWeekList({
   onDragStateChange,
   completionEnabled = false,
   completionReady = true,
+  onCompletionChange,
+  hideHeader = false,
 }: Props) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -108,6 +112,10 @@ export default function ThisWeekList({
       visibleDays.every((day) => isDayResolved(day, servedEntries)),
     [completionEnabled, servedEntries, visibleDays],
   );
+
+  useEffect(() => {
+    if (completionReady) onCompletionChange?.(weekIsComplete);
+  }, [completionReady, onCompletionChange, weekIsComplete]);
 
   useEffect(() => {
     let mounted = true;
@@ -393,7 +401,7 @@ export default function ThisWeekList({
   } : undefined;
   return (
     <View style={styles.section}>
-      <View style={styles.header}>
+      {!hideHeader ? <View style={styles.header}>
         <Pressable
           disabled={!collapsible || (isReordering && !showCompletionCheck)}
           onPress={() => {
@@ -459,7 +467,7 @@ export default function ThisWeekList({
             </Pressable>
           ) : null}
         </View>
-      </View>
+      </View> : null}
       {!isCollapsed && showCompletionCheck && completedRowsExpanded ? (
         <View style={styles.list}>
           {orderedVisibleDays.map((day, index) => renderDay(day, index))}

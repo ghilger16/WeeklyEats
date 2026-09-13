@@ -470,7 +470,6 @@ const MealCompletionCard = ({ meal, onApply, onUpdateDetails, onAutoFill, onAddA
 
   const handleSelectCuisine = useCallback(
     (cuisine: Meal["cuisine"]) => {
-      setCuisineSelectorVisible(false);
       setDetailCuisine(cuisine);
     },
     []

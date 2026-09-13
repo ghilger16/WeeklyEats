@@ -1,3 +1,5 @@
+import ShareWeekModal from "../../../components/share-week/ShareWeekModal";
+import { selectShareWeek } from "../../../components/share-week/shareWeekData";
 import {
   ActivityIndicator,
   Animated,
@@ -17,9 +19,12 @@ import * as Haptics from "expo-haptics";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useThemeController } from "../../../providers/theme/ThemeController";
 import { WeeklyTheme } from "../../../styles/theme";
-import TodayCard from "../../../components/week-dashboard/TodayCard";
-import TomorrowPreview from "../../../components/week-dashboard/TomorrowPreview";
+import TodayCard, { EmptyTodayCard } from "../../../components/week-dashboard/TodayCard";
 import ThisWeekList from "../../../components/week-dashboard/ThisWeekList";
+import {
+  PreviousWeekCatchUpCard,
+  WrapUpLastWeekModal,
+} from "../../../components/week-dashboard/PreviousWeekCatchUp";
 import MealRowDetailsSheet from "../../../components/week-dashboard/MealRowDetailsSheet";
 import GroceryDayBanner from "../../../components/week-dashboard/GroceryDayBanner";
 import UpcomingWeekReadyCard from "../../../components/week-dashboard/UpcomingWeekReadyCard";
@@ -36,6 +41,7 @@ import {
   addDays,
   formatWeekdayDate,
   getNextWeekStartForDate,
+  getWeekStartForDate,
   startOfDay,
   WEEK_DAY_TO_INDEX,
 } from "../../../utils/weekDays";
@@ -55,6 +61,7 @@ import {
 } from "../../../types/specialMeals";
 import {
   clearWeekPlanData,
+  addWeekPlanHistory,
   getCurrentWeekPlan,
   getCurrentWeekSides,
   getWeekPlanStreak,
@@ -63,6 +70,7 @@ import {
   setCurrentWeekPlan,
   setCurrentWeekSides,
   setWeekPlanDataBatch,
+  recalculateWeekPlanStreak,
 } from "../../../stores/weekPlanStorage";
 import { clearStoredDayPins } from "../../../stores/dayPinsStorage";
 import {
@@ -92,6 +100,7 @@ import {
   getFirstFullWeekPlanned,
   getFirstWeekExperienceActive,
 } from "../../../stores/onboardingStorage";
+import { trackAction } from "../../../services/analytics";
 
 const createInitialSuggestionIndex = () =>
   PLANNED_WEEK_ORDER.reduce<Record<PlannedWeekDayKey, number>>(
@@ -110,13 +119,9 @@ const getEatOutServedTitle = (title?: string | null) => {
   return `${trimmedTitle} (${EAT_OUT_MEAL.title})`;
 };
 
-const getDayBefore = (day: PlannedWeekDayKey): PlannedWeekDayKey => {
-  const targetIndex = (WEEK_DAY_TO_INDEX[day] + 6) % 7;
-  return (
-    PLANNED_WEEK_ORDER.find(
-      (candidate) => WEEK_DAY_TO_INDEX[candidate] === targetIndex
-    ) ?? "sun"
-  );
+type PlanningIntent = {
+  route: string;
+  requiresFullWeekAccess: boolean;
 };
 
 export default function WeekDashboardScreen() {
@@ -125,8 +130,11 @@ export default function WeekDashboardScreen() {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals, addMeal, updateMeal } = useMeals();
   const { members } = useFamilyMembers();
-  const { requestFullWeekPlanning, refreshPlanningEntitlement } =
-    usePlanningGate();
+  const {
+    requestFullWeekPlanning,
+    getPlanningAccessStatus,
+    refreshPlanningEntitlement,
+  } = usePlanningGate();
   const { mode: ratingDisplayMode } = useRatingDisplayMode();
   const { startDay, orderedDays, isHydrated: isWeekStartHydrated } = useWeekStartController();
   const dateControlsEnabled = useFeatureFlag(
@@ -134,7 +142,10 @@ export default function WeekDashboardScreen() {
   );
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
   const [isPreviewVisible, setPreviewVisible] = useState(false);
+  const [shareWeekDays, setShareWeekDays] = useState<{ days: WeekPlanDay[]; nextDays?: WeekPlanDay[] } | null>(null);
   const [todayCardFocusKey, setTodayCardFocusKey] = useState(0);
+  const [pendingPlanningIntent, setPendingPlanningIntent] =
+    useState<PlanningIntent | null>(null);
   const [isTodayPlanMealVisible, setTodayPlanMealVisible] = useState(false);
   const [changePlanDay, setChangePlanDay] = useState<WeekPlanDay | null>(null);
   const [isBrowseMealsVisible, setBrowseMealsVisible] = useState(false);
@@ -173,6 +184,7 @@ export default function WeekDashboardScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      trackAction("week_dashboard_opened");
       void refreshPlanningEntitlement();
     }, [refreshPlanningEntitlement]),
   );
@@ -190,6 +202,7 @@ export default function WeekDashboardScreen() {
   const dashboardScrollYRef = useRef(0);
   const weekCompletionDeferredRef = useRef(false);
   const completionReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completedWeekSyncRef = useRef(new Set<string>());
 
   useEffect(() => () => {
     if (completionReleaseTimerRef.current) clearTimeout(completionReleaseTimerRef.current);
@@ -258,6 +271,22 @@ export default function WeekDashboardScreen() {
   } = useCurrentWeekPlan({
     today: effectiveDate,
   });
+  const previousWeekStart = useMemo(
+    () => addDays(getWeekStartForDate(startDay, effectiveDate), -7),
+    [effectiveDate, startDay],
+  );
+  const {
+    plan: previousWeekPlan,
+    sides: previousWeekSides,
+    days: previousWeekDays,
+    weekStartISO: previousWeekStartISO,
+    setPlanState: setPreviousWeekPlanState,
+    setSidesState: setPreviousWeekSidesState,
+    refresh: refreshPreviousWeekPlan,
+  } = useCurrentWeekPlan({
+    today: effectiveDate,
+    weekStartOverride: previousWeekStart,
+  });
   const todayPlanDay = today?.key ?? "sun";
   const { dayPinsMap, handleDayPinsChange } = useDayPins({
     activeDay: todayPlanDay,
@@ -295,10 +324,13 @@ export default function WeekDashboardScreen() {
       ),
     [nextWeekPlan, orderedDays]
   );
+  const hasCurrentWeekPlan =
+    plan?.weekedPlanned === true && plannedDayCount > 0;
+  const hasNextWeekPlan =
+    nextWeekPlan?.weekedPlanned === true && nextWeekPlannedDayCount > 0;
   const isUpcomingWeekReady =
-    nextWeekPlan?.weekedPlanned === true &&
-    nextWeekPlannedDayCount > 0 &&
-    plan?.weekedPlanned !== true &&
+    hasNextWeekPlan &&
+    !hasCurrentWeekPlan &&
     startOfDay(effectiveDate).getTime() < nextWeekStart.getTime();
   const upcomingWeekStartsLabel = useMemo(() => {
     const tomorrow = startOfDay(addDays(effectiveDate, 1));
@@ -382,6 +414,36 @@ export default function WeekDashboardScreen() {
     undoServedMeal,
     refresh: refreshServedMeals,
   } = useServedMeals();
+  const unresolvedPreviousWeekDays = useMemo(
+    () => {
+      if (previousWeekPlan.weekedPlanned !== true) return [];
+      return previousWeekDays.filter((day) => {
+        if (!day.mealId) return false;
+        const plannedTime = startOfDay(day.plannedDate).getTime();
+        return !servedEntries.some(
+          (entry) =>
+            entry.dayKey === day.key &&
+            startOfDay(new Date(entry.servedAtISO)).getTime() === plannedTime,
+        );
+      });
+    },
+    [previousWeekDays, previousWeekPlan.weekedPlanned, servedEntries],
+  );
+  const previousWeekDateRange = useMemo(() => {
+    const end = addDays(previousWeekStart, 6);
+    const startLabel = previousWeekStart.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+    const endLabel = end.toLocaleDateString(
+      undefined,
+      previousWeekStart.getMonth() === end.getMonth() &&
+        previousWeekStart.getFullYear() === end.getFullYear()
+        ? { day: "numeric" }
+        : { month: "short", day: "numeric" },
+    );
+    return `${startLabel} - ${endLabel}`;
+  }, [previousWeekStart]);
   const refreshStreak = useCallback(async () => {
     const [streak, history] = await Promise.all([
       getWeekPlanStreak(),
@@ -449,21 +511,53 @@ export default function WeekDashboardScreen() {
       ),
     [changePlanDay, nextWeekDays],
   );
-  const activeChangeDays = isChangingNextWeek ? nextWeekDays : days;
-  const activeChangePlan = isChangingNextWeek ? nextWeekPlan : plan;
-  const activeChangeSides = isChangingNextWeek ? nextWeekSides : sides;
-  const activeChangeWeekStartISO = isChangingNextWeek
-    ? nextWeekStartISO
-    : weekStartISO;
-  const setActiveChangePlanState = isChangingNextWeek
-    ? setNextWeekPlanState
-    : setPlanState;
-  const setActiveChangeSidesState = isChangingNextWeek
-    ? setNextWeekSidesState
-    : setSidesState;
-  const refreshActiveChangePlan = isChangingNextWeek
-    ? refreshNextWeekPlan
-    : refreshWeekPlan;
+  const isChangingPreviousWeek = useMemo(
+    () =>
+      Boolean(
+        changePlanDay &&
+          previousWeekDays.some(
+            (day) =>
+              day.key === changePlanDay.key &&
+              day.plannedDateISO === changePlanDay.plannedDateISO,
+          ),
+      ),
+    [changePlanDay, previousWeekDays],
+  );
+  const activeChangeDays = isChangingPreviousWeek
+    ? previousWeekDays
+    : isChangingNextWeek
+      ? nextWeekDays
+      : days;
+  const activeChangePlan = isChangingPreviousWeek
+    ? previousWeekPlan
+    : isChangingNextWeek
+      ? nextWeekPlan
+      : plan;
+  const activeChangeSides = isChangingPreviousWeek
+    ? previousWeekSides
+    : isChangingNextWeek
+      ? nextWeekSides
+      : sides;
+  const activeChangeWeekStartISO = isChangingPreviousWeek
+    ? previousWeekStartISO
+    : isChangingNextWeek
+      ? nextWeekStartISO
+      : weekStartISO;
+  const setActiveChangePlanState = isChangingPreviousWeek
+    ? setPreviousWeekPlanState
+    : isChangingNextWeek
+      ? setNextWeekPlanState
+      : setPlanState;
+  const setActiveChangeSidesState = isChangingPreviousWeek
+    ? setPreviousWeekSidesState
+    : isChangingNextWeek
+      ? setNextWeekSidesState
+      : setSidesState;
+  const refreshActiveChangePlan = isChangingPreviousWeek
+    ? refreshPreviousWeekPlan
+    : isChangingNextWeek
+      ? refreshNextWeekPlan
+      : refreshWeekPlan;
 
   const activeChangePlanDay = useMemo(() => {
     if (!changePlanDay) return today ?? null;
@@ -616,6 +710,7 @@ export default function WeekDashboardScreen() {
     }
 
     const toWidgetMeal = (day: WeekPlanDay) => ({
+      mealId: day.mealId ?? undefined,
       dateISO: day.plannedDateISO,
       title: day.meal?.title ?? "Nothing planned yet",
       icon: day.meal?.emoji || "🍽️",
@@ -679,6 +774,11 @@ export default function WeekDashboardScreen() {
           outcome === "served" && today.mealId === EAT_OUT_MEAL_ID
             ? getEatOutServedTitle(today.meal.title)
             : undefined,
+      });
+      trackAction("planned_meal_resolved", {
+        outcome,
+        day_of_week: today.key,
+        is_special_meal: today.mealId === EAT_OUT_MEAL_ID,
       });
 
       if (outcome === "served" && today.mealId) {
@@ -766,6 +866,10 @@ export default function WeekDashboardScreen() {
         familyRatings: setFamilyRatingValue(currentMeal.familyRatings, memberId, rating),
         updatedAt: new Date().toISOString(),
       });
+      trackAction("meal_rating_submitted", {
+        rating_mode: "family",
+        rating_value: rating,
+      });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     },
     [meals, today?.mealId, updateMeal],
@@ -774,6 +878,10 @@ export default function WeekDashboardScreen() {
   const handleTodayMealRatingChange = useCallback((rating: number) => {
     if (!today?.mealId) return;
     updateMeal({ id: today.mealId, rating, updatedAt: new Date().toISOString() });
+    trackAction("meal_rating_submitted", {
+      rating_mode: "stars",
+      rating_value: rating,
+    });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   }, [today?.mealId, updateMeal]);
 
@@ -1315,22 +1423,41 @@ export default function WeekDashboardScreen() {
 
   const handleDashboardEatOut = useCallback(
     async (day: WeekPlanDay) => {
+      const isPreviousWeekDay = previousWeekDays.some(
+        (previousDay) =>
+          previousDay.key === day.key &&
+          previousDay.plannedDateISO === day.plannedDateISO,
+      );
       const isNextWeekDay = nextWeekDays.some(
         (nextDay) =>
           nextDay.key === day.key &&
           nextDay.plannedDateISO === day.plannedDateISO,
       );
-      const targetPlan = isNextWeekDay ? nextWeekPlan : plan;
-      const targetSides = isNextWeekDay ? nextWeekSides : sides;
-      const targetWeekStartISO = isNextWeekDay
-        ? nextWeekStartISO
-        : weekStartISO;
-      const updatePlanState = isNextWeekDay
-        ? setNextWeekPlanState
-        : setPlanState;
-      const updateSidesState = isNextWeekDay
-        ? setNextWeekSidesState
-        : setSidesState;
+      const targetPlan = isPreviousWeekDay
+        ? previousWeekPlan
+        : isNextWeekDay
+          ? nextWeekPlan
+          : plan;
+      const targetSides = isPreviousWeekDay
+        ? previousWeekSides
+        : isNextWeekDay
+          ? nextWeekSides
+          : sides;
+      const targetWeekStartISO = isPreviousWeekDay
+        ? previousWeekStartISO
+        : isNextWeekDay
+          ? nextWeekStartISO
+          : weekStartISO;
+      const updatePlanState = isPreviousWeekDay
+        ? setPreviousWeekPlanState
+        : isNextWeekDay
+          ? setNextWeekPlanState
+          : setPlanState;
+      const updateSidesState = isPreviousWeekDay
+        ? setPreviousWeekSidesState
+        : isNextWeekDay
+          ? setNextWeekSidesState
+          : setSidesState;
       const nextSpecialMealTitles = { ...(targetPlan.specialMealTitles ?? {}) };
       delete nextSpecialMealTitles[day.key];
       const nextPlan: CurrentPlannedWeek = {
@@ -1356,6 +1483,12 @@ export default function WeekDashboardScreen() {
       nextWeekSides,
       nextWeekStartISO,
       plan,
+      previousWeekDays,
+      previousWeekPlan,
+      previousWeekSides,
+      previousWeekStartISO,
+      setPreviousWeekPlanState,
+      setPreviousWeekSidesState,
       setNextWeekPlanState,
       setNextWeekSidesState,
       setPlanState,
@@ -1497,6 +1630,12 @@ export default function WeekDashboardScreen() {
               : undefined,
         }),
       ]);
+      trackAction("planned_meal_resolved", {
+        outcome,
+        day_of_week: dayKey,
+        is_special_meal:
+          meal.id === EAT_OUT_MEAL_ID || meal.id === FLEX_NIGHT_MEAL.id,
+      });
 
       if (meal.id !== EAT_OUT_MEAL_ID) {
         const currentMeal = meals.find((item) => item.id === meal.id);
@@ -1562,6 +1701,11 @@ export default function WeekDashboardScreen() {
               )
             : undefined,
       });
+      trackAction("planned_meal_resolved", {
+        outcome,
+        day_of_week: dayKey,
+        is_special_meal: mealId === EAT_OUT_MEAL_ID,
+      });
 
       if (outcome === "served") {
         const currentMeal = meals.find((item) => item.id === mealId);
@@ -1579,6 +1723,46 @@ export default function WeekDashboardScreen() {
       }
     },
     [logServedMeal, meals, plan.specialMealTitles, updateMeal]
+  );
+
+  const handlePreviousWeekOutcome = useCallback(
+    async (day: WeekPlanDay, outcome: ServedOutcome) => {
+      if (!day.mealId) return;
+      await logServedMeal({
+        dayKey: day.key,
+        mealId: day.mealId,
+        servedAtISO: day.plannedDate.toISOString(),
+        outcome,
+        celebrationMessage:
+          outcome === "served" ? getRandomCelebrationMessage() : undefined,
+        servedTitle:
+          outcome === "served" && day.mealId === EAT_OUT_MEAL_ID
+            ? getEatOutServedTitle(
+                previousWeekPlan.specialMealTitles?.[day.key] ??
+                  EAT_OUT_MEAL.title,
+              )
+            : undefined,
+      });
+      trackAction("planned_meal_resolved", {
+        outcome,
+        day_of_week: day.key,
+        is_special_meal: day.mealId === EAT_OUT_MEAL_ID,
+        is_previous_week_catch_up: true,
+      });
+
+      if (outcome === "served") {
+        const currentMeal = meals.find((meal) => meal.id === day.mealId);
+        if (currentMeal) {
+          updateMeal({
+            id: currentMeal.id,
+            ...getFreezerUpdateAfterServing(currentMeal),
+            servedCount: (currentMeal.servedCount ?? 0) + 1,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    },
+    [logServedMeal, meals, previousWeekPlan.specialMealTitles, updateMeal],
   );
 
   const formattedDate = useMemo(
@@ -1615,11 +1799,6 @@ export default function WeekDashboardScreen() {
     () => getRemainingPlanningDays(startDay, effectiveDate),
     [effectiveDate, startDay]
   );
-  const resetDayName = PLANNED_WEEK_DISPLAY_NAMES[startDay];
-  const planningReminderDayName =
-    PLANNED_WEEK_DISPLAY_NAMES[getDayBefore(startDay)];
-  const showSetupCard =
-    !isLoading && !showWeekPlanDetails && plannedDayCount === 0;
   const isPartialCurrentWeekPlan =
     showWeekPlanDetails &&
     plannedDayCount > 0 &&
@@ -1642,28 +1821,156 @@ export default function WeekDashboardScreen() {
   const showFirstFullWeekNextCta =
     showFirstWeekExperience && hasCompletedRemainingDaysPlan;
   const showTopPlanButton =
-    canPlanNextWeek && !showSetupCard && !showFirstFullWeekNextCta;
+    canPlanNextWeek && !showFirstFullWeekNextCta;
   const hideWeekPlanForFirstExperience =
     showFirstWeekExperience && !showWeekPlanDetails;
-  const handleGoToMeals = useCallback(() => {
-    router.push("/meals?showMealStarter=1");
-  }, [router]);
+  const previousWeekWasFullyPlanned =
+    previousWeekPlan.weekedPlanned === true &&
+    PLANNED_WEEK_ORDER.every(
+      (day) => typeof previousWeekPlan[day] === "string",
+    );
+  const hasPlannedAFullWeek =
+    hasPlannedFirstFullWeek === true ||
+    plannedWeeksCount > 0 ||
+    previousWeekWasFullyPlanned;
+  const showInitialAllSetCard =
+    !isLoading &&
+    !hasCurrentWeekPlan &&
+    !hasNextWeekPlan &&
+    !hasPlannedAFullWeek;
+  const showUnplannedCurrentWeekState =
+    !hasCurrentWeekPlan &&
+    !isUpcomingWeekReady &&
+    meals.length > 0 &&
+    hasPlannedAFullWeek;
+  const recordCompletedWeek = useCallback(
+    async (completedPlan: CurrentPlannedWeek, completedWeekStartISO: string) => {
+      if (
+        completedPlan.weekedPlanned !== true ||
+        !PLANNED_WEEK_ORDER.every(
+          (day) => typeof completedPlan[day] === "string",
+        ) ||
+        completedWeekSyncRef.current.has(completedWeekStartISO)
+      ) {
+        return;
+      }
+      completedWeekSyncRef.current.add(completedWeekStartISO);
+      try {
+        const servedMealIds = new Set(
+          servedEntries
+            .filter(
+              (entry): entry is typeof entry & { mealId: string } =>
+                entry.outcome === "served" && typeof entry.mealId === "string",
+            )
+            .map((entry) => entry.mealId),
+        );
+        await addWeekPlanHistory(completedPlan, {
+          meals,
+          servedMealIds,
+          isComplete: true,
+        });
+        const streak = await recalculateWeekPlanStreak();
+        setStreakCount(streak.count);
+        await refreshStreak();
+      } catch (error) {
+        completedWeekSyncRef.current.delete(completedWeekStartISO);
+        console.warn("[WeekDashboard] Failed to record completed week", error);
+      }
+    },
+    [meals, refreshStreak, servedEntries],
+  );
+  const handleWeekCompletionChange = useCallback(
+    (isComplete: boolean) => {
+      if (!isComplete) {
+        completedWeekSyncRef.current.delete(weekStartISO);
+        return;
+      }
+      void recordCompletedWeek(plan, weekStartISO);
+    },
+    [plan, recordCompletedWeek, weekStartISO],
+  );
 
+  useEffect(() => {
+    const previousWeekIsFull =
+      previousWeekPlan.weekedPlanned === true &&
+      PLANNED_WEEK_ORDER.every(
+        (day) => typeof previousWeekPlan[day] === "string",
+      );
+    if (
+      previousWeekIsFull &&
+      !areServedMealsLoading &&
+      unresolvedPreviousWeekDays.length === 0
+    ) {
+      void recordCompletedWeek(previousWeekPlan, previousWeekStartISO);
+    }
+  }, [
+    areServedMealsLoading,
+    previousWeekPlan,
+    previousWeekStartISO,
+    recordCompletedWeek,
+    unresolvedPreviousWeekDays.length,
+  ]);
+
+  const continueToPlanner = useCallback(
+    (intent: PlanningIntent) => {
+      setPendingPlanningIntent(null);
+      if (intent.requiresFullWeekAccess) {
+        void requestFullWeekPlanning(intent.route);
+      } else {
+        router.push(intent.route as never);
+      }
+    },
+    [requestFullWeekPlanning, router],
+  );
+  const beginPlanning = useCallback(
+    async (intent: PlanningIntent) => {
+      if (intent.requiresFullWeekAccess) {
+        const accessStatus = await getPlanningAccessStatus();
+        if (accessStatus === "subscriptionRequired") {
+          void requestFullWeekPlanning(intent.route);
+          return;
+        }
+      }
+      if (unresolvedPreviousWeekDays.length > 0) {
+        setPendingPlanningIntent(intent);
+        return;
+      }
+      continueToPlanner(intent);
+    },
+    [
+      continueToPlanner,
+      getPlanningAccessStatus,
+      requestFullWeekPlanning,
+      unresolvedPreviousWeekDays.length,
+    ],
+  );
   const handlePlanRemainingWeek = useCallback(() => {
-    router.push(`/modals/plan-week?mode=remaining&referenceDate=${planningReferenceDate}`);
-  }, [planningReferenceDate, router]);
+    void beginPlanning({
+      route: `/modals/plan-week?mode=remaining&referenceDate=${planningReferenceDate}`,
+      requiresFullWeekAccess: hasPlannedAFullWeek,
+    });
+  }, [beginPlanning, hasPlannedAFullWeek, planningReferenceDate]);
 
   const handlePlanNextWeek = useCallback(() => {
-    requestFullWeekPlanning(`/modals/plan-week?referenceDate=${planningReferenceDate}`);
-  }, [planningReferenceDate, requestFullWeekPlanning]);
+    void beginPlanning({
+      route: `/modals/plan-week?referenceDate=${planningReferenceDate}`,
+      requiresFullWeekAccess: true,
+    });
+  }, [beginPlanning, planningReferenceDate]);
 
   const handleStartFirstWeekPlanning = useCallback(() => {
-    router.push(`/modals/plan-week?mode=first-intro&referenceDate=${planningReferenceDate}`);
-  }, [planningReferenceDate, router]);
+    void beginPlanning({
+      route: `/modals/plan-week?mode=first-intro&referenceDate=${planningReferenceDate}`,
+      requiresFullWeekAccess: false,
+    });
+  }, [beginPlanning, planningReferenceDate]);
 
   const handlePlanFirstFullWeek = useCallback(() => {
-    void requestFullWeekPlanning(`/modals/plan-week?mode=first-full&referenceDate=${planningReferenceDate}`);
-  }, [planningReferenceDate, requestFullWeekPlanning]);
+    void beginPlanning({
+      route: `/modals/plan-week?mode=first-full&referenceDate=${planningReferenceDate}`,
+      requiresFullWeekAccess: true,
+    });
+  }, [beginPlanning, planningReferenceDate]);
 
   const handlePrevDay = useCallback(() => {
     if (!dateControlsEnabled) {
@@ -1721,12 +2028,13 @@ export default function WeekDashboardScreen() {
     ? remainingPlanningDays.length
     : orderedDays.length;
   const handleResumePlanning = useCallback(() => {
-    router.push(
-      shouldUseRemainingResumeProgress
+    void beginPlanning({
+      route: shouldUseRemainingResumeProgress
         ? `/modals/plan-week?mode=remaining&referenceDate=${planningReferenceDate}`
-        : `/modals/plan-week?mode=current&referenceDate=${planningReferenceDate}`
-    );
-  }, [planningReferenceDate, router, shouldUseRemainingResumeProgress]);
+        : `/modals/plan-week?mode=current&referenceDate=${planningReferenceDate}`,
+      requiresFullWeekAccess: false,
+    });
+  }, [beginPlanning, planningReferenceDate, shouldUseRemainingResumeProgress]);
 
   const renderPlanningCTA = useCallback(
     (mode: "start" | "resume", onPrimary: () => void, onSkip?: () => void) => {
@@ -1796,8 +2104,7 @@ export default function WeekDashboardScreen() {
       return null;
     }
 
-    if (showFirstWeekExperience) {
-      if (hasCompletedRemainingDaysPlan) {
+    if (showFirstWeekExperience && hasCompletedRemainingDaysPlan) {
         return (
           <Pressable
             accessibilityRole="button"
@@ -1830,8 +2137,9 @@ export default function WeekDashboardScreen() {
             />
           </Pressable>
         );
-      }
+    }
 
+    if (showInitialAllSetCard) {
       return (
         <View style={[styles.setupCard, styles.firstWeekWelcomeCard]}>
           <View style={styles.firstWeekCelebrationIcon}>
@@ -1862,140 +2170,8 @@ export default function WeekDashboardScreen() {
       );
     }
 
-    if (!showSetupCard) {
-      return null;
-    }
-
-    if (meals.length === 0) {
-      return (
-        <View style={styles.setupCard}>
-          <View style={styles.setupIconWrap}>
-            <MaterialCommunityIcons
-              name="silverware-fork-knife"
-              size={24}
-              color={theme.color.accent}
-            />
-          </View>
-          <Text style={styles.setupTitle}>Add your first meal</Text>
-          <Text style={styles.setupSubtitle}>
-            Weekly Eats builds your plan from meals you love. Add one manually
-            or import a recipe to get started.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Go to meals"
-            onPress={handleGoToMeals}
-            style={({ pressed }) => [
-              styles.setupPrimaryButton,
-              pressed && styles.setupButtonPressed,
-            ]}
-          >
-            <Text style={styles.setupPrimaryText}>Go to Meals</Text>
-          </Pressable>
-        </View>
-      );
-    }
-
-    return (
-      <View style={styles.setupCard}>
-        <View style={styles.setupIconWrap}>
-          <MaterialCommunityIcons
-            name="calendar-week"
-            size={24}
-            color={theme.color.accent}
-          />
-        </View>
-        <Text style={styles.setupTitle}>Ready to plan?</Text>
-        <Text style={styles.setupSubtitle}>
-          Your shopping day is {resetDayName}, so {planningReminderDayName} is
-          your weekly planning day.
-        </Text>
-        {meals.length <= 2 ? (
-          <View style={styles.mealCollectionHint}>
-            <View style={styles.mealCollectionIcon}>
-              <MaterialCommunityIcons
-                name="silverware-fork-knife"
-                size={19}
-                color={theme.color.accent}
-              />
-            </View>
-            <View style={styles.mealCollectionCopy}>
-              <Text
-                style={styles.mealCollectionTitle}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.82}
-              >
-                {meals.length} {meals.length === 1 ? "meal" : "meals"} in your collection
-              </Text>
-              <Text style={styles.mealCollectionSubtitle}>
-                Add more anytime for better suggestions.
-              </Text>
-            </View>
-          </View>
-        ) : null}
-        <View style={styles.setupActions}>
-          {remainingPlanningDays.length >= 2 ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Plan this week"
-              onPress={handlePlanRemainingWeek}
-              style={({ pressed }) => [
-                styles.setupPrimaryButton,
-                pressed && styles.setupButtonPressed,
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="calendar-week"
-                size={20}
-                color="#FFFFFF"
-              />
-              <Text style={styles.setupPrimaryText}>
-                Plan this week
-              </Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Plan next week"
-            onPress={handlePlanNextWeek}
-            style={({ pressed }) => [
-              styles.setupPrimaryButton,
-              pressed && styles.setupButtonPressed,
-            ]}
-          >
-            <MaterialCommunityIcons
-              name="calendar-week"
-              size={20}
-              color="#FFFFFF"
-            />
-            <Text style={styles.setupPrimaryText}>Plan next week</Text>
-          </Pressable>
-        </View>
-        {meals.length <= 2 ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Add more meals"
-            onPress={handleGoToMeals}
-            style={({ pressed }) => [
-              styles.addMoreMealsAction,
-              pressed && styles.setupButtonPressed,
-            ]}
-          >
-            <MaterialCommunityIcons
-              name="plus"
-              size={18}
-              color={theme.color.accent}
-            />
-            <Text style={styles.addMoreMealsText}>Add more meals</Text>
-          </Pressable>
-        ) : null}
-      </View>
-    );
+    return null;
   }, [
-    handleGoToMeals,
-    handlePlanNextWeek,
-    handlePlanRemainingWeek,
     handlePlanFirstFullWeek,
     handleStartFirstWeekPlanning,
     hasCompletedRemainingDaysPlan,
@@ -2004,10 +2180,8 @@ export default function WeekDashboardScreen() {
     showFirstWeekExperience,
     startDay,
     meals.length,
-    planningReminderDayName,
     remainingPlanningDays.length,
-    resetDayName,
-    showSetupCard,
+    showInitialAllSetCard,
     styles,
     theme.color.accent,
   ]);
@@ -2074,14 +2248,7 @@ export default function WeekDashboardScreen() {
       );
     }
 
-    return (
-      <View style={styles.emptyTodayCard}>
-        <Text style={styles.emptyTodayTitle}>No meal planned</Text>
-        <Text style={styles.emptyTodaySubtitle}>
-          Add a meal to {formattedDate} to see it here.
-        </Text>
-      </View>
-    );
+    return <EmptyTodayCard dateLabel={formattedDate} />;
   }, [
     formattedDate,
     handleMarkServed,
@@ -2130,9 +2297,19 @@ export default function WeekDashboardScreen() {
 
   return (
     <View style={styles.screenContainer}>
+      {shareWeekDays && <ShareWeekModal days={shareWeekDays.days} nextDays={shareWeekDays.nextDays} onClose={() => setShareWeekDays(null)} />}
       <Animated.View style={[styles.screenWrapper, screenMotionStyle]}>
         <TabParent
-          title="Week Dashboard"
+          title="Dashboard"
+          uniformActionSize
+          menuBtn={selectShareWeek(days, nextWeekDays).length ? {
+            iconName: "export-variant",
+            accessibilityLabel: "Share your week",
+            onPress: () => setShareWeekDays({
+              days: selectShareWeek(days, nextWeekDays),
+              nextDays: days.some(day => day.meal) && nextWeekDays.some(day => day.meal) ? nextWeekDays : undefined,
+            }),
+          } : undefined}
           header={header}
           streak={{
             count: streakCount,
@@ -2153,10 +2330,49 @@ export default function WeekDashboardScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {isUpcomingWeekReady ? null : setupCard}
+            {isUpcomingWeekReady || showUnplannedCurrentWeekState
+              ? null
+              : setupCard}
 
             <View style={styles.stack}>
-              {hideWeekPlanForFirstExperience ? null : isUpcomingWeekReady ? (
+              {showUnplannedCurrentWeekState ? (
+                <>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.planButton,
+                      pressed && styles.planButtonPressed,
+                    ]}
+                    onPress={handlePlanRemainingWeek}
+                    accessibilityRole="button"
+                    accessibilityLabel="Plan this week"
+                  >
+                    <View style={styles.planIconWrap}>
+                      <MaterialCommunityIcons
+                        name="calendar-week"
+                        size={22}
+                        color={theme.color.accent}
+                      />
+                    </View>
+                    <View style={styles.planTextStack}>
+                      <Text style={styles.planButtonTitle}>Ready for this week?</Text>
+                      <Text style={styles.planButtonSubtitle}>Plan This Week</Text>
+                    </View>
+                    <MaterialCommunityIcons
+                      name="chevron-right"
+                      size={26}
+                      color={theme.color.subtleInk}
+                    />
+                  </Pressable>
+                  {todayCard}
+                  <PreviousWeekCatchUpCard
+                    dateRange={previousWeekDateRange}
+                    days={unresolvedPreviousWeekDays}
+                    servedEntries={servedEntries}
+                    onDayPress={setSelectedDashboardDay}
+                  />
+                </>
+              ) : null}
+              {showUnplannedCurrentWeekState || hideWeekPlanForFirstExperience ? null : isUpcomingWeekReady ? (
                 <>
                   <UpcomingWeekReadyCard
                     dateLabel={formattedDate}
@@ -2175,6 +2391,12 @@ export default function WeekDashboardScreen() {
                     onDayPress={(day) => {
                       setSelectedDashboardDay(day);
                     }}
+                  />
+                  <PreviousWeekCatchUpCard
+                    dateRange={previousWeekDateRange}
+                    days={unresolvedPreviousWeekDays}
+                    servedEntries={servedEntries}
+                    onDayPress={setSelectedDashboardDay}
                   />
                 </>
               ) : showWeekPlanDetails ? (
@@ -2216,7 +2438,12 @@ export default function WeekDashboardScreen() {
                     />
                   ) : null}
                   {todayCard}
-                  <TomorrowPreview day={tomorrow} />
+                  <PreviousWeekCatchUpCard
+                    dateRange={previousWeekDateRange}
+                    days={unresolvedPreviousWeekDays}
+                    servedEntries={servedEntries}
+                    onDayPress={setSelectedDashboardDay}
+                  />
                   <View ref={thisWeekSectionRef} collapsable={false}>
                     <ThisWeekList
                       days={days}
@@ -2224,6 +2451,7 @@ export default function WeekDashboardScreen() {
                       collapsible
                       completionEnabled={!showFirstWeekExperience && !isWeekCompletionDeferred}
                       completionReady={!areServedMealsLoading}
+                      onCompletionChange={handleWeekCompletionChange}
                       onReorder={handleThisWeekReorder}
                       onDragStateChange={setWeekListDragging}
                       onDayPress={(day) => {
@@ -2252,7 +2480,15 @@ export default function WeekDashboardScreen() {
                   ) : null}
                 </>
               ) : plannedDayCount > 0 ? (
-                renderPlanningCTA("resume", handleResumePlanning)
+                <>
+                  {renderPlanningCTA("resume", handleResumePlanning)}
+                  <PreviousWeekCatchUpCard
+                    dateRange={previousWeekDateRange}
+                    days={unresolvedPreviousWeekDays}
+                    servedEntries={servedEntries}
+                    onDayPress={setSelectedDashboardDay}
+                  />
+                </>
               ) : null}
             </View>
           </ScrollView>
@@ -2264,13 +2500,34 @@ export default function WeekDashboardScreen() {
           onComplete={() => setWeekPlanCelebration(null)}
         />
       ) : null}
+      <WrapUpLastWeekModal
+        visible={Boolean(pendingPlanningIntent)}
+        days={unresolvedPreviousWeekDays}
+        servedEntries={servedEntries}
+        onDayPress={(day) => {
+          setSelectedDashboardDay(day);
+        }}
+        onContinue={() => {
+          if (pendingPlanningIntent) continueToPlanner(pendingPlanningIntent);
+        }}
+        onClose={() => setPendingPlanningIntent(null)}
+      />
       <MealRowDetailsSheet
         day={resolvedSelectedDashboardDay}
         servedEntry={selectedDashboardServedEntry}
-        onClose={() => setSelectedDashboardDay(null)}
+        onClose={() => {
+          setSelectedDashboardDay(null);
+        }}
         onMarkServed={(day) => {
           if (!day.mealId) return;
-          void handleUnmarkedOutcome(day.key, day.mealId, day.plannedDate, "served");
+          const isPreviousWeekDay = previousWeekDays.some(
+            (candidate) => candidate.plannedDateISO === day.plannedDateISO,
+          );
+          if (isPreviousWeekDay) {
+            void handlePreviousWeekOutcome(day, "served");
+          } else {
+            void handleUnmarkedOutcome(day.key, day.mealId, day.plannedDate, "served");
+          }
         }}
         onChangeMeal={(day) => {
           handleTodayChangePlans(day);

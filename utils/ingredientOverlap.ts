@@ -1,5 +1,6 @@
 import { Meal, MealIngredient } from "../types/meals";
 import { isDefaultPantryStaple } from "./ingredientClassification";
+import { canonicalIngredientName } from "./ingredientNormalization";
 
 export type IngredientOverlap = {
   sharedIngredients: string[];
@@ -33,7 +34,7 @@ const normalizeWord = (word: string) => {
 };
 
 export const normalizeIngredientName = (name: string) =>
-  name
+  canonicalIngredientName(name)
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ")
@@ -55,7 +56,7 @@ const getMeaningfulIngredientMap = (meal: Meal) => {
   const ingredients = new Map<string, string>();
   (meal.ingredients ?? []).forEach((ingredient) => {
     if (!isMeaningfulKeyIngredient(ingredient)) return;
-    const displayName = getIngredientName(ingredient).trim().replace(/\s+/g, " ");
+    const displayName = canonicalIngredientName(getIngredientName(ingredient));
     const normalizedName = normalizeIngredientName(displayName);
     if (normalizedName && !ingredients.has(normalizedName)) {
       ingredients.set(normalizedName, displayName);

@@ -134,7 +134,7 @@ export default function FamilyProfileModal() {
           {subscription.status !== "firstWeekFree" ? (
           <View style={styles.actions}>
             {subscription.status === "subscriptionRequired" ? <>
-              <ActionRow icon="chef-hat" title="Continue with Weekly Eats" subtitle="$34.99 / year" onPress={() => void subscription.purchaseAnnual()} primary styles={styles} theme={theme} />
+              <ActionRow icon="chef-hat" title="Continue with Weekly Eats" subtitle={subscription.annualPriceString ? `${subscription.annualPriceString} / year` : "Annual subscription"} onPress={() => void subscription.purchaseAnnual()} primary styles={styles} theme={theme} />
               <ActionRow icon="restore" title="Restore Purchases" onPress={() => void subscription.restorePurchases()} styles={styles} theme={theme} />
             </> : <>
               <ActionRow icon="credit-card-outline" title="Manage Subscription" onPress={() => void subscription.manageSubscription()} styles={styles} theme={theme} />

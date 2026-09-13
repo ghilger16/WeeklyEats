@@ -1,6 +1,7 @@
 import { NativeModules, Platform } from "react-native";
 
 export type TodayWidgetMeal = {
+  mealId?: string;
   dateISO: string;
   title: string;
   icon: string;

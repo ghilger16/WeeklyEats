@@ -9,11 +9,16 @@ export const usePlanningGate = () => {
   const router = useRouter();
   const subscription = useSubscription();
 
+  const getPlanningAccessStatus = useCallback(
+    () => subscription.isLoading
+      ? subscription.refresh()
+      : Promise.resolve(subscription.status),
+    [subscription.isLoading, subscription.refresh, subscription.status],
+  );
+
   const requestFullWeekPlanning = useCallback(
     async (intent: string = "/modals/plan-week") => {
-      const status = subscription.isLoading
-        ? await subscription.refresh()
-        : subscription.status;
+      const status = await getPlanningAccessStatus();
       if (requiresFullWeekSubscription(status)) {
         router.push({
           pathname: "/modals/subscription-required",
@@ -23,11 +28,12 @@ export const usePlanningGate = () => {
       }
       router.push(intent as Href);
     },
-    [router, subscription.isLoading, subscription.refresh, subscription.status],
+    [getPlanningAccessStatus, router],
   );
 
   return {
     requestFullWeekPlanning,
+    getPlanningAccessStatus,
     refreshPlanningEntitlement: subscription.refresh,
   };
 };

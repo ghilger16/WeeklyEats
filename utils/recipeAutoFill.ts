@@ -1,3 +1,4 @@
+import { normalizeIngredientNames } from "./ingredientNormalization";
 import { Ingredient } from "../types/meals";
 import { CuisineType, isCuisineType } from "../types/cuisine";
 
@@ -39,6 +40,7 @@ const buildFunctionUrl = () => {
 export const autoFillMealFromUrl = async (
   rawUrl: string,
   existingMealTitle?: string,
+  householdSize = 4,
 ): Promise<RecipeAutoFillOutcome> => {
   if (!API_BASE_URL) {
     return {
@@ -83,6 +85,7 @@ export const autoFillMealFromUrl = async (
       },
       body: JSON.stringify({
         url: url.toString(),
+        householdSize,
         ...(existingMealTitle?.trim()
           ? { existingMealTitle: existingMealTitle.trim() }
           : {}),
@@ -143,7 +146,7 @@ export const autoFillMealFromUrl = async (
       }
       const normalizedResult: RecipeAutoFillResult = {
         title: payload.data.title?.trim(),
-        ingredients: payload.data.ingredients,
+        ingredients: normalizeIngredientNames(payload.data.ingredients ?? []),
         cuisine: isCuisineType(payload.data.cuisine)
           ? payload.data.cuisine
           : null,

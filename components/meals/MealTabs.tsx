@@ -44,7 +44,7 @@ const MealTabs = ({
       { key: "all" as const, label: "All" },
       { key: "favorites" as const, label: "Freezer" },
       ...(incompleteCount > 0 || activeTab === "complete"
-        ? [{ key: "complete" as const, label: "Complete" }]
+        ? [{ key: "complete" as const, label: "Incomplete" }]
         : []),
     ],
     [activeTab, incompleteCount]

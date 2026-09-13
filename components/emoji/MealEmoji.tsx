@@ -1,4 +1,6 @@
 import { Image, ImageStyle, StyleProp, Text, TextStyle } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useThemeController } from "../../providers/theme/ThemeController";
 import {
   getCustomEmojiSource,
   isCustomEmojiToken,
@@ -19,7 +21,12 @@ export default function MealEmoji({
   style,
   imageStyle,
 }: Props) {
+  const { theme } = useThemeController();
   const source = getCustomEmojiSource(value);
+
+  if (value === "🔄") {
+    return <MaterialCommunityIcons name="sync" size={size} style={style} color={theme.color.accent} />;
+  }
 
   if (source) {
     return (

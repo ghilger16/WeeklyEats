@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import MealEmoji from "../emoji/MealEmoji";
 import { useMemo } from "react";
 import {
   Linking,
@@ -166,9 +167,7 @@ export default function PlannedDayEditModal({
                   <Text style={styles.recipeTagText}>Recipe</Text>
                 </View>
               ) : null}
-              <Text style={styles.emoji}>
-                {isFlexNight ? "🔄" : (meal.emoji ?? "🍽️")}
-              </Text>
+              <MealEmoji value={isFlexNight ? "🔄" : meal.emoji} size={styles.emoji.fontSize} style={styles.emoji} />
               <Text style={styles.mealTitle}>{displayTitle}</Text>
               {helperText ? (
                 <Text style={styles.helperText}>{helperText}</Text>

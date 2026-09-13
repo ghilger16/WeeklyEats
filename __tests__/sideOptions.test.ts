@@ -31,7 +31,7 @@ describe("cuisine side suggestions", () => {
       CUISINE_OPTIONS.map((option) => option.value).sort(),
     );
     CUISINE_OPTIONS.forEach((option) => {
-      expect(CUISINE_SIDE_SUGGESTIONS[option.value].length).toBeGreaterThanOrEqual(6);
+      expect(CUISINE_SIDE_SUGGESTIONS[option.value].length).toBe(6);
     });
   });
 
@@ -43,8 +43,6 @@ describe("cuisine side suggestions", () => {
       "Chips & Salsa",
       "Guacamole",
       "Side Salad",
-      "Black Beans",
-      "Fruit",
     ]);
   });
 
@@ -61,6 +59,16 @@ describe("cuisine side suggestions", () => {
 });
 
 describe("inline side options", () => {
+  it("uses custom cuisine sides after meal preferences without restoring replaced defaults", () => {
+    const options = getSideOptionsForMeal(
+      { ...meal, cuisine: "american", preferredSides: ["Coleslaw"] },
+      [],
+      { american: ["Baked Beans", "Dinner Rolls"] },
+    );
+    expect(options.map((option) => option.name)).toEqual(["Coleslaw", "Baked Beans", "Dinner Rolls"]);
+    expect(getSideSuggestions({ cuisine: "american", cuisineOverrides: { american: [] } })).toEqual([]);
+  });
+
   it("prioritizes saved sides and follows them with cuisine suggestions", () => {
     const options = getSideOptionsForMeal(meal, ["Guacamole"]);
 
@@ -80,7 +88,7 @@ describe("inline side options", () => {
     expect(mexican[0]).toEqual({ name: "Corn", isCustom: true });
     expect(american[0]).toEqual({ name: "Corn", isCustom: true });
     expect(mexican.some((option) => option.name === "Spanish Rice")).toBe(true);
-    expect(american.some((option) => option.name === "French Fries")).toBe(true);
+    expect(american.some((option) => option.name === "Mashed Potatoes")).toBe(true);
   });
 
   it("adds and selects a custom side without removing saved choices", () => {

@@ -1,5 +1,9 @@
-import { Stack } from "expo-router";
-import { useEffect } from "react";
+import { Stack, usePathname } from "expo-router";
+import { useEffect, useRef } from "react";
+import {
+  DatadogProvider,
+  DdRum,
+} from "@datadog/mobile-react-native";
 import {
   ThemeControllerProvider,
   useThemeController,
@@ -7,6 +11,34 @@ import {
 import { WeekStartControllerProvider } from "../providers/week-start/WeekStartController";
 import { FamilyMembersProvider } from "../providers/family-members/FamilyMembersProvider";
 import { preloadCustomEmojiAssets } from "../components/emoji/customEmojiPreloader";
+import { datadogConfiguration } from "../services/datadog";
+import { initializeAnalyticsIdentity } from "../services/analytics";
+
+function DatadogRouteTracker() {
+  const pathname = usePathname();
+  const activeViewKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    const viewKey = pathname || "/";
+    const previousViewKey = activeViewKey.current;
+
+    if (previousViewKey && previousViewKey !== viewKey) {
+      void DdRum.stopView(previousViewKey);
+    }
+
+    activeViewKey.current = viewKey;
+    void DdRum.startView(viewKey, viewKey);
+
+    return () => {
+      if (activeViewKey.current === viewKey) {
+        void DdRum.stopView(viewKey);
+        activeViewKey.current = null;
+      }
+    };
+  }, [pathname]);
+
+  return null;
+}
 
 function RootStack() {
   const { theme } = useThemeController();
@@ -112,12 +144,18 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <ThemeControllerProvider>
-      <WeekStartControllerProvider>
-        <FamilyMembersProvider>
-          <RootStack />
-        </FamilyMembersProvider>
-      </WeekStartControllerProvider>
-    </ThemeControllerProvider>
+    <DatadogProvider
+      configuration={datadogConfiguration}
+      onInitialization={() => void initializeAnalyticsIdentity()}
+    >
+      <DatadogRouteTracker />
+      <ThemeControllerProvider>
+        <WeekStartControllerProvider>
+          <FamilyMembersProvider>
+            <RootStack />
+          </FamilyMembersProvider>
+        </WeekStartControllerProvider>
+      </ThemeControllerProvider>
+    </DatadogProvider>
   );
 }

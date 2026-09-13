@@ -174,7 +174,7 @@ export default function InlineDaySearch({
             {onAddNewMeal ? (
               <QuickOption
                 icon="plus-circle-outline"
-                label="Add Meal"
+                label="Create Meal"
                 accessibilityLabel={`Add a new meal for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
                 onPress={onAddNewMeal}
                 styles={styles}

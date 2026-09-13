@@ -12,6 +12,7 @@ import {
   DEFAULT_MEAL_EMOJI,
   suggestEmojiForTitle,
 } from "../utils/emojiCatalog";
+import { trackAction } from "../services/analytics";
 
 export type MealListSubset = "meals" | "favorites";
 export type MealUpdate = Partial<Omit<Meal, "id">> & { id: Meal["id"] };
@@ -168,6 +169,19 @@ export const useMeals = (): UseMealsResult => {
         const filtered = prev.filter(
           (existing) => existing.id !== normalizedMeal.id,
         );
+        const isNewMeal = filtered.length === prev.length;
+        if (isNewMeal) {
+          trackAction("meal_created", {
+            library_size_after: filtered.length + 1,
+            ingredient_count: normalizedMeal.ingredients?.length ?? 0,
+            side_count: normalizedMeal.preferredSides?.length ?? 0,
+            has_cuisine: Boolean(normalizedMeal.cuisine),
+            has_difficulty: Boolean(normalizedMeal.difficulty),
+            has_expense: Boolean(normalizedMeal.expense),
+            has_rating: normalizedMeal.rating > 0,
+            has_recipe_url: Boolean(normalizedMeal.recipeUrl?.trim()),
+          });
+        }
         return [normalizedMeal, ...filtered];
       });
     },

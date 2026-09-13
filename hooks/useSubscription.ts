@@ -31,6 +31,8 @@ const showUnavailableMessage = () => {
 export const useSubscription = () => {
   const [status, setStatus] = useState<SubscriptionStatus>("firstWeekFree");
   const [renewalDateISO, setRenewalDateISO] = useState<string | undefined>();
+  const [annualPriceString, setAnnualPriceString] = useState<string | undefined>();
+  const [monthlyEquivalentPriceString, setMonthlyEquivalentPriceString] = useState<string | undefined>();
   const [isLoading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -46,6 +48,8 @@ export const useSubscription = () => {
       );
     setStatus(nextStatus);
     setRenewalDateISO(snapshot.renewalDateISO);
+    setAnnualPriceString(snapshot.annualPriceString);
+    setMonthlyEquivalentPriceString(snapshot.monthlyEquivalentPriceString);
     setLoading(false);
     return nextStatus;
   }, []);
@@ -84,6 +88,8 @@ export const useSubscription = () => {
   return {
     status,
     renewalDateISO,
+    annualPriceString,
+    monthlyEquivalentPriceString,
     isLoading,
     refresh,
     purchaseAnnual: () => runAction(subscriptionService.purchaseAnnual),

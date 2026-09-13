@@ -11,7 +11,10 @@
         "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app",
         "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_RyxuCHyEDvogmJLlXKKSxqahGIb",
         "EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID": "weekly_eats_pro",
-        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default"
+        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default",
+        "EXPO_PUBLIC_DATADOG_CLIENT_TOKEN": "pub8e8bc06857d89556927c7bd28912adc1",
+        "EXPO_PUBLIC_DATADOG_RUM_APPLICATION_ID": "cb267779-9804-40b5-a67a-043f1efdaf3d",
+        "EXPO_PUBLIC_DATADOG_ENV": "test"
       },
       "ios": {
         "image": "sdk-54"
@@ -23,7 +26,26 @@
         "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app",
         "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_RyxuCHyEDvogmJLlXKKSxqahGIb",
         "EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID": "weekly_eats_pro",
-        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default"
+        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default",
+        "EXPO_PUBLIC_DATADOG_CLIENT_TOKEN": "pub8e8bc06857d89556927c7bd28912adc1",
+        "EXPO_PUBLIC_DATADOG_RUM_APPLICATION_ID": "cb267779-9804-40b5-a67a-043f1efdaf3d",
+        "EXPO_PUBLIC_DATADOG_ENV": "test"
+      },
+      "ios": {
+        "image": "sdk-54"
+      }
+    },
+    "testflight": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_RyxuCHyEDvogmJLlXKKSxqahGIb",
+        "EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID": "weekly_eats_pro",
+        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default",
+        "EXPO_PUBLIC_DATADOG_CLIENT_TOKEN": "pub8e8bc06857d89556927c7bd28912adc1",
+        "EXPO_PUBLIC_DATADOG_RUM_APPLICATION_ID": "cb267779-9804-40b5-a67a-043f1efdaf3d",
+        "EXPO_PUBLIC_DATADOG_ENV": "test"
       },
       "ios": {
         "image": "sdk-54"
@@ -35,7 +57,10 @@
         "EXPO_PUBLIC_API_BASE_URL": "https://weeklyeats.netlify.app",
         "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_RyxuCHyEDvogmJLlXKKSxqahGIb",
         "EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID": "weekly_eats_pro",
-        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default"
+        "EXPO_PUBLIC_REVENUECAT_OFFERING_ID": "default",
+        "EXPO_PUBLIC_DATADOG_CLIENT_TOKEN": "pub8e8bc06857d89556927c7bd28912adc1",
+        "EXPO_PUBLIC_DATADOG_RUM_APPLICATION_ID": "cb267779-9804-40b5-a67a-043f1efdaf3d",
+        "EXPO_PUBLIC_DATADOG_ENV": "prod"
       },
       "ios": {
         "image": "sdk-54"
@@ -43,6 +68,7 @@
     }
   },
   "submit": {
+    "testflight": {},
     "production": {}
   }
 }

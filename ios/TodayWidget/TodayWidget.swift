@@ -3,7 +3,7 @@ import WidgetKit
 
 private let appGroupIdentifier = "group.com.ghilger16.WeeklyEats"
 private let payloadKey = "todayWidgetPayload"
-private let widgetPink = Color(red: 1.0, green: 0.24, blue: 0.53)
+private let widgetPink = Color(red: 1.0, green: 75.0 / 255.0, blue: 145.0 / 255.0)
 private let widgetPurple = Color(red: 0.55, green: 0.31, blue: 0.89)
 
 private enum DinnerOutcome: String {
@@ -16,10 +16,6 @@ private enum DinnerOutcome: String {
     case .ateOut: return "Ate out tonight"
     case .skipped: return "No dinner tonight"
     }
-  }
-
-  var mediumLabel: String {
-    self == .served ? "Dinner’s handled!" : smallLabel
   }
 
   var symbol: String {
@@ -40,9 +36,18 @@ private struct WidgetMeal {
   let sides: [String]
   let prepNote: String?
   let recipeURL: URL?
+  var mealId: String? = nil
 
-  var destinationURL: URL { recipeURL ?? URL(string: "weeklyeats://week")! }
-  var accessibilitySummary: String { ([title] + sides).joined(separator: " with ") }
+  var isFlexNight: Bool { mealId == "__flex_night__" || (mealId == nil && icon == "🔄") }
+  var isEatOut: Bool { mealId == "__eat_out__" || (mealId == nil && (title == "Eat Out Night" || title == "Eat Out")) }
+  var displayTitle: String { isEatOut ? "Eat Out" : (isFlexNight ? "Flex Night" : title) }
+  var specialSubtitle: String? {
+    if isFlexNight { return "Keep tonight flexible" }
+    if isEatOut && title != "Eat Out Night" && title != "Eat Out" { return title }
+    return nil
+  }
+
+  var accessibilitySummary: String { ([displayTitle] + (specialSubtitle.map { [$0] } ?? []) + sides).joined(separator: " with ") }
 }
 
 struct TodayMealEntry: TimelineEntry {
@@ -52,8 +57,10 @@ struct TodayMealEntry: TimelineEntry {
   fileprivate let outcome: DinnerOutcome?
 
   fileprivate var destinationURL: URL {
-    outcome == nil ? today.destinationURL : (tomorrow?.destinationURL ?? URL(string: "weeklyeats://week")!)
+    URL(string: "weeklyeats://week-dashboard")!
   }
+
+  fileprivate var recipeMeal: WidgetMeal? { outcome == nil ? today : tomorrow }
 }
 
 struct TodayMealProvider: TimelineProvider {
@@ -100,7 +107,8 @@ struct TodayMealProvider: TimelineProvider {
       dateLabel: (dictionary["dateLabel"] as? String)?.trimmed.nilIfEmpty ?? "Today",
       sides: sides,
       prepNote: (dictionary["prepNote"] as? String)?.trimmed.nilIfEmpty,
-      recipeURL: (dictionary["recipeUrl"] as? String)?.trimmed.nilIfEmpty.flatMap(URL.init(string:))
+      recipeURL: (dictionary["recipeUrl"] as? String)?.trimmed.nilIfEmpty.flatMap(URL.init(string:)),
+      mealId: dictionary["mealId"] as? String
     )
   }
 
@@ -139,6 +147,11 @@ struct TodayMealWidgetView: View {
   }
 
   private var accessibilityLabel: String {
+    if family == .systemSmall {
+      return entry.outcome == nil
+        ? "Today. \(entry.today.accessibilitySummary)"
+        : "Tomorrow. \(entry.tomorrow?.accessibilitySummary ?? "Nothing planned yet")"
+    }
     guard let outcome = entry.outcome else { return entry.today.accessibilitySummary }
     return "\(outcome.smallLabel). Tomorrow is \(entry.tomorrow?.accessibilitySummary ?? "nothing planned")."
   }
@@ -147,27 +160,100 @@ struct TodayMealWidgetView: View {
 private struct SmallTodayCard: View {
   let entry: TodayMealEntry
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack {
-        Text("TODAY").todayEyebrow(color: widgetPink)
-        Spacer()
-        if entry.destinationURL.scheme?.hasPrefix("http") == true { RecipeLinkIcon() }
+    VStack(spacing: 12) {
+      ZStack {
+        if entry.outcome != nil { TomorrowLabel() }
+        else { Text("TODAY").todayEyebrow(color: widgetPink) }
       }
-      if let outcome = entry.outcome {
-        HStack(spacing: 7) {
-          StatusCircle(outcome: outcome, compact: true)
-          Text(outcome.smallLabel).font(.system(size: 14, weight: .bold)).lineLimit(1).minimumScaleFactor(0.8)
-        }
-        Divider().padding(.vertical, 1)
-        TomorrowLabel()
-        if let tomorrow = entry.tomorrow { MealIdentity(meal: tomorrow, compact: true) }
-        else { EmptyTomorrow() }
+      .frame(maxWidth: .infinity)
+      .overlay(alignment: .trailing) { RecipeLink(meal: entry.recipeMeal) }
+      if entry.outcome != nil {
+        if let tomorrow = entry.tomorrow { SmallMealIdentity(meal: tomorrow) }
+        else { EmptyTomorrow().multilineTextAlignment(.center) }
       } else {
-        MealIdentity(meal: entry.today, compact: true)
+        SmallMealIdentity(meal: entry.today)
       }
-      Spacer(minLength: 0)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     .padding(13)
+  }
+}
+
+private struct RecipeLink: View {
+  let meal: WidgetMeal?
+
+  private var destination: URL? {
+    guard let recipeURL = meal?.recipeURL,
+          let scheme = recipeURL.scheme?.lowercased(),
+          ["http", "https"].contains(scheme), recipeURL.host != nil else { return nil }
+    var components = URLComponents()
+    components.scheme = "weeklyeats"
+    components.host = "widget-recipe"
+    components.queryItems = [URLQueryItem(name: "url", value: recipeURL.absoluteString)]
+    return components.url
+  }
+
+  var body: some View {
+    if let destination {
+      Link(destination: destination) {
+        Image(systemName: "link")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(widgetPink)
+          .frame(width: 28, height: 28)
+          .contentShape(Rectangle())
+      }
+      .accessibilityLabel("Open recipe in browser")
+    }
+  }
+}
+
+private struct WidgetMealIcon: View {
+  let meal: WidgetMeal
+  let size: CGFloat
+  let diameter: CGFloat
+
+  private var customImage: UIImage? {
+    guard meal.icon.hasPrefix("custom:") else { return nil }
+    let name = String(meal.icon.dropFirst("custom:".count))
+    // Custom tokens share filenames with the app's assets/emoji registry.
+    guard name.range(of: "^[a-z0-9]+(?:-[a-z0-9]+)*$", options: .regularExpression) != nil,
+          let url = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "emoji") else { return nil }
+    return UIImage(contentsOfFile: url.path)
+  }
+
+  var body: some View {
+    Group {
+      if meal.isFlexNight || meal.isEatOut {
+        Text(meal.isFlexNight ? "\u{F04E6}" : "\u{F0A70}")
+          .font(.custom("MaterialDesignIcons", fixedSize: size))
+          .foregroundStyle(widgetPink)
+      } else if let image = customImage {
+        Image(uiImage: image)
+          .resizable()
+          .scaledToFit()
+          .frame(width: size, height: size)
+      } else {
+        Text(meal.icon.hasPrefix("custom:") ? "🍽️" : meal.icon).font(.system(size: size))
+      }
+    }
+    .frame(width: diameter, height: diameter)
+
+  }
+}
+
+private struct SmallMealIdentity: View {
+  let meal: WidgetMeal
+
+  var body: some View {
+    VStack(alignment: .center, spacing: 10) {
+      WidgetMealIcon(meal: meal, size: 40, diameter: 44)
+      Text(meal.displayTitle)
+        .font(.system(size: 17, weight: .bold, design: .rounded))
+        .lineLimit(2)
+        .minimumScaleFactor(0.72)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
   }
 }
 
@@ -178,17 +264,16 @@ private struct MediumTodayCard: View {
       HStack {
         Text("TODAY · \(entry.today.dateLabel.uppercased())").todayEyebrow(color: widgetPink)
         Spacer()
-        if entry.destinationURL.scheme?.hasPrefix("http") == true { RecipeLinkIcon() }
+        RecipeLink(meal: entry.recipeMeal)
       }
       if let outcome = entry.outcome {
         HStack(spacing: 10) {
           StatusCircle(outcome: outcome, compact: false)
-          VStack(alignment: .leading, spacing: 2) {
-            Text(outcome.mediumLabel).font(.system(size: 18, weight: .bold)).lineLimit(1)
-            if outcome != .skipped {
-              Text("\(entry.today.title) · \(outcome == .served ? "Served" : outcome.smallLabel)").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
-            }
-          }
+          Text(outcome == .skipped ? outcome.smallLabel : "\(entry.today.displayTitle) · \(outcome == .served ? "Served" : outcome.smallLabel)")
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
         }
         Divider()
         TomorrowLabel()
@@ -211,10 +296,12 @@ private struct MealIdentity: View {
   let compact: Bool
   var body: some View {
     HStack(spacing: compact ? 8 : 12) {
-      Text(meal.icon).font(.system(size: compact ? 34 : 38)).frame(width: compact ? 43 : 54, height: compact ? 43 : 54).background(Color.accentSurface).clipShape(Circle())
+      WidgetMealIcon(meal: meal, size: compact ? 34 : 38, diameter: compact ? 43 : 54)
       VStack(alignment: .leading, spacing: compact ? 1 : 3) {
-        Text(meal.title).font(.system(size: compact ? 17 : 20, weight: .bold, design: .rounded)).lineLimit(compact ? 2 : 1).minimumScaleFactor(0.72)
-        if let sides = formattedSides {
+        Text(meal.displayTitle).font(.system(size: compact ? 17 : 20, weight: .bold, design: .rounded)).lineLimit(compact ? 2 : 1).minimumScaleFactor(0.72)
+        if let subtitle = meal.specialSubtitle {
+          Text(subtitle).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+        } else if let sides = formattedSides {
           Text(sides).font(.system(size: compact ? 12 : 14, weight: .medium)).foregroundStyle(.secondary).lineLimit(compact ? 2 : 1)
         }
       }
@@ -245,7 +332,6 @@ private struct PrepNote: View {
 
 private struct TomorrowLabel: View { var body: some View { Text("TOMORROW").todayEyebrow(color: widgetPurple) } }
 private struct EmptyTomorrow: View { var body: some View { Text("Nothing planned yet").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary) } }
-private struct RecipeLinkIcon: View { var body: some View { Image(systemName: "link").font(.system(size: 14, weight: .semibold)).foregroundStyle(widgetPink) } }
 
 private struct StatusCircle: View {
   let outcome: DinnerOutcome

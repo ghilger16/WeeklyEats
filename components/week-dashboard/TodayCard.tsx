@@ -66,6 +66,30 @@ type TodayCardProps = {
 type CelebrationPhase = "idle" | "burst" | "complete" | "carousel";
 type CarouselPage = "ratings" | "served" | "freezer" | "notes";
 
+export function EmptyTodayCard({ dateLabel }: { dateLabel: string }) {
+  const { theme } = useThemeController();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
+  return (
+    <View style={[styles.card, styles.fixedMealCard, styles.emptyCard]}>
+      <Text style={styles.eyebrow}>{dateLabel.toUpperCase()}</Text>
+      <View style={styles.emptyCardContent}>
+        <View style={styles.emptyCardIcon}>
+          <MaterialCommunityIcons
+            name="calendar-blank-outline"
+            size={34}
+            color={theme.color.accent}
+          />
+        </View>
+        <Text style={styles.emptyCardTitle}>No planned meals</Text>
+        <Text style={styles.emptyCardSubtitle}>
+          Plan this week when you’re ready.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export default function TodayCard({
   meal,
   dateLabel,
@@ -117,6 +141,14 @@ export default function TodayCard({
   const sidesLabel = sides.join(" · ");
   const prepNotes = notes ?? meal.prepNotes?.trim();
   const hasPrepNotes = Boolean(prepNotes?.trim());
+  const [mealRowWidth, setMealRowWidth] = useState(0);
+  const [prepNoteMeasurement, setPrepNoteMeasurement] = useState({ text: "", width: 0, fillsLine: false });
+  const prepNoteText = prepNotes?.trim() ?? "";
+  const prepNoteWidth = Math.max(0, mealRowWidth - 48 - theme.space.md);
+  const useExpandedMealDetails = hasPrepNotes
+    && prepNoteMeasurement.text === prepNoteText
+    && prepNoteMeasurement.width === prepNoteWidth
+    && prepNoteMeasurement.fillsLine;
   const eatOutNote = isEatOut
     ? notes?.trim() ||
       (meal.title !== EAT_OUT_MEAL.title ? meal.title.trim() : "") ||
@@ -513,13 +545,33 @@ export default function TodayCard({
         </View>
       ) : (
         <>
-          <View style={[styles.mealRow, !hasPrepNotes && styles.mealRowCentered]}>
+          <View
+            style={[styles.mealRow, !useExpandedMealDetails && styles.mealRowCentered]}
+            onLayout={({ nativeEvent }) => setMealRowWidth(nativeEvent.layout.width)}
+          >
+            {hasPrepNotes && prepNoteWidth > 0 ? (
+              <Text
+                accessible={false}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                pointerEvents="none"
+                style={[styles.notes, styles.noteMeasurement, { width: prepNoteWidth }]}
+                onTextLayout={({ nativeEvent }) => {
+                  const fillsLine = nativeEvent.lines.length > 1
+                    || (nativeEvent.lines[0]?.width ?? 0) >= prepNoteWidth * 0.9;
+                  setPrepNoteMeasurement((previous) =>
+                    previous.text === prepNoteText && previous.width === prepNoteWidth && previous.fillsLine === fillsLine
+                      ? previous : { text: prepNoteText, width: prepNoteWidth, fillsLine },
+                  );
+                }}
+              >{prepNoteText}</Text>
+            ) : null}
             <MealEmoji value={meal.emoji} size={48} />
-            <View style={[styles.mealText, !hasPrepNotes && styles.mealTextCentered]}>
-              <Text style={[styles.title, !hasPrepNotes && styles.mealTitleCentered]}>{meal.title}</Text>
+            <View style={[styles.mealText, !useExpandedMealDetails && styles.mealTextCentered]}>
+              <Text style={[styles.title, !useExpandedMealDetails && styles.mealTitleCentered]}>{meal.title}</Text>
               {isFlexNight ? <Text style={styles.meta}>Keep tonight flexible</Text> : null}
               {sidesLabel ? <Text style={styles.sides}>w/ {sidesLabel}</Text> : null}
-              {hasPrepNotes ? <Text style={styles.notes}>{prepNotes?.trim()}</Text> : null}
+              {hasPrepNotes ? <Text style={[styles.notes, !useExpandedMealDetails && styles.mealTitleCentered]}>{prepNoteText}</Text> : null}
             </View>
           </View>
           {isServed && phase !== "burst" ? (
@@ -587,6 +639,11 @@ const createStyles = (theme: WeeklyTheme) =>
     galaxyCard: { borderColor: "#7C4DFF" },
     cardAchievementIcon: { position: "absolute", top: 12, right: 14, zIndex: 5 },
     fixedMealCard: { height: 255, padding: theme.space.lg * 0.85 },
+    emptyCard: { justifyContent: "flex-start" },
+    emptyCardContent: { flex: 1, alignItems: "center", justifyContent: "center", gap: theme.space.sm },
+    emptyCardIcon: { width: 62, height: 62, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.surfaceAlt },
+    emptyCardTitle: { color: theme.color.ink, fontSize: theme.type.size.h2, fontWeight: theme.type.weight.bold, textAlign: "center" },
+    emptyCardSubtitle: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, textAlign: "center" },
     headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     headerRowWithAchievement: { paddingRight: 28 },
     eyebrow: { color: theme.color.accent, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 0.8 },
@@ -595,12 +652,13 @@ const createStyles = (theme: WeeklyTheme) =>
     mealRowCentered: { justifyContent: "center" },
     emoji: { fontSize: 42 },
     mealText: { flex: 1, gap: theme.space.xs },
-    mealTextCentered: { flex: 0, alignItems: "center" },
+    mealTextCentered: { flex: 0, flexShrink: 1, alignItems: "center" },
     title: { color: theme.color.ink, fontSize: theme.type.size.h2, fontWeight: theme.type.weight.bold },
     mealTitleCentered: { textAlign: "center" },
     meta: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
     sides: { color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.medium },
     notes: { color: theme.color.subtleInk, fontSize: theme.type.size.xs },
+    noteMeasurement: { position: "absolute", opacity: 0 },
     eatOutContent: { alignItems: "center", gap: theme.space.md },
     eatOutIcon: { alignItems: "center", justifyContent: "center" },
     eatOutTitleGroup: { alignItems: "center", gap: 2 },
