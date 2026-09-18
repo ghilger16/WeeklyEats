@@ -1,3 +1,4 @@
+import NotificationCoordinator from "../services/notifications/NotificationCoordinator";
 import { Stack, usePathname } from "expo-router";
 import { useEffect, useRef } from "react";
 import {
@@ -57,6 +58,7 @@ function RootStack() {
         name="(tabs)"
         options={{ contentStyle: { backgroundColor: theme.color.bg } }}
       />
+      <Stack.Screen name="modals/notifications" options={{ presentation: "modal", headerShown: false }} />
       <Stack.Screen
         name="modals/theme-select"
         options={{
@@ -153,6 +155,7 @@ export default function RootLayout() {
         <WeekStartControllerProvider>
           <FamilyMembersProvider>
             <RootStack />
+            <NotificationCoordinator />
           </FamilyMembersProvider>
         </WeekStartControllerProvider>
       </ThemeControllerProvider>

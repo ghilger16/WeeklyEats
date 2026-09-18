@@ -1,3 +1,4 @@
+import { refreshScheduledNotifications } from "../../../services/notifications/service";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DevSettings, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
@@ -74,6 +75,7 @@ export default function MoreScreen() {
 
   const resetOnboarding = async () => {
     await AsyncStorage.clear();
+        await refreshScheduledNotifications();
     if (typeof DevSettings.reload === "function") {
       DevSettings.reload();
       return;
@@ -122,7 +124,7 @@ export default function MoreScreen() {
         </View>
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>Preferences</Text>
-          <SettingsRow icon="bell-outline" label="Notifications" />
+          <SettingsRow icon="bell-outline" label="Notifications" onPress={() => router.push("/modals/notifications")} />
           <SettingsRow
             icon="calendar-start"
             label="Week Start Day"
@@ -176,6 +178,7 @@ export default function MoreScreen() {
         {__DEV__ ? (
           <View style={styles.section}>
             <Text style={styles.sectionHeading}>Testing</Text>
+            <SettingsRow icon="bell-ring-outline" label="Test Notifications" onPress={() => router.push("/modals/test-notifications")} />
             <SettingsRow
               icon="restart"
               label="Reset Onboarding"

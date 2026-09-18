@@ -1,3 +1,5 @@
+import { buildTodayWidgetPayload } from "../../../utils/todayWidgetPlan";
+import { offerRemindersAfterPlanning } from "../../../services/notifications/service";
 import ShareWeekModal from "../../../components/share-week/ShareWeekModal";
 import { selectShareWeek } from "../../../components/share-week/shareWeekData";
 import {
@@ -296,6 +298,7 @@ export default function WeekDashboardScreen() {
     [effectiveDate, startDay]
   );
   const {
+    isLoading: isNextWeekLoading,
     plan: nextWeekPlan,
     sides: nextWeekSides,
     days: nextWeekDays,
@@ -418,7 +421,8 @@ export default function WeekDashboardScreen() {
     () => {
       if (previousWeekPlan.weekedPlanned !== true) return [];
       return previousWeekDays.filter((day) => {
-        if (!day.mealId) return false;
+        // Eat Out nights need no served action in the previous-week wrap-up.
+        if (!day.mealId || day.mealId === EAT_OUT_MEAL_ID) return false;
         const plannedTime = startOfDay(day.plannedDate).getTime();
         return !servedEntries.some(
           (entry) =>
@@ -606,13 +610,13 @@ export default function WeekDashboardScreen() {
   const resolvedSelectedDashboardDay = useMemo(() => {
     if (!selectedDashboardDay) return null;
     return (
-      days.find(
+      [...days, ...nextWeekDays, ...previousWeekDays].find(
         (day) =>
           day.key === selectedDashboardDay.key &&
           day.plannedDateISO === selectedDashboardDay.plannedDateISO,
       ) ?? selectedDashboardDay
     );
-  }, [days, selectedDashboardDay]);
+  }, [days, nextWeekDays, previousWeekDays, selectedDashboardDay]);
   const selectedDashboardServedEntry = useMemo(() => {
     if (!resolvedSelectedDashboardDay) return undefined;
     const plannedTime = startOfDay(resolvedSelectedDashboardDay.plannedDate).getTime();
@@ -674,62 +678,15 @@ export default function WeekDashboardScreen() {
     [servedEntries]
   );
 
-  const todayWidgetKey = useMemo(
-    () => JSON.stringify({
-      today: today ? {
-        date: today.plannedDateISO,
-        mealId: today.mealId,
-        title: today.meal?.title,
-        icon: today.meal?.emoji,
-        sides: today.sides,
-        prepNote: today.meal?.prepNotes,
-        recipeUrl: today.meal?.recipeUrl,
-      } : null,
-      tomorrow: tomorrow ? {
-        date: tomorrow.plannedDateISO,
-        mealId: tomorrow.mealId,
-        title: tomorrow.meal?.title,
-        icon: tomorrow.meal?.emoji,
-        sides: tomorrow.sides,
-        prepNote: tomorrow.meal?.prepNotes,
-        recipeUrl: tomorrow.meal?.recipeUrl,
-      } : null,
-      outcome: todayServedEntry?.outcome,
-    }),
-    [today, todayServedEntry?.outcome, tomorrow],
+  const todayWidgetPayload = useMemo(
+    () => buildTodayWidgetPayload(days, nextWeekDays, effectiveDate, todayServedEntry?.outcome),
+    [days, nextWeekDays, effectiveDate, todayServedEntry?.outcome],
   );
-
+  const todayWidgetKey = JSON.stringify(todayWidgetPayload);
   useEffect(() => {
-    if (isLoading) {
-      return;
-    }
-
-    if (!today?.meal) {
-      void clearTodayWidgetPayload();
-      return;
-    }
-
-    const toWidgetMeal = (day: WeekPlanDay) => ({
-      mealId: day.mealId ?? undefined,
-      dateISO: day.plannedDateISO,
-      title: day.meal?.title ?? "Nothing planned yet",
-      icon: day.meal?.emoji || "🍽️",
-      dateLabel: formatWeekdayDate(day.plannedDate),
-      sides: day.sides,
-      prepNote: day.meal?.prepNotes?.trim() || undefined,
-      recipeUrl: day.meal?.recipeUrl?.trim() || undefined,
-    });
-
-    void saveTodayWidgetPayload({
-      generatedAtISO: new Date().toISOString(),
-      today: toWidgetMeal(today),
-      tomorrow: tomorrow ? toWidgetMeal(tomorrow) : undefined,
-      todayOutcome: todayServedEntry?.outcome,
-    });
-  }, [
-    isLoading,
-    todayWidgetKey,
-  ]);
+    if (isLoading || isNextWeekLoading || areServedMealsLoading) return;
+    void saveTodayWidgetPayload(todayWidgetPayload);
+  }, [isLoading, isNextWeekLoading, areServedMealsLoading, todayWidgetKey]);
 
   const unmarkedDays = useMemo(
     () =>
@@ -2497,7 +2454,7 @@ export default function WeekDashboardScreen() {
       {weekPlanCelebration ? (
         <WeekPlanSavedCelebration
           payload={weekPlanCelebration}
-          onComplete={() => setWeekPlanCelebration(null)}
+          onComplete={() => { setWeekPlanCelebration(null); void offerRemindersAfterPlanning().catch(console.warn); }}
         />
       ) : null}
       <WrapUpLastWeekModal
@@ -2515,6 +2472,16 @@ export default function WeekDashboardScreen() {
       <MealRowDetailsSheet
         day={resolvedSelectedDashboardDay}
         servedEntry={selectedDashboardServedEntry}
+        onSaveSides={async (day, selectedSides) => {
+          const inPreviousWeek = previousWeekDays.some(candidate => candidate.plannedDateISO === day.plannedDateISO);
+          const inNextWeek = nextWeekDays.some(candidate => candidate.plannedDateISO === day.plannedDateISO);
+          const targetWeek = inPreviousWeek ? previousWeekStartISO : inNextWeek ? nextWeekStartISO : weekStartISO;
+          const updateSides = inPreviousWeek ? setPreviousWeekSidesState : inNextWeek ? setNextWeekSidesState : setSidesState;
+          const latestSides = await getCurrentWeekSides(targetWeek);
+          const updatedSides = { ...latestSides, [day.key]: selectedSides };
+          await setCurrentWeekSides(targetWeek, updatedSides);
+          updateSides(updatedSides);
+        }}
         onClose={() => {
           setSelectedDashboardDay(null);
         }}

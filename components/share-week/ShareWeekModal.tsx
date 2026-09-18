@@ -98,7 +98,7 @@ export default function ShareWeekModal({ days: currentDays, nextDays, onClose }:
             accessibilityRole="button"
             accessibilityLabel="Tap to cycle heading"
             hitSlop={8}
-            style={{ position: "absolute", right: 12 * cardWidth / 360, top: 33 * cardWidth / 360, padding: 3 }}
+            style={{ position: "absolute", right: 16 * cardWidth / 360, top: 46 * cardWidth / 360, padding: 3 }}
           >
             <MaterialCommunityIcons name="gesture-tap" size={26 * cardWidth / 360} color={theme.color.accent} />
           </Pressable>}

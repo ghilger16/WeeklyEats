@@ -25,3 +25,16 @@ node scripts/diagnose-recipe-import.js https://www.allrecipes.com/recipe/21014/g
 On 2026-09-12, a curl request using the production Accept and User-Agent headers returned HTTP 403, text/html, approximately 680,362 characters, no JSON-LD and no Recipe ingredients. Its body had a JavaScript/cookie challenge and `window._cf_chl_opt`. This is a host-block response in this environment, not a JSON-LD parser error. The subsequent diagnostic command using Node’s production fetch path returned HTTP 200, 556,622 HTML characters, one valid JSON-LD Recipe and all seven source ingredient lines. No JSON-LD parsing errors were reported. Different clients/requests can receive different host responses; the 403 does not establish that all imports are blocked. No challenge bypass or site-specific selectors were added. Repeat the command in the deployment environment to diagnose its response. Production Netlify access has not been verified.
 
 Accessible recipe pages with usable JSON-LD now take the structured path; blocked pages fail safely. Live model validation requires an API key; fixture tests mock the model to verify corrections, coverage, error behavior and request count.
+
+## 2026-09-16 production import fix
+
+The Lasagna Soup import from A Cozy Kitchen exposed a missing Parmesan-Reggiano /
+Parmigiano-Reggiano alias in the shared canonicalizer. Added both explicit aliases
+for Parmesan Cheese. A rejected ingredient-validation response now gets one focused
+retry with validator feedback; the retry must still pass the same source checks.
+Final model/validation failures return HTTP 502 with `RECIPE_PROCESSING_FAILED` and
+log metadata, instead of blaming the recipe URL with HTTP 400.
+
+Netlify deploy `6aab28b76380cbe804880102` was verified as a draft and published on
+2026-09-16. The existing static file manifest was preserved. Previous deployment:
+`6aa5e79ea30b80000873fbe9`. All 63 recipe-pipeline tests passed.

@@ -1,7 +1,9 @@
+import InlineSideEditor from "../plan-week/inline/InlineSideEditor";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  Alert,
   Animated,
   Dimensions,
   Keyboard,
@@ -72,6 +74,7 @@ const formatIngredientName = (name: string) =>
 type Props = {
   day: WeekPlanDay | null;
   servedEntry?: ServedMealEntry;
+  onSaveSides: (day: WeekPlanDay, sides: string[]) => Promise<void>;
   onClose: () => void;
   onMarkServed: (day: WeekPlanDay) => void;
   onChangeMeal: (day: WeekPlanDay) => void;
@@ -86,6 +89,7 @@ type Props = {
 export default function MealRowDetailsSheet({
   day,
   servedEntry,
+  onSaveSides,
   onClose,
   onMarkServed,
   onChangeMeal,
@@ -101,6 +105,8 @@ export default function MealRowDetailsSheet({
   const showRatings = ratingDisplayMode !== "off";
   const useRatingStars =
     ratingDisplayMode === "summary" || members.length <= 1;
+  const [isSidesEditing, setSidesEditing] = useState(false);
+  const sidesSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const [isFreezerVisible, setFreezerVisible] = useState(false);
   const [isPrepNoteEditing, setPrepNoteEditing] = useState(false);
   const [prepNoteDraft, setPrepNoteDraft] = useState("");
@@ -138,14 +144,7 @@ export default function MealRowDetailsSheet({
     [ingredients],
   );
   const hasIngredients = ingredients.length > 0;
-  const shouldAutoExpandIngredients =
-    day?.mealId !== EAT_OUT_MEAL_ID &&
-    day?.status === "today" &&
-    servedEntry?.outcome !== "served" &&
-    hasIngredients;
-  const [ingredientsExpanded, setIngredientsExpanded] = useState(
-    shouldAutoExpandIngredients,
-  );
+  const [ingredientsExpanded, setIngredientsExpanded] = useState(false);
 
   useEffect(() => {
     if (
@@ -163,10 +162,11 @@ export default function MealRowDetailsSheet({
   }, []);
 
   useEffect(() => {
-    setIngredientsExpanded(shouldAutoExpandIngredients);
+    setSidesEditing(false);
+    setIngredientsExpanded(false);
     setIngredientEditing(false);
     setIngredientDraft("");
-  }, [day?.key, day?.mealId, shouldAutoExpandIngredients]);
+  }, [day?.key, day?.mealId, day?.plannedDateISO]);
 
   useEffect(() => {
     setPrepNoteEditing(false);
@@ -606,14 +606,45 @@ export default function MealRowDetailsSheet({
                 Served on {day.plannedDate.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
               </Text>
             </View>
-          ) : day.sides.length ? (
+          ) : (
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>SIDES</Text>
-              <View style={styles.chips}>
-                {day.sides.map((side) => <Text key={side.toLowerCase()} style={styles.chip}>{side}</Text>)}
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={styles.sectionLabel}>SIDES</Text>
+                <Pressable accessibilityRole="button"
+                  onPress={() => { Keyboard.dismiss(); setSidesEditing(value => !value); }} hitSlop={10}>
+                  <Text style={{ color: theme.color.accent }}>{isSidesEditing ? "Done" : "Edit"}</Text>
+                </Pressable>
               </View>
+              {isSidesEditing ? (
+                <View>
+                  <InlineSideEditor
+                    key={day.plannedDateISO + meal.id}
+                    hideHeader hideSuggestionsLabel hideCompletionButton day={day.key} meal={meal} initialSides={day.sides}
+                    onSelectedSidesChange={(selectedSides) => {
+                      // Serialize writes so rapid edits cannot overwrite newer selections.
+                      sidesSaveQueue.current = sidesSaveQueue.current
+                        .then(() => onSaveSides(day, selectedSides))
+                        .catch(() => {
+                          Alert.alert("Couldn’t save sides", "Please try changing your sides again.");
+                        });
+                    }}
+                    onChangeMeal={() => setSidesEditing(false)} onExpandedLayout={() => {}}
+                    onDone={() => setSidesEditing(false)}
+                  />
+                </View>
+              ) : day.sides.length ? (
+                <View style={styles.chips}>
+                  {day.sides.map(side => (
+                    <Pressable key={side.toLowerCase()} style={styles.chip} onPress={() => setSidesEditing(true)}
+                      accessibilityRole="button" accessibilityLabel={"Edit sides, " + side}>
+                      <View style={styles.sideDot} />
+                      <Text numberOfLines={2} style={styles.sideText}>{side}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : <Text style={{ color: theme.color.subtleInk }}>No sides added yet.</Text>}
             </View>
-          ) : null}
+          )}
           {isServed && showRatings ? (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>
@@ -770,7 +801,9 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   ratingStarsCentered: { alignItems: "center" },
   sectionLabel: { color: theme.color.subtleInk, fontSize: theme.type.size.xs, fontWeight: theme.type.weight.bold, letterSpacing: 1 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm },
-  chip: { color: theme.color.ink, fontSize: theme.type.size.sm, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, borderRadius: theme.radius.full, backgroundColor: theme.color.surface },
+  chip: { width: "48.5%", minHeight: 60, paddingHorizontal: theme.space.md, paddingVertical: theme.space.sm, borderRadius: theme.radius.md, backgroundColor: theme.color.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.accent, flexDirection: "row", alignItems: "center", gap: theme.space.sm },
+  sideDot: { width: 7, height: 7, borderRadius: theme.radius.full, backgroundColor: theme.color.accent },
+  sideText: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.sm, lineHeight: 20, fontWeight: theme.type.weight.medium },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.color.border },
   actions: { gap: theme.space.sm },
   action: { minHeight: 56, borderRadius: theme.radius.lg, backgroundColor: theme.color.surface, flexDirection: "row", alignItems: "center", gap: theme.space.md, paddingHorizontal: theme.space.lg },

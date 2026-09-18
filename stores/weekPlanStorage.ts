@@ -1,3 +1,5 @@
+import { notifyReminderDataChanged } from "../services/notifications/service";
+import { getServedMeals } from "./servedMealsStorage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   CurrentPlannedWeek,
@@ -447,6 +449,7 @@ export const setCurrentWeekPlan = async (
       weekStartISO: normalizedStart,
     };
     await savePlanMap(planMap);
+    notifyReminderDataChanged();
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to persist plan", error);
   }
@@ -557,6 +560,7 @@ export const setWeekPlanDataBatch = async (
       [WEEK_PLAN_MAP_KEY, JSON.stringify(planMap)],
       [WEEK_PLAN_SIDES_MAP_KEY, JSON.stringify(sidesMap)],
     ]);
+    notifyReminderDataChanged();
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to persist batched plan data", error);
     throw error;
@@ -575,6 +579,7 @@ export const clearCurrentWeekPlan = async (
     delete planMap[normalizedStart];
     delete sidesMap[normalizedStart];
     await Promise.all([savePlanMap(planMap), saveSidesMap(sidesMap)]);
+    notifyReminderDataChanged();
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to clear plan", error);
   }
@@ -588,6 +593,7 @@ export const clearWeekPlanData = async (): Promise<void> => {
       AsyncStorage.removeItem(LEGACY_PLAN_KEY),
       AsyncStorage.removeItem(LEGACY_PLAN_SIDES_KEY),
     ]);
+    notifyReminderDataChanged();
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to clear all plan data", error);
   }
@@ -771,7 +777,6 @@ export const addWeekPlanHistory = async (
   const {
     maxEntries = 100,
     meals = [],
-    servedMealIds = new Set<string>(),
     isComplete = false,
   } = options;
   const startISO = plan.weekStartISO;
@@ -815,7 +820,7 @@ export const addWeekPlanHistory = async (
   const celebration = buildWeekPlanCelebration({
     plan,
     meals: plannedMeals,
-    servedMealIds,
+    history: await getServedMeals(),
     streakCount: 0,
   });
   deduped.unshift({

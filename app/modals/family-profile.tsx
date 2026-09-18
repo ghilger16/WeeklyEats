@@ -1,3 +1,4 @@
+import { refreshScheduledNotifications } from "../../services/notifications/service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -80,6 +81,7 @@ export default function FamilyProfileModal() {
       { text: "Reset", style: "destructive", onPress: async () => {
         setResetting(true);
         await AsyncStorage.clear();
+        await refreshScheduledNotifications();
         router.dismissAll();
         router.replace("/onboarding");
       } },

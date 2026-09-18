@@ -40,7 +40,7 @@ export default function WeekPlanSavedCelebration({
   const dashboardRevealProgress = useRef(new Animated.Value(0)).current;
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statOpacities = useRef(
-    Array.from({ length: 4 }, () => new Animated.Value(0)),
+    Array.from({ length: 3 }, () => new Animated.Value(0)),
   ).current;
   const milestone = WEEK_PLAN_STREAK_MILESTONES[payload.streakCount];
   const isMilestone = Boolean(milestone);
@@ -180,7 +180,7 @@ export default function WeekPlanSavedCelebration({
           {
             opacity: dashboardRevealProgress.interpolate({
               inputRange: [0, 1],
-              outputRange: [0.96, 0],
+              outputRange: [0.95, 0],
             }),
           },
         ]}
@@ -212,9 +212,9 @@ export default function WeekPlanSavedCelebration({
                 <MaterialCommunityIcons name="calendar-check" size={32} color={theme.color.ink} />
               </View>
               <View style={styles.headingCopy}>
-                <Text style={styles.title}>✨ Your week is planned!</Text>
+                <Text style={styles.title}>✨ Dinner is handled.</Text>
                 <Text style={styles.accentLine}>
-                  {payload.dinnerCount} {payload.dinnerCount === 1 ? "dinner" : "dinners"} ready
+                  Your week is planned and ready to go.
                 </Text>
               </View>
             </View>
@@ -230,15 +230,6 @@ export default function WeekPlanSavedCelebration({
                     ]}
                   >
                     <View style={styles.statValueRow}>
-                      {stat.id === "fiveStars" ? (
-                        <MaterialCommunityIcons
-                          name="star"
-                          size={17}
-                          color={theme.color.accent}
-                        />
-                      ) : (
-                        <Text style={styles.statValue}>{stat.icon}</Text>
-                      )}
                       <Text style={styles.statValue}>{stat.value}</Text>
                     </View>
                     <Text style={styles.statLabel}>{stat.label}</Text>
@@ -308,7 +299,7 @@ export default function WeekPlanSavedCelebration({
 
 const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFillObject, zIndex: 100, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.space.lg },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.color.bg },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "#FFFFFF" },
   contentWrap: { width: "100%", maxWidth: 430, gap: theme.space.lg },
   card: { width: "100%", minHeight: 210, borderRadius: theme.radius.xl, padding: theme.space.xl, backgroundColor: theme.color.surface, borderWidth: 1, borderColor: theme.color.cardOutline, shadowColor: theme.color.accent, shadowOpacity: 0.18, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 12, justifyContent: "center" },
   summary: { gap: theme.space.lg },
@@ -316,13 +307,13 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   calendarBadge: { width: 68, height: 68, borderRadius: theme.radius.full, backgroundColor: theme.color.accent, alignItems: "center", justifyContent: "center" },
   headingCopy: { flex: 1, gap: theme.space.xs },
   title: { color: theme.color.ink, fontSize: theme.type.size.title, fontWeight: theme.type.weight.bold },
-  accentLine: { color: theme.color.accent, fontSize: theme.type.size.base, fontWeight: theme.type.weight.bold },
+  accentLine: { color: theme.color.subtleInk, fontSize: theme.type.size.sm, lineHeight: 20 },
   statsRow: { flexDirection: "row", alignItems: "stretch" },
   stat: { flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", paddingHorizontal: theme.space.xs },
   statDivider: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: theme.color.border },
   statValueRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
-  statValue: { color: theme.color.ink, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold, textAlign: "center" },
-  statLabel: { color: theme.color.subtleInk, fontSize: 11, textAlign: "center", marginTop: 3 },
+  statValue: { color: theme.color.ink, fontSize: 26, fontWeight: theme.type.weight.bold, textAlign: "center" },
+  statLabel: { color: theme.color.subtleInk, fontSize: 11, lineHeight: 15, textAlign: "center", marginTop: 5, flexShrink: 1 },
   streak: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: theme.space.xl },
   streakIdentity: { flexDirection: "row", alignItems: "center", gap: theme.space.sm, zIndex: 2 },
   flameWrap: { width: 65, height: 65, borderRadius: theme.radius.full, alignItems: "center", justifyContent: "center", backgroundColor: theme.color.focus, borderWidth: 1, borderColor: theme.color.cardOutline },

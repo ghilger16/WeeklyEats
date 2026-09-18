@@ -23,6 +23,7 @@ const INGREDIENT_ALIASES = {
   "shredded mozzarella cheese": "Mozzarella Cheese", mozzarella: "Mozzarella Cheese",
   "mozzarella cheese": "Mozzarella Cheese",
   "grated parmesan cheese": "Parmesan Cheese", parmesan: "Parmesan Cheese", "parmesan cheese": "Parmesan Cheese",
+  "parmesan reggiano": "Parmesan Cheese", "parmigiano reggiano": "Parmesan Cheese",
   "garlic cloves": "Garlic", "fresh garlic": "Garlic", garlic: "Garlic",
   "bell peppers": "Bell Pepper", "bell pepper": "Bell Pepper",
   "red bell peppers": "Red Bell Pepper", "green bell peppers": "Green Bell Pepper",

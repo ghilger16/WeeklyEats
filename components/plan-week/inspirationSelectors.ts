@@ -97,3 +97,15 @@ export const getBudgetMeals = (meals: Meal[]) =>
   meals
     .filter((meal) => expenseValue(meal) <= 2)
     .sort((left, right) => expenseValue(left) - expenseValue(right));
+
+export const isFamilyStarMeal = (meal: Meal) => {
+  const familyRatings = Object.values(meal.familyRatings ?? {}).filter(
+    (value) => value > 0,
+  );
+  if (familyRatings.length > 0) {
+    return familyRatings.every((value) => value === 3);
+  }
+  return (meal.rating ?? 0) >= 4.5;
+};
+
+export const isFiveStarMeal = (meal: Meal) => (meal.rating ?? 0) === 5;

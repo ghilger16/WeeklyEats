@@ -1049,10 +1049,9 @@ export function GroceryListContent({
                         <Text style={styles.shoppingSectionLabel}>NEED TO BUY · {group.items.length}</Text>
                         <Pressable
                           accessibilityRole="button"
-                          accessibilityLabel={`${allSelected ? "Deselect" : "Select"} all ingredients for ${group.mealTitle} and close drawer`}
+                          accessibilityLabel={`${allSelected ? "Deselect" : "Select"} all ingredients for ${group.mealTitle}`}
                           onPress={() => {
                             toggleItems(groupItemIds);
-                            setCollapsedMealGroups((current) => ({ ...current, [groupKey]: true }));
                           }}
                           hitSlop={8}
                           style={({ pressed }) => pressed && styles.itemRowPressed}

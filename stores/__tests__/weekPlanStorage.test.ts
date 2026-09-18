@@ -152,7 +152,7 @@ describe("week plan history snapshots", () => {
     });
     expect(entry.summary).toMatchObject({ dinnerCount: 7 });
     expect(entry.summary?.stats.map((stat) => stat.id)).toEqual(
-      expect.arrayContaining(["familyStars", "newMeals", "effort", "expense"]),
+      ["dinners", "easy", "budget"],
     );
   });
 

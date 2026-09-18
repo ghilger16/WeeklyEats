@@ -1,3 +1,6 @@
+import { getMeals } from "../../stores/mealsStorage";
+import { getServedMeals } from "../../stores/servedMealsStorage";
+import { isFamilyStarMeal, isFiveStarMeal } from "../../components/plan-week/inspirationSelectors";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
   SafeAreaView,
@@ -166,18 +169,6 @@ const formatWeekRangeLabel = (start: Date, end: Date) => {
 const hasFreezerInventory = (meal: Meal) =>
   hasFullFreezerMeal(meal);
 
-const isFamilyStarMeal = (meal: Meal) => {
-  const familyRatings = Object.values(meal.familyRatings ?? {}).filter(
-    (value) => value > 0,
-  );
-  if (familyRatings.length > 0) {
-    return familyRatings.every((value) => value === 3);
-  }
-  return (meal.rating ?? 0) >= 4.5;
-};
-
-const isFiveStarMeal = (meal: Meal) => (meal.rating ?? 0) === 5;
-
 const isPlannedWeekDayKey = (value: unknown): value is PlannedWeekDayKey =>
   typeof value === "string" &&
   PLANNED_WEEK_ORDER.includes(value as PlannedWeekDayKey);
@@ -238,6 +229,7 @@ export default function PlanWeekModal() {
   const isFirstFullWeekMode =
     params.mode === "first-full" ||
     (isFirstIntroMode && !shouldOfferFirstRemainingDays);
+  const showFirstWeekHeaders = isFirstIntroMode || isFirstRemainingMode || isFirstFullWeekMode;
   const isCurrentWeekMode = params.mode === "current";
   const planningIntent = useMemo(() => {
     const query = [
@@ -2346,7 +2338,7 @@ export default function PlanWeekModal() {
     [activeDay, filteredMeals.length],
   );
 
-  const runSavePlanCelebration = useCallback(async () => {
+  const runSavePlanCelebration = useCallback(async (savedPlan: CurrentPlannedWeek) => {
     if (!sessionDays.length) {
       return null;
     }
@@ -2363,18 +2355,11 @@ export default function PlanWeekModal() {
       await delay(isReduceMotionEnabled ? 100 : 220);
     }
     await delay(isReduceMotionEnabled ? 100 : 300);
-    const servedMealIds = new Set(
-      servedEntries
-        .filter(
-          (entry): entry is typeof entry & { mealId: string } =>
-            entry.outcome === "served" && typeof entry.mealId === "string",
-        )
-        .map((entry) => entry.mealId),
-    );
+    const [savedMeals, savedHistory] = await Promise.all([getMeals(), getServedMeals()]);
     const celebrationPayload = buildWeekPlanCelebration({
-      plan: plannedWeek,
-      meals,
-      servedMealIds,
+      plan: savedPlan,
+      meals: savedMeals,
+      history: savedHistory,
       streakCount: streak.count,
       ratingStyle: ratingDisplayMode === "summary" ? "summary" : "family",
     });
@@ -2450,7 +2435,7 @@ export default function PlanWeekModal() {
           setFirstWeekExperienceActive(false),
         ]);
       }
-      const celebrationPayload = await runSavePlanCelebration();
+      const celebrationPayload = await runSavePlanCelebration(completedPlan);
       if (celebrationPayload) {
         DeviceEventEmitter.emit(
           "weekPlanSavedCelebration",
@@ -3072,11 +3057,11 @@ export default function PlanWeekModal() {
                 </View>
               ) : null}
 
-              <View style={styles.planningSectionHeader}>
+              {showFirstWeekHeaders && <View style={styles.planningSectionHeader}>
                 <MaterialCommunityIcons name="lightbulb-on-outline" size={20} color={theme.color.accent} />
                 <Text accessibilityRole="header" style={styles.planningSectionTitle}>Inspiration</Text>
                 <Text style={styles.planningSectionHint}>Get ideas or auto-build your week.</Text>
-              </View>
+              </View>}
               <MealInspirationSection
                 pools={mealPools}
                 orderedDays={sessionDays}
@@ -3143,11 +3128,11 @@ export default function PlanWeekModal() {
                 </View>
               ) : null}
 
-              <View style={styles.planningSectionHeader}>
+              {showFirstWeekHeaders && <View style={styles.planningSectionHeader}>
                 <MaterialCommunityIcons name="format-list-bulleted" size={20} color={theme.color.accent} />
                 <Text accessibilityRole="header" style={styles.planningSectionTitle}>Plan Each Day</Text>
                 <Text style={styles.planningSectionHint}>Tap a day to choose a specific meal.</Text>
-              </View>
+              </View>}
               <View
                 style={styles.weekRowsList}
                 onLayout={(event) => {

@@ -21,6 +21,9 @@ import {
 } from "./sideOptions";
 
 type Props = {
+  hideHeader?: boolean;
+  hideSuggestionsLabel?: boolean;
+  hideCompletionButton?: boolean;
   day: PlannedWeekDayKey;
   meal: Meal;
   initialSides: string[];
@@ -37,6 +40,9 @@ const normalize = (value: string) =>
   value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 
 export default function InlineSideEditor({
+  hideHeader = false,
+  hideSuggestionsLabel = false,
+  hideCompletionButton = false,
   day,
   meal,
   initialSides,
@@ -88,13 +94,11 @@ export default function InlineSideEditor({
     if (!isCurrentlySelected) {
       rememberPreferredSide(side);
     }
-    setSelectedSides((current) => {
-      const next = current.some((value) => normalize(value) === key)
-        ? current.filter((value) => normalize(value) !== key)
-        : [...current, side];
-      onSelectedSidesChange(next);
-      return next;
-    });
+    const next = selectedSides.some((value) => normalize(value) === key)
+      ? selectedSides.filter((value) => normalize(value) !== key)
+      : [...selectedSides, side];
+    setSelectedSides(next);
+    onSelectedSidesChange(next);
   };
 
   const addCustomSide = () => {
@@ -114,7 +118,7 @@ export default function InlineSideEditor({
 
   return (
     <View style={styles.content} onLayout={onExpandedLayout}>
-      <View style={styles.titleRow}>
+      {!hideHeader && <View style={styles.titleRow}>
         <View style={styles.titleLeading}>
           <Pressable
             onPress={onChangeMeal}
@@ -130,10 +134,10 @@ export default function InlineSideEditor({
           </Pressable>
           <Text style={styles.sectionTitle}>Sides</Text>
         </View>
-      </View>
+      </View>}
 
       <View style={styles.sideGroup}>
-        <Text style={styles.sideGroupLabel}>Suggested Sides</Text>
+        {!hideSuggestionsLabel && <Text style={styles.sideGroupLabel}>Suggested Sides</Text>}
         <View style={styles.grid}>
           {options.map((option) => {
           const selected = selectedKeys.has(normalize(option.name));
@@ -182,7 +186,7 @@ export default function InlineSideEditor({
         </Pressable>
       </View>
 
-      <View style={styles.actions}>
+      {!hideCompletionButton && <View style={styles.actions}>
         <Pressable
           onPress={() => {
             Keyboard.dismiss();
@@ -198,7 +202,7 @@ export default function InlineSideEditor({
           <MaterialCommunityIcons name="check" size={22} color={theme.color.ink} />
           <Text style={styles.doneText}>{completionLabel}</Text>
         </Pressable>
-      </View>
+      </View>}
     </View>
   );
 }

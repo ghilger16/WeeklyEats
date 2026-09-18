@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useIsFocused } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -84,6 +85,9 @@ export default function ThisWeekList({
     [days, preview],
   );
   const [isReordering, setReordering] = useState(false);
+  const isFocused = useIsFocused();
+  const dragStateChangeRef = useRef(onDragStateChange);
+  dragStateChangeRef.current = onDragStateChange;
   const [orderedVisibleDays, setOrderedVisibleDays] = useState(visibleDays);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const orderedDaysRef = useRef(orderedVisibleDays);
@@ -93,6 +97,17 @@ export default function ThisWeekList({
   const layouts = useRef(new Map<string, { y: number; height: number }>()).current;
   const pan = useRef(new Animated.Value(0)).current;
   const dragTop = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    setReordering(false);
+    setDraggingIndex(null);
+    draggingIndexRef.current = null;
+    dragOriginIndexRef.current = null;
+    pan.stopAnimation();
+    pan.setValue(0);
+    dragTop.stopAnimation();
+    dragTop.setValue(0);
+    dragStateChangeRef.current?.(false);
+  }, [isFocused, pan, dragTop]);
   const completionProgress = useRef(new Animated.Value(0)).current;
   const completionExitProgress = useRef(new Animated.Value(0)).current;
   const sparkleProgress = useRef(new Animated.Value(0)).current;

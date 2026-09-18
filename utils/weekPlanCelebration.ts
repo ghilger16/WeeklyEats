@@ -1,144 +1,53 @@
 import { Meal } from "../types/meals";
 import { CurrentPlannedWeek, PLANNED_WEEK_ORDER } from "../types/weekPlan";
-import { isSpecialMealId } from "../types/specialMeals";
+import { isSpecialMealId, isFlexNightMealId } from "../types/specialMeals";
+import type { ServedMealEntry } from "../stores/servedMealsStorage";
+import { getBeenAwhileMeals, getEasyMeals, getBudgetMeals, isFamilyStarMeal, isFiveStarMeal } from "../components/plan-week/inspirationSelectors";
+import { getRawFreezerMealAmount } from "./freezerMealAmount";
+import { getIngredientOverlap, normalizeIngredientName } from "./ingredientOverlap";
 
 export type WeekPlanCelebrationStat = {
-  id: "familyStars" | "fiveStars" | "newMeals" | "effort" | "expense";
-  icon: string;
+  id: "dinners" | "favorites" | "beenAwhile" | "easy" | "freezer" | "flex" | "budget" | "shared" | "shopping";
   value: string;
   label: string;
 };
-
 export type WeekPlanCelebrationPayload = {
   dinnerCount: number;
   stats: WeekPlanCelebrationStat[];
   streakCount: number;
 };
 
-const hasFamilyStar = (meal: Meal) => {
-  const ratings = Object.values(meal.familyRatings ?? {}).filter(
-    (rating) => rating > 0,
-  );
-  return ratings.length > 0
-    ? ratings.every((rating) => rating === 3)
-    : (meal.rating ?? 0) >= 4.5;
-};
-
-const hasFiveStars = (meal: Meal) => (meal.rating ?? 0) >= 4.5;
-
-const hasEnoughKnownValues = (knownCount: number, totalCount: number) =>
-  knownCount >= Math.max(1, Math.ceil(totalCount / 2));
-
-export const classifyWeekEffort = (values: number[]) => {
-  if (!values.length) return null;
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-  if (average <= 1.5) return "Easy";
-  if (average <= 2.35) return "Balanced";
-  return "Cook-heavy";
-};
-
-export const classifyWeekExpense = (values: number[]) => {
-  if (!values.length) return null;
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-  if (average <= 1.5) return "Budget-friendly";
-  if (average <= 2.35) return "Balanced";
-  return "Treat week";
-};
-
-export const buildWeekPlanCelebration = ({
-  plan,
-  meals,
-  servedMealIds,
-  streakCount,
-  ratingStyle = "family",
-}: {
+export const buildWeekPlanCelebration = ({ plan, meals, history = [], streakCount, ratingStyle = "family", now = Date.now() }: {
   plan: CurrentPlannedWeek;
   meals: Meal[];
-  servedMealIds: Set<string>;
+  history?: ServedMealEntry[];
   streakCount: number;
   ratingStyle?: "family" | "summary";
+  now?: number;
 }): WeekPlanCelebrationPayload => {
-  const mealById = new Map(meals.map((meal) => [meal.id, meal]));
-  const plannedIds = PLANNED_WEEK_ORDER.map((day) => plan[day]).filter(
-    (mealId): mealId is string => typeof mealId === "string",
+  const mealById = new Map(meals.map(meal => [meal.id, meal]));
+  const plannedIds = PLANNED_WEEK_ORDER.map(day => plan[day]).filter(
+    (id): id is string => typeof id === "string" && (isSpecialMealId(id) || mealById.has(id)),
   );
-  const plannedMeals = plannedIds
-    .filter((mealId) => !isSpecialMealId(mealId))
-    .map((mealId) => mealById.get(mealId))
-    .filter((meal): meal is Meal => Boolean(meal));
-
-  const stats: WeekPlanCelebrationStat[] = [];
-  const starCount = plannedMeals.filter(
-    ratingStyle === "summary" ? hasFiveStars : hasFamilyStar,
-  ).length;
-  if (starCount > 0) {
-    stats.push({
-      id: ratingStyle === "summary" ? "fiveStars" : "familyStars",
-      icon: "⭐",
-      value: String(starCount),
-      label:
-        ratingStyle === "summary"
-          ? starCount === 1
-            ? "Five Star"
-            : "Five Stars"
-          : starCount === 1
-            ? "Family Star"
-            : "Family Stars",
-    });
-  }
-
-  const newMealCount = plannedMeals.filter(
-    (meal) => (meal.servedCount ?? 0) <= 0 && !servedMealIds.has(meal.id),
-  ).length;
-  if (newMealCount > 0) {
-    stats.push({
-      id: "newMeals",
-      icon: "🆕",
-      value: String(newMealCount),
-      label: newMealCount === 1 ? "New Meal" : "New Meals",
-    });
-  }
-
-  const difficulties = plannedMeals
-    .map((meal) => meal.difficulty)
-    .filter((value): value is number => typeof value === "number");
-  if (hasEnoughKnownValues(difficulties.length, plannedMeals.length)) {
-    const effort = classifyWeekEffort(difficulties);
-    if (effort) {
-      stats.push({
-        id: "effort",
-        icon: "⚡",
-        value: effort === "Cook-heavy" ? "Cook-Heavy" : effort,
-        label: "Week",
-      });
-    }
-  }
-
-  const expenses = plannedMeals
-    .map((meal) => meal.expense)
-    .filter((value): value is number => typeof value === "number");
-  if (hasEnoughKnownValues(expenses.length, plannedMeals.length)) {
-    const expense = classifyWeekExpense(expenses);
-    if (expense) {
-      const display =
-        expense === "Budget-friendly"
-          ? { value: "Budget", label: "Friendly" }
-          : expense === "Balanced"
-            ? { value: "Balanced", label: "Spend" }
-            : { value: "Treat", label: "Week" };
-      stats.push({
-        id: "expense",
-        icon: "💰",
-        ...display,
-      });
-    }
-  }
-
-  return {
-    dinnerCount: plannedIds.length,
-    stats: stats.slice(0, 4),
-    streakCount,
-  };
+  const plannedMeals = plannedIds.filter(id => !isSpecialMealId(id)).map(id => mealById.get(id)!);
+  const explicitIngredients = plannedMeals.map(meal => ({ ...meal, ingredients: (meal.ingredients ?? []).filter(ingredient => typeof ingredient !== "string" && ingredient.ingredientType === "keyIngredient") }));
+  const shared = new Set(explicitIngredients.flatMap((meal, index) =>
+    getIngredientOverlap(meal, explicitIngredients.filter((_, other) => other !== index)).sharedIngredients.map(normalizeIngredientName),
+  ));
+  const stat = (id: WeekPlanCelebrationStat["id"], count: number, label: string): WeekPlanCelebrationStat => ({ id, value: String(count), label });
+  const recordedServings = history.filter(entry => entry.outcome === "served" && Number.isFinite(Date.parse(entry.servedAtISO)) && Date.parse(entry.servedAtISO) <= now);
+  const previouslyServedIds = new Set(recordedServings.map(entry => entry.mealId));
+  const candidates = [
+    stat("favorites", plannedMeals.filter(meal => ratingStyle === "summary" ? isFiveStarMeal(meal) : Object.values(meal.familyRatings ?? {}).some(value => value > 0) && isFamilyStarMeal(meal)).length, "Family Favorites"),
+    stat("beenAwhile", getBeenAwhileMeals(plannedMeals.filter(meal => previouslyServedIds.has(meal.id)), recordedServings, 3, now).length, "Meals You Haven’t Had Lately"),
+    stat("easy", getEasyMeals(plannedMeals.filter(meal => meal.difficulty === 1)).length, "Easy Meals"),
+    stat("freezer", plannedMeals.filter(meal => (getRawFreezerMealAmount(meal) ?? 0) >= 1).length, "Freezer Meals"),
+    stat("flex", plannedIds.filter(isFlexNightMealId).length, "Flex Nights"),
+    stat("budget", getBudgetMeals(plannedMeals.filter(meal => typeof meal.expense === "number" && Number.isFinite(meal.expense) && meal.expense >= 1 && meal.expense <= 2)).length, "Budget-Friendly"),
+    stat("shared", shared.size, "Shared Ingredients"),
+  ].filter(item => Number(item.value) > 0);
+  const stats = plannedIds.length ? [stat("dinners", plannedIds.length, "Dinners Planned"), ...candidates.slice(0, 2)] : [];
+  return { dinnerCount: plannedIds.length, stats, streakCount };
 };
 
 export const WEEK_PLAN_STREAK_MILESTONES: Record<

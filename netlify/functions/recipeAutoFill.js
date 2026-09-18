@@ -516,16 +516,33 @@ exports.handler = async (event) => {
     if (!suggestionTitle) {
       const countCheck = ingredientCountCheck(source, ingredients);
       debug({ ...diagnostics, ...countCheck }, "Ingredient count check before validation.");
-      const validation = await requestModel(buildValidationPayload(source, ingredients, countCheck), apiKey);
-      ingredients = normalizeIngredientNames(validateIngredientCorrection(validation, source).map(normalizeIngredient).filter(Boolean));
+      const validationPayload = buildValidationPayload(source, ingredients, countCheck);
+      let validation = await requestModel(validationPayload, apiKey);
+      let corrected;
+      try {
+        corrected = validateIngredientCorrection(validation, source);
+      } catch (validationError) {
+        // Retry only the validation response, never relax source fidelity checks.
+        debug(diagnostics, "Retrying ingredient validation: " + validationError.message);
+        validation = await requestModel({
+          ...validationPayload,
+          messages: [...validationPayload.messages,
+            { role: "assistant", content: JSON.stringify(validation) },
+            { role: "user", content: "The deterministic source validator rejected this response: " + validationError.message +
+              " Recheck every source index, canonical alias and exclusion reason. Red pepper is not basic black/white pepper. Only exclude source ingredients explicitly marked for serving/garnish, basic salt/black/white pepper or cooking water. Return the complete corrected validation JSON." },
+          ],
+        }, apiKey);
+        corrected = validateIngredientCorrection(validation, source);
+      }
+      ingredients = normalizeIngredientNames(corrected.map(normalizeIngredient).filter(Boolean));
       if (!ingredients.length) throw new Error("No usable cooking ingredients after validation.");
       expense = expenseFromCost(parsed.estimatedCostPerPerson);
       debug({ ...diagnostics, correctionsNeeded: !validation.valid, resultCount: ingredients.length }, "Ingredient validation completed.");
     }
     ingredients = sortIngredientsForShopping(ingredients);
   } catch (error) {
-    debug(diagnostics, error.message);
-    return importFailure();
+    console.warn("[AutoFill Failure]", { hostname: diagnostics.hostname, stage: "model-or-validation", reason: error.message });
+    return { statusCode: 502, body: JSON.stringify({ ok: false, error: "We couldn’t finish importing this recipe. Please try again.", code: "RECIPE_PROCESSING_FAILED" }) };
   }
 
   const title =

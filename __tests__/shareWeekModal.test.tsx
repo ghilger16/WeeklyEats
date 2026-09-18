@@ -37,7 +37,7 @@ it("keeps one stationary foreground while only backgrounds swipe", () => {
   const pager = screen.getByTestId("share-background-pager");
   expect(within(pager).queryByText("Tacos")).toBeNull();
   expect(screen.getAllByText("Tacos")).toHaveLength(1);
-  fireEvent(pager, "momentumScrollEnd", { nativeEvent: { contentOffset: { x: pager.props.style.width * 2 } } });
+  fireEvent(pager, "momentumScrollEnd", { nativeEvent: { contentOffset: { x: pager.props.style.width } } });
   expect(screen.getByLabelText("Warm style").props.accessibilityState.selected).toBe(true);
   expect(screen.getByTestId("share-week-foreground")).toBe(foreground);
   expect(within(foreground).getByText("Tacos")).toBeTruthy();
@@ -60,6 +60,15 @@ it("switches the shared week while keeping the selected background", async () =>
 it("hides the week selector when only one week is available", () => {
   const screen = render(<ShareWeekModal days={days} onClose={jest.fn()} />);
   expect(screen.queryByLabelText("Share next week")).toBeNull();
+});
+
+it("omits unplanned days while retaining the full week date range", () => {
+  const lastDay = { ...days[0], key: "sun", label: "Sun", plannedDate: new Date(2026, 8, 20), mealId: null, meal: undefined } as WeekPlanDay;
+  const screen = render(<ShareWeekModal days={[...days, lastDay]} onClose={jest.fn()} />);
+  expect(screen.getByText("Tacos")).toBeTruthy();
+  expect(screen.queryByText("SUN")).toBeNull();
+  expect(screen.queryByText("Unplanned")).toBeNull();
+  expect(screen.getByText("Sep 14 – Sep 20")).toBeTruthy();
 });
 
 it("cycles card headings in order and wraps to the first title", () => {

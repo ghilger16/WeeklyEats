@@ -54,10 +54,14 @@ PODS:
   - DatadogWebViewTracking (3.16.0):
     - DatadogInternal (= 3.16.0)
   - DoubleConversion (1.1.6)
-  - EXConstants (18.0.10):
+  - EXApplication (7.0.8):
+    - ExpoModulesCore
+  - EXConstants (18.0.14):
     - ExpoModulesCore
   - EXJSONUtils (0.15.0)
   - EXManifests (1.0.8):
+    - ExpoModulesCore
+  - EXNotifications (0.32.17):
     - ExpoModulesCore
   - Expo (54.0.20):
     - boost
@@ -3152,9 +3156,11 @@ DEPENDENCIES:
   - boost (from `../node_modules/react-native/third-party-podspecs/boost.podspec`)
   - "DatadogSDKReactNative (from `../node_modules/@datadog/mobile-react-native`)"
   - DoubleConversion (from `../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec`)
+  - EXApplication (from `../node_modules/expo-application/ios`)
   - EXConstants (from `../node_modules/expo-constants/ios`)
   - EXJSONUtils (from `../node_modules/expo-json-utils/ios`)
   - EXManifests (from `../node_modules/expo-manifests/ios`)
+  - EXNotifications (from `../node_modules/expo-notifications/ios`)
   - Expo (from `../node_modules/expo`)
   - expo-dev-client (from `../node_modules/expo-dev-client/ios`)
   - expo-dev-launcher (from `../node_modules/expo-dev-launcher`)
@@ -3279,12 +3285,16 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@datadog/mobile-react-native"
   DoubleConversion:
     :podspec: "../node_modules/react-native/third-party-podspecs/DoubleConversion.podspec"
+  EXApplication:
+    :path: "../node_modules/expo-application/ios"
   EXConstants:
     :path: "../node_modules/expo-constants/ios"
   EXJSONUtils:
     :path: "../node_modules/expo-json-utils/ios"
   EXManifests:
     :path: "../node_modules/expo-manifests/ios"
+  EXNotifications:
+    :path: "../node_modules/expo-notifications/ios"
   Expo:
     :path: "../node_modules/expo"
   expo-dev-client:
@@ -3493,9 +3503,11 @@ SPEC CHECKSUMS:
   DatadogTrace: 5ef84e254e2e1d337bc52e0cdf16396ca102aeb1
   DatadogWebViewTracking: e0470157f55a83680a549d79ba2985e0d17465db
   DoubleConversion: cb417026b2400c8f53ae97020b2be961b59470cb
-  EXConstants: fd688cef4e401dcf798a021cfb5d87c890c30ba3
+  EXApplication: 1e98d4b1dccdf30627f92917f4b2c5a53c330e5f
+  EXConstants: 18ac927605517285307ea8f7ffe6fe7ca538eb5d
   EXJSONUtils: 1d3e4590438c3ee593684186007028a14b3686cd
   EXManifests: 224345a575fca389073c416297b6348163f28d1a
+  EXNotifications: c67e92b9fdfe785ff9dbdc5f4c0ff935de357da7
   Expo: 038e807e43fecf6e306f04df6542d22f2da92d5e
   expo-dev-client: b6e7b4f4063ae44b5e68cc6a8bcc0c79c3037c1a
   expo-dev-launcher: ccde4ddcd61fe7a209f184e16eaff5a97ea5ec87

@@ -3,7 +3,7 @@ import { Meal } from "../types/meals";
 const normalizeHalfStep = (value: number) =>
   Math.max(0.5, Math.round(value * 2) / 2);
 
-export const getFreezerMealAmount = (
+export const getRawFreezerMealAmount = (
   meal?: Pick<Meal, "freezerMealAmount" | "freezerAmount" | "freezerQuantity" | "freezerUnit"> | null,
 ): number | null => {
   if (!meal) return null;
@@ -12,7 +12,7 @@ export const getFreezerMealAmount = (
     Number.isFinite(meal.freezerMealAmount) &&
     meal.freezerMealAmount > 0
   ) {
-    return normalizeHalfStep(meal.freezerMealAmount);
+    return meal.freezerMealAmount;
   }
 
   const legacyRaw = meal.freezerAmount?.trim()
@@ -24,7 +24,12 @@ export const getFreezerMealAmount = (
   const multiplier = meal.freezerUnit?.toLowerCase().includes("half serving")
     ? 0.5
     : 1;
-  return normalizeHalfStep(legacyAmount * multiplier);
+  return legacyAmount * multiplier;
+};
+
+export const getFreezerMealAmount = (meal?: Parameters<typeof getRawFreezerMealAmount>[0]): number | null => {
+  const amount = getRawFreezerMealAmount(meal);
+  return amount === null ? null : normalizeHalfStep(amount);
 };
 
 export const formatFreezerMealAmount = (amount: number): string => {

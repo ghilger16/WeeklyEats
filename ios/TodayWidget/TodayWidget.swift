@@ -37,6 +37,11 @@ private struct WidgetMeal {
   let prepNote: String?
   let recipeURL: URL?
   var mealId: String? = nil
+  var isPlanned: Bool = true
+
+  static func noPlans(on date: Date) -> WidgetMeal {
+    WidgetMeal(date: date, title: "No Plans", icon: "custom:no-plans", dateLabel: date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()), sides: [], prepNote: nil, recipeURL: nil, isPlanned: false)
+  }
 
   var isFlexNight: Bool { mealId == "__flex_night__" || (mealId == nil && icon == "🔄") }
   var isEatOut: Bool { mealId == "__eat_out__" || (mealId == nil && (title == "Eat Out Night" || title == "Eat Out")) }
@@ -55,12 +60,14 @@ struct TodayMealEntry: TimelineEntry {
   fileprivate let today: WidgetMeal
   fileprivate let tomorrow: WidgetMeal?
   fileprivate let outcome: DinnerOutcome?
+  fileprivate var nextUpcoming: WidgetMeal? = nil
+  fileprivate var noPlanToday: Bool { !today.isPlanned }
 
   fileprivate var destinationURL: URL {
     URL(string: "weeklyeats://week-dashboard")!
   }
 
-  fileprivate var recipeMeal: WidgetMeal? { outcome == nil ? today : tomorrow }
+  fileprivate var recipeMeal: WidgetMeal? { noPlanToday ? nil : (outcome == nil ? today : tomorrow) }
 }
 
 struct TodayMealProvider: TimelineProvider {
@@ -72,43 +79,56 @@ struct TodayMealProvider: TimelineProvider {
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<TodayMealEntry>) -> Void) {
     let now = Date()
-    let midnight = Calendar.current.nextDate(after: now, matching: DateComponents(hour: 0, minute: 1), matchingPolicy: .nextTime) ?? now.addingTimeInterval(1_800)
-    completion(Timeline(entries: [loadEntry(now: now)], policy: .after(min(midnight, now.addingTimeInterval(1_800)))))
+    let calendar = Calendar.current
+    let futureMidnights = (1...14).compactMap { calendar.date(byAdding: .day, value: $0, to: calendar.startOfDay(for: now)) }
+    let entries = [loadEntry(now: now)] + futureMidnights.map { loadEntry(now: $0) }
+    completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(1_800))))
   }
 
   private func loadEntry(now: Date = Date()) -> TodayMealEntry {
-    guard
-      let defaults = UserDefaults(suiteName: appGroupIdentifier),
-      let payload = defaults.dictionary(forKey: payloadKey),
-      let todayDictionary = payload["today"] as? [String: Any],
-      let storedToday = meal(from: todayDictionary)
-    else { return Self.emptyEntry }
-
-    let storedTomorrow = (payload["tomorrow"] as? [String: Any]).flatMap(meal(from:))
-    let outcome = (payload["todayOutcome"] as? String).flatMap(DinnerOutcome.init(rawValue:))
-
-    // Promote tomorrow at the date boundary without requiring the app to reopen.
-    if !Calendar.current.isDate(storedToday.date, inSameDayAs: now),
-       let storedTomorrow,
-       Calendar.current.isDate(storedTomorrow.date, inSameDayAs: now) {
-      return TodayMealEntry(date: now, today: storedTomorrow, tomorrow: nil, outcome: nil)
+    guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+          let payload = defaults.dictionary(forKey: payloadKey) else {
+      return TodayMealEntry(date: now, today: .noPlans(on: now), tomorrow: nil, outcome: nil)
     }
-    return TodayMealEntry(date: now, today: storedToday, tomorrow: storedTomorrow, outcome: outcome)
+    let calendar = Calendar.current
+    let storedToday = (payload["today"] as? [String: Any]).flatMap(meal(from:))
+    let storedTomorrow = (payload["tomorrow"] as? [String: Any]).flatMap(meal(from:))
+    // A dated plan snapshot lets the widget roll over without showing yesterday's
+    // meal or promoting a later meal into today's primary position.
+    let plannedMeals = ((payload["plannedMeals"] as? [[String: Any]])?.compactMap(meal(from:))
+      ?? [storedToday, storedTomorrow].compactMap { $0 })
+      .filter { $0.isPlanned }.sorted { $0.date < $1.date }
+    let today = plannedMeals.first { calendar.isDate($0.date, inSameDayAs: now) }
+    let tomorrowDate = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
+    let tomorrow = plannedMeals.first { calendar.isDate($0.date, inSameDayAs: tomorrowDate) }
+    let nextUpcoming = plannedMeals.first { calendar.startOfDay(for: $0.date) > calendar.startOfDay(for: now) }
+    // Outcome belongs only to the recorded day, never to a future/unplanned day.
+    let outcomeIsForToday = storedToday.map { calendar.isDate($0.date, inSameDayAs: now) } ?? false
+    let outcome = today != nil && outcomeIsForToday
+      ? (payload["todayOutcome"] as? String).flatMap(DinnerOutcome.init(rawValue:)) : nil
+    return TodayMealEntry(date: now, today: today ?? .noPlans(on: now), tomorrow: tomorrow, outcome: outcome, nextUpcoming: nextUpcoming)
   }
 
   private func meal(from dictionary: [String: Any]) -> WidgetMeal? {
     guard let rawTitle = dictionary["title"] as? String, !rawTitle.trimmed.isEmpty else { return nil }
-    let date = (dictionary["dateISO"] as? String).flatMap(Self.isoFormatter.date(from:)) ?? Date()
+    // Calendar dates preserve the planned day when the user's timezone changes.
+    let localDate = (dictionary["dateKey"] as? String).flatMap { value -> Date? in
+      let parts = value.split(separator: "-").compactMap { Int($0) }
+      guard parts.count == 3 else { return nil }
+      return Calendar.current.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+    guard let date = localDate ?? (dictionary["dateISO"] as? String).flatMap(Self.isoFormatter.date(from:)) else { return nil }
     let sides = (dictionary["sides"] as? [String] ?? []).map(\.trimmed).filter { !$0.isEmpty }
     return WidgetMeal(
       date: date,
       title: rawTitle.trimmed,
       icon: (dictionary["icon"] as? String)?.trimmed.nilIfEmpty ?? "🍽️",
-      dateLabel: (dictionary["dateLabel"] as? String)?.trimmed.nilIfEmpty ?? "Today",
+      dateLabel: date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()),
       sides: sides,
       prepNote: (dictionary["prepNote"] as? String)?.trimmed.nilIfEmpty,
       recipeURL: (dictionary["recipeUrl"] as? String)?.trimmed.nilIfEmpty.flatMap(URL.init(string:)),
-      mealId: dictionary["mealId"] as? String
+      mealId: dictionary["mealId"] as? String,
+      isPlanned: (dictionary["isPlanned"] as? Bool) ?? !["Nothing planned yet", "No Plans"].contains(rawTitle.trimmed)
     )
   }
 
@@ -128,7 +148,7 @@ struct TodayMealProvider: TimelineProvider {
   fileprivate static let previewAteOut = TodayMealEntry(date: Date(), today: WidgetMeal(date: Date(), title: "Eat Out", icon: "🍴", dateLabel: "Fri, Sep 4", sides: [], prepNote: nil, recipeURL: nil), tomorrow: previewNormal.tomorrow, outcome: .ateOut)
   fileprivate static let previewNoRecipe = TodayMealEntry(date: Date(), today: WidgetMeal(date: Date(), title: "Chicken Tacos", icon: "🌮", dateLabel: "Fri, Sep 4", sides: ["Black Beans"], prepNote: nil, recipeURL: nil), tomorrow: previewNormal.tomorrow, outcome: nil)
   fileprivate static let previewLong = TodayMealEntry(date: Date(), today: WidgetMeal(date: Date(), title: "Slow-Roasted Garlic Parmesan Chicken", icon: "🍗", dateLabel: "Fri, Sep 4", sides: ["Roasted Broccoli", "Mashed Potatoes"], prepNote: "Marinate chicken, chop vegetables, and preheat the oven before dinner", recipeURL: nil), tomorrow: previewNormal.tomorrow, outcome: nil)
-  fileprivate static let emptyEntry = TodayMealEntry(date: Date(), today: WidgetMeal(date: Date(), title: "Nothing planned yet", icon: "🍽️", dateLabel: "Today", sides: [], prepNote: nil, recipeURL: nil), tomorrow: nil, outcome: nil)
+  fileprivate static let emptyEntry = TodayMealEntry(date: Date(), today: WidgetMeal.noPlans(on: Date()), tomorrow: nil, outcome: nil)
   fileprivate static let previewTomorrowMissing = TodayMealEntry(date: Date(), today: previewNormal.today, tomorrow: nil, outcome: .served)
 }
 
@@ -147,27 +167,40 @@ struct TodayMealWidgetView: View {
   }
 
   private var accessibilityLabel: String {
+    if entry.noPlanToday {
+      if family == .systemMedium, let next = entry.nextUpcoming {
+        return "Today. No Plans. Next: \(next.displayTitle), \(next.date.formatted(.dateTime.weekday(.wide)))."
+      }
+      return "Today. No Plans."
+    }
     if family == .systemSmall {
       return entry.outcome == nil
         ? "Today. \(entry.today.accessibilitySummary)"
-        : "Tomorrow. \(entry.tomorrow?.accessibilitySummary ?? "Nothing planned yet")"
+        : "Tomorrow. \(entry.tomorrow?.accessibilitySummary ?? "No Plans")"
     }
     guard let outcome = entry.outcome else { return entry.today.accessibilitySummary }
-    return "\(outcome.smallLabel). Tomorrow is \(entry.tomorrow?.accessibilitySummary ?? "nothing planned")."
+    return "\(outcome.smallLabel). Tomorrow is \(entry.tomorrow?.accessibilitySummary ?? "No Plans")."
   }
 }
 
 private struct SmallTodayCard: View {
   let entry: TodayMealEntry
+  private var displayedMeal: WidgetMeal? { entry.outcome == nil ? entry.today : entry.tomorrow }
+  private var needsCompactSpacing: Bool { (displayedMeal?.sides.count ?? 0) >= 2 }
+
   var body: some View {
-    VStack(spacing: 12) {
-      ZStack {
-        if entry.outcome != nil { TomorrowLabel() }
-        else { Text("TODAY").todayEyebrow(color: widgetPink) }
+    VStack(spacing: needsCompactSpacing ? 5 : 8) {
+      if !entry.noPlanToday {
+        ZStack {
+          if entry.outcome != nil { TomorrowLabel() }
+          else { Text("TODAY").todayEyebrow(color: widgetPink) }
+        }
+        .frame(maxWidth: .infinity)
+        .overlay(alignment: .trailing) { RecipeLink(meal: entry.recipeMeal) }
       }
-      .frame(maxWidth: .infinity)
-      .overlay(alignment: .trailing) { RecipeLink(meal: entry.recipeMeal) }
-      if entry.outcome != nil {
+      if entry.noPlanToday {
+        NoPlansIdentity(compact: true)
+      } else if entry.outcome != nil {
         if let tomorrow = entry.tomorrow { SmallMealIdentity(meal: tomorrow) }
         else { EmptyTomorrow().multilineTextAlignment(.center) }
       } else {
@@ -175,7 +208,8 @@ private struct SmallTodayCard: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-    .padding(13)
+    .padding(.horizontal, needsCompactSpacing ? 9 : 13)
+    .padding(.vertical, needsCompactSpacing ? 8 : 13)
   }
 }
 
@@ -241,18 +275,59 @@ private struct WidgetMealIcon: View {
   }
 }
 
+private struct NoPlansIdentity: View {
+  let compact: Bool
+  private var illustration: some View {
+    WidgetMealIcon(meal: .noPlans(on: Date()), size: compact ? 58 : 64, diameter: compact ? 58 : 64)
+  }
+  var body: some View {
+    Group {
+      if compact {
+        VStack(spacing: 8) {
+          illustration
+          Text("No Plans").font(.system(size: 19, weight: .bold, design: .rounded))
+        }.frame(maxWidth: .infinity)
+      } else {
+        HStack(spacing: 14) {
+          illustration
+          Text("No Plans").font(.system(size: 22, weight: .bold, design: .rounded))
+          Spacer(minLength: 0)
+        }
+      }
+    }
+  }
+}
+
 private struct SmallMealIdentity: View {
   let meal: WidgetMeal
 
   var body: some View {
-    VStack(alignment: .center, spacing: 10) {
-      WidgetMealIcon(meal: meal, size: 40, diameter: 44)
+    VStack(alignment: .center, spacing: meal.sides.isEmpty ? 10 : 4) {
+      WidgetMealIcon(meal: meal, size: meal.sides.isEmpty ? 40 : 32, diameter: meal.sides.isEmpty ? 44 : 36)
       Text(meal.displayTitle)
         .font(.system(size: 17, weight: .bold, design: .rounded))
         .lineLimit(2)
         .minimumScaleFactor(0.72)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity, alignment: .center)
+      if !meal.sides.isEmpty {
+        VStack(spacing: 1) {
+          ForEach(Array(meal.sides.prefix(2).enumerated()), id: \.offset) { _, side in
+            Text(side)
+              .font(.system(size: 12, weight: .medium))
+              .lineLimit(1)
+              .minimumScaleFactor(0.85)
+              .frame(maxWidth: .infinity, alignment: .center)
+          }
+          if meal.sides.count > 2 {
+            Text("+\(meal.sides.count - 2) more")
+              .font(.system(size: 10, weight: .medium))
+              .lineLimit(1)
+          }
+        }
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+      }
     }
   }
 }
@@ -266,7 +341,16 @@ private struct MediumTodayCard: View {
         Spacer()
         RecipeLink(meal: entry.recipeMeal)
       }
-      if let outcome = entry.outcome {
+      if entry.noPlanToday {
+        NoPlansIdentity(compact: false)
+        if let next = entry.nextUpcoming {
+          Text("Next: \(next.displayTitle) · \(next.date.formatted(.dateTime.weekday(.abbreviated)))")
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .minimumScaleFactor(0.85)
+        }
+      } else if let outcome = entry.outcome {
         HStack(spacing: 10) {
           StatusCircle(outcome: outcome, compact: false)
           Text(outcome == .skipped ? outcome.smallLabel : "\(entry.today.displayTitle) · \(outcome == .served ? "Served" : outcome.smallLabel)")
@@ -331,7 +415,7 @@ private struct PrepNote: View {
 }
 
 private struct TomorrowLabel: View { var body: some View { Text("TOMORROW").todayEyebrow(color: widgetPurple) } }
-private struct EmptyTomorrow: View { var body: some View { Text("Nothing planned yet").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary) } }
+private struct EmptyTomorrow: View { var body: some View { Text("No Plans").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary) } }
 
 private struct StatusCircle: View {
   let outcome: DinnerOutcome
@@ -401,3 +485,9 @@ struct TodayMealWidget: Widget {
     .background(Color.widgetBackground)
 }
 #endif
+
+#Preview("Small · No Plans", as: .systemSmall) { TodayMealWidget() } timeline: { TodayMealProvider.emptyEntry }
+#Preview("Medium · No Plans + next", as: .systemMedium) { TodayMealWidget() } timeline: {
+  TodayMealEntry(date: Date(), today: .noPlans(on: Date()), tomorrow: nil, outcome: nil, nextUpcoming: TodayMealProvider.previewNormal.tomorrow)
+}
+#Preview("Medium · No Plans", as: .systemMedium) { TodayMealWidget() } timeline: { TodayMealProvider.emptyEntry }

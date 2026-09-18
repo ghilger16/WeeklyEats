@@ -2,6 +2,8 @@ import { NativeModules, Platform } from "react-native";
 
 export type TodayWidgetMeal = {
   mealId?: string;
+  isPlanned?: boolean;
+  dateKey?: string;
   dateISO: string;
   title: string;
   icon: string;
@@ -13,6 +15,7 @@ export type TodayWidgetMeal = {
 
 export type TodayWidgetPayload = {
   generatedAtISO: string;
+  plannedMeals?: TodayWidgetMeal[];
   today: TodayWidgetMeal;
   tomorrow?: TodayWidgetMeal;
   todayOutcome?: "served" | "cookedAlt" | "ateOut" | "skipped";

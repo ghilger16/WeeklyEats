@@ -48,7 +48,8 @@
           "calendarPermission": "Allow Weekly Eats to read calendar events for dinner planning context.",
           "remindersPermission": "Allow Weekly Eats to check reminder access required by iOS calendar services."
         }
-      ]
+      ],
+      "expo-notifications"
     ],
     "extra": {
       "router": {},

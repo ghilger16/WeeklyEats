@@ -122,3 +122,30 @@ describe('import handler', () => {
     expect(JSON.parse((await handler({ httpMethod: 'POST', body: JSON.stringify({ url }) })).body).ok).toBe(false);
   });
 });
+
+it('accepts Parmesan-Reggiano recipe wording as Parmesan Cheese without confusing other cheeses', () => {
+  const source = { ingredients: ['1/2 cup shredded Parmesan-Reggiano (as garnish)'] };
+  const result = { valid: true, missingIngredients: [], inventedIngredients: [],
+    correctedIngredients: [{ name: 'Parmesan Cheese', category: 'dairy', ingredientType: 'keyIngredient', sourceIndices: [0] }],
+    excludedSourceIngredients: [] };
+  expect(validateIngredientCorrection(result, source)[0].name).toBe('Parmesan Cheese');
+  expect(canonicalIngredientName('grated Parmigiano-Reggiano')).toBe('Parmesan Cheese');
+  expect(() => validateIngredientCorrection({ ...result, correctedIngredients: [{ ...result.correctedIngredients[0], name: 'Mozzarella Cheese' }] }, source)).toThrow();
+});
+
+it('retries a rejected validation response once and still enforces source fidelity', async () => {
+  const originalFetch = global.fetch;
+  process.env.OPENAI_API_KEY = 'test-key';
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ ok: true, status: 200, url, text: async () => schema(recipe) })
+    .mockResolvedValueOnce(modelResponse(generated))
+    .mockResolvedValueOnce(modelResponse({ valid: true }))
+    .mockResolvedValueOnce(modelResponse(correction));
+  try {
+    const { handler } = require('../netlify/functions/recipeAutoFill');
+    const result = await handler({ httpMethod: 'POST', body: JSON.stringify({ url }) });
+    expect(result.statusCode).toBe(200);
+    expect(global.fetch).toHaveBeenCalledTimes(4);
+    expect(JSON.parse(global.fetch.mock.calls[3][1].body).messages.at(-1).content).toContain('Malformed ingredient validation response');
+  } finally { global.fetch = originalFetch; delete process.env.OPENAI_API_KEY; }
+});
