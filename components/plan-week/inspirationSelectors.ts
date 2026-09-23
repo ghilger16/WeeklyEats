@@ -1,3 +1,4 @@
+import { getLatestServedDates } from "../../utils/servingHistory";
 import { ServedMealEntry } from "../../stores/servedMealsStorage";
 import { Meal } from "../../types/meals";
 import { CuisineType } from "../../types/cuisine";
@@ -8,16 +9,7 @@ export const getBeenAwhileMeals = (
   minimumWeeks?: number,
   now = Date.now(),
 ): Meal[] => {
-  const latestServed = new Map<string, number>();
-  history.forEach((entry) => {
-    if (entry.outcome !== "served" || !entry.mealId) return;
-    const servedAt = new Date(entry.servedAtISO).getTime();
-    if (!Number.isFinite(servedAt)) return;
-    latestServed.set(
-      entry.mealId,
-      Math.max(latestServed.get(entry.mealId) ?? 0, servedAt),
-    );
-  });
+  const latestServed = getLatestServedDates(history, now);
   return [...meals]
     .filter((meal) => {
       if (minimumWeeks === undefined) return true;

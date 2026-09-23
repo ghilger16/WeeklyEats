@@ -72,6 +72,7 @@ const formatIngredientName = (name: string) =>
   name.replace(/\b\p{L}/gu, (character) => character.toLocaleUpperCase());
 
 type Props = {
+  embedded?: boolean;
   day: WeekPlanDay | null;
   servedEntry?: ServedMealEntry;
   onSaveSides: (day: WeekPlanDay, sides: string[]) => Promise<void>;
@@ -87,6 +88,7 @@ type Props = {
 };
 
 export default function MealRowDetailsSheet({
+  embedded = false,
   day,
   servedEntry,
   onSaveSides,
@@ -180,13 +182,17 @@ export default function MealRowDetailsSheet({
       translateY.setValue(SHEET_HIDDEN_TRANSLATE);
       return;
     }
+    if (embedded) {
+      translateY.setValue(0);
+      return;
+    }
     translateY.setValue(SHEET_HIDDEN_TRANSLATE);
     Animated.timing(translateY, {
       toValue: 0,
       duration: reduceMotion ? 0 : 240,
       useNativeDriver: true,
     }).start();
-  }, [day?.key, day?.mealId, translateY]);
+  }, [day?.key, day?.mealId, embedded, translateY]);
 
   const closeSheet = () => {
     setIngredientsExpanded(false);
@@ -197,6 +203,10 @@ export default function MealRowDetailsSheet({
   };
 
   const dismiss = () => {
+    if (embedded) {
+      closeSheet();
+      return;
+    }
     if (isDismissingRef.current) return;
     isDismissingRef.current = true;
     Animated.timing(translateY, {
@@ -402,13 +412,12 @@ export default function MealRowDetailsSheet({
       <Text style={[styles.actionText, primary && styles.primaryActionText]}>{label}</Text>
     </Pressable>
   );
-  return (
-    <Modal transparent visible animationType="fade" onRequestClose={dismiss}>
+  const content = (
       <View style={styles.root}>
-        <Pressable style={styles.backdrop} onPress={dismiss} accessibilityLabel="Close meal details" />
+        {!embedded ? <Pressable style={styles.backdrop} onPress={dismiss} accessibilityLabel="Close meal details" /> : null}
         <Animated.View
-          style={[styles.sheet, { transform: [{ translateY }] }]}
-          {...panResponder.panHandlers}
+          style={[styles.sheet, embedded ? styles.embeddedSheet : { transform: [{ translateY }] }]}
+          {...(embedded ? {} : panResponder.panHandlers)}
         >
           <View style={styles.handle} />
           <ScrollView
@@ -705,7 +714,7 @@ export default function MealRowDetailsSheet({
                     true,
                   )
                 : null}
-              {isServed ? null : action("Change Meal", "swap-horizontal", () => act(onChangeMeal))}
+              {isServed ? null : action("Change Meal", "swap-horizontal", () => embedded ? onChangeMeal(day) : act(onChangeMeal))}
               {isServed || isEatOut
                 ? null
                 : action("Eat Out Instead", "silverware-fork-knife", () =>
@@ -760,6 +769,11 @@ export default function MealRowDetailsSheet({
           }}
         />
       </View>
+  );
+
+  return embedded ? content : (
+    <Modal transparent visible animationType="fade" onRequestClose={dismiss}>
+      {content}
     </Modal>
   );
 }
@@ -768,6 +782,7 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   root: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.58)" },
   sheet: { maxHeight: "92%", backgroundColor: theme.color.bg, borderTopLeftRadius: theme.radius.xl, borderTopRightRadius: theme.radius.xl, paddingHorizontal: theme.space.xl, paddingTop: theme.space.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
+  embeddedSheet: { flex: 1, maxHeight: "100%", borderWidth: 0 },
   sheetContent: { paddingBottom: theme.space["2xl"], gap: theme.space.lg },
   handle: { width: 58, height: 5, borderRadius: theme.radius.full, backgroundColor: theme.color.subtleInk, opacity: 0.65, alignSelf: "center", marginBottom: theme.space.lg },
   dateRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

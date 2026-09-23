@@ -1348,25 +1348,14 @@ export default function MealsScreen() {
         addMeal(meal);
       }
 
-      if (activePendingImport?.planForLater) {
-        const nextWeekStartISO = getNextWeekStartForDate(startDay)
-          .toISOString()
-          .slice(0, 10);
-        addSavedMealIdeaToWeekPlan(nextWeekStartISO, meal).catch((error) => {
-          console.warn("Unable to save pending recipe as next week idea", error);
-        });
-      }
-
       completeActivePendingImport();
     },
     [
-      activePendingImport,
       addMeal,
       completionAutoFillMealId,
       detailAutoFillMealId,
       completeActivePendingImport,
       meals,
-      startDay,
       updateMeal,
     ]
   );

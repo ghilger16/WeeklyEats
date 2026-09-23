@@ -1,3 +1,7 @@
+import { ServedMealEntry } from "../../../stores/servedMealsStorage";
+import { getLatestServedDates, getDaysSinceServed, getRepeatTimingScore } from "../../../utils/servingHistory";
+import { getFamilyRatingScore } from "../../../utils/familyRatings";
+import { matchesMealType } from "../../../utils/mealTypes";
 import { Meal } from "../../../types/meals";
 import { DayPinsState, EffortOption } from "../../../types/dayPins";
 import { SuggestionBannerContext } from "./suggestionBanners";
@@ -38,28 +42,17 @@ const hasFreezerInventory = (meal: Meal) => {
   return hasFullFreezerMeal(meal);
 };
 
-const getExpenseTier = (meal: Meal): number => {
+export const getExpenseTier = (meal: Meal): number => {
   if (typeof meal.expense === "number" && !Number.isNaN(meal.expense)) {
     return Math.max(1, Math.min(3, Math.round(meal.expense / 2)));
   }
   return meal.plannedCostTier ?? 1;
 };
 
-const getDaysSinceDate = (iso?: string): number | null => {
-  if (!iso) {
-    return null;
-  }
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  const diff = Date.now() - parsed.getTime();
-  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
-};
-
 export type MealSuggestion = {
   meal: Meal;
   score: number;
+  breakdown: { settings: number; rating: number; repeatTiming: number };
   context: SuggestionBannerContext;
 };
 
@@ -82,8 +75,11 @@ const resolveContextFromFlags = (flags: Set<SuggestionBannerContext>) => {
 export const buildMealSuggestions = (
   meals: Meal[],
   pins: DayPinsState,
-  excludeMealIds?: Set<Meal["id"]>
+  excludeMealIds?: Set<Meal["id"]>,
+  history: ServedMealEntry[] = [],
+  now = Date.now(),
 ): MealSuggestion[] => {
+  const latestServed = getLatestServedDates(history, now);
   const allowedDifficulty = effortToDifficultySet(pins.effort);
   const desiredExpense =
     pins.expense === "$"
@@ -103,6 +99,7 @@ export const buildMealSuggestions = (
       if (excludeMealIds?.has(meal.id)) {
         return false;
       }
+      if (pins.excludedTypes?.some((type) => matchesMealType(meal, type))) return false;
       if (pins.familyStar === "exclude" && meal.isFavorite) {
         return false;
       }
@@ -111,7 +108,7 @@ export const buildMealSuggestions = (
       }
       if (shouldFilterByExpense) {
         const mealExpense = getExpenseTier(meal);
-        if (mealExpense > desiredExpense) {
+        if (desiredExpense !== null && mealExpense > desiredExpense) {
           return false;
         }
       }
@@ -159,16 +156,12 @@ export const buildMealSuggestions = (
         }
       }
 
-      if (pins.reuseWeeks) {
-        const daysSinceServed = getDaysSinceDate(meal.updatedAt);
-        const threshold = pins.reuseWeeks * 7;
-        if (daysSinceServed === null || daysSinceServed >= threshold) {
-          score += 20;
-          flags.add("reuse");
-        } else {
-          score -= 25;
-        }
-      }
+      const repeatTiming = getRepeatTimingScore(
+        getDaysSinceServed(latestServed.get(meal.id), now), pins.reuseWeeks,
+      );
+      if (repeatTiming > 0) flags.add("reuse");
+
+      if (pins.types?.some((type) => matchesMealType(meal, type))) score += 15;
 
       if (desiredExpense) {
         const mealExpense = getExpenseTier(meal);
@@ -182,11 +175,14 @@ export const buildMealSuggestions = (
         }
       }
 
-      score += Math.min(meal.rating ?? 0, 5) * 2;
+      const rating = getFamilyRatingScore(meal);
+      const breakdown = { settings: score, rating, repeatTiming };
+      score += rating + repeatTiming;
 
       return {
         meal,
         score,
+        breakdown,
         context: resolveContextFromFlags(flags),
       };
     })

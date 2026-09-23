@@ -1,3 +1,5 @@
+import { AutoPlanSideState, getAutoPlanSideState, sameSides } from "../../components/plan-week/autoPlanSides";
+import { swapPlannedDays } from "../../utils/swapPlannedDays";
 import { getMeals } from "../../stores/mealsStorage";
 import { getServedMeals } from "../../stores/servedMealsStorage";
 import { isFamilyStarMeal, isFiveStarMeal } from "../../components/plan-week/inspirationSelectors";
@@ -178,7 +180,7 @@ type AutoPlanSession = {
   ownedDays: Partial<
     Record<
       PlannedWeekDayKey,
-      { mealId: Meal["id"]; originalSides: string[] }
+      { mealId: Meal["id"] } & AutoPlanSideState
     >
   >;
   previousGeneratedMealIds: Meal["id"][];
@@ -361,6 +363,8 @@ export default function PlanWeekModal() {
   const [suggestTargetDay, setSuggestTargetDay] =
     useState<PlannedWeekDayKey | null>(null);
   const [expandedDrawerDay, setExpandedDrawerDay] =
+    useState<PlannedWeekDayKey | null>(null);
+  const [swapSourceDay, setSwapSourceDay] =
     useState<PlannedWeekDayKey | null>(null);
   const [completedWeekHistory, setCompletedWeekHistory] = useState<
     WeekPlanHistoryEntry[]
@@ -625,6 +629,15 @@ export default function PlanWeekModal() {
   } = usePlanSides({ activeDay });
 
   const handleClosePlanWeek = useCallback(async () => {
+    if (swapSourceDay !== null) {
+      setSwapSourceDay(null);
+      return;
+    }
+    if (expandedDrawerDay !== null) {
+      setExpandedDrawerDay(null);
+      return;
+    }
+
     const hasPlannedMeals = PLANNED_WEEK_ORDER.some(
       (day) => typeof plannedWeek[day] === "string",
     );
@@ -643,7 +656,7 @@ export default function PlanWeekModal() {
     }
 
     router.back();
-  }, [daySidesMap, isRemainingMode, plannedWeek, planningWeekStartISO, router]);
+  }, [daySidesMap, expandedDrawerDay, isRemainingMode, plannedWeek, planningWeekStartISO, router, swapSourceDay]);
 
   const planningRangeStart = useMemo(() => {
     if (!isRemainingMode || !sessionDays.length) {
@@ -764,6 +777,7 @@ export default function PlanWeekModal() {
 
   useFocusEffect(
     useCallback(() => {
+      setSwapSourceDay(null);
       planMilestonesTrackedRef.current.clear();
       trackAction("week_plan_started", {
         planning_scope: isRemainingMode ? "remaining" : "full",
@@ -1229,6 +1243,7 @@ export default function PlanWeekModal() {
   );
 
   const handlePlanItForMe = useCallback(() => {
+    setSwapSourceDay(null);
     if (
       autoPlanAnimationPhase === "thinking" ||
       autoPlanAnimationPhase === "cascading" ||
@@ -1273,11 +1288,9 @@ export default function PlanWeekModal() {
       nextPlan[day] = meal.id;
       ownedDays[day] = {
         mealId: meal.id,
-        originalSides: [...(daySidesMap[day] ?? [])],
+        ...getAutoPlanSideState(daySidesMap[day] ?? [], side),
       };
-      if (!(nextSides[day] ?? []).length && side) {
-        nextSides[day] = [side];
-      }
+      nextSides[day] = [...ownedDays[day]!.assignedSides];
     });
     nextPlan.weekedPlanned = false;
     setPlannedWeek(nextPlan);
@@ -1303,6 +1316,7 @@ export default function PlanWeekModal() {
   }, [autoPlanAnimationPhase, dayPinsMap, daySidesMap, isWeekComplete, meals, plannedWeek, resetSides, runAutoPlanReveal, servedEntries, sessionDays]);
 
   const handleTryAnotherAutoPlan = useCallback(() => {
+    setSwapSourceDay(null);
     if (autoPlanAnimationPhase !== "result") return;
     if (isCompleteWeekPromptVisible || autoPlanSession?.mode === "alternate") {
       const snapshot =
@@ -1364,10 +1378,11 @@ export default function PlanWeekModal() {
         autoPlanRowAnimationsRef.current[day].setValue(0);
         nextPlan[day] = meal.id;
         delete nextSpecialMealTitles[day];
-        nextSides[day] = side ? [side] : [];
+        const sideState = getAutoPlanSideState(daySidesMap[day] ?? [], side, autoPlanSession?.ownedDays[day]);
+        nextSides[day] = sideState.assignedSides;
         nextOwnedDays[day] = {
           mealId: meal.id,
-          originalSides: [...snapshot.sides[day]],
+          ...sideState,
         };
       });
       nextPlan.specialMealTitles = Object.keys(nextSpecialMealTitles).length
@@ -1426,21 +1441,20 @@ export default function PlanWeekModal() {
 
     const nextPlan = { ...basePlan, weekedPlanned: false };
     const nextOwnedDays: AutoPlanSession["ownedDays"] = {};
-    assignments.forEach(({ day, meal }) => {
+    assignments.forEach(({ day, meal, side }) => {
       autoPlanRowAnimationsRef.current[day].setValue(0);
       nextPlan[day] = meal.id;
       nextOwnedDays[day] = {
         mealId: meal.id,
-        originalSides:
-          autoPlanSession.ownedDays[day]?.originalSides ?? [],
+        ...getAutoPlanSideState(daySidesMap[day] ?? [], side, autoPlanSession.ownedDays[day]),
       };
     });
     const nextSides = { ...daySidesMap };
     ownedEntries.forEach(([day, ownership]) => {
-      nextSides[day] = [...ownership.originalSides];
+      nextSides[day] = getAutoPlanSideState(daySidesMap[day] ?? [], undefined, ownership).assignedSides;
     });
-    assignments.forEach(({ day, side }) => {
-      nextSides[day] = side ? [side] : [];
+    assignments.forEach(({ day }) => {
+      nextSides[day] = [...nextOwnedDays[day]!.assignedSides];
     });
     setPlannedWeek(nextPlan);
     setAutoPlanThinkingIcons(
@@ -1485,7 +1499,9 @@ export default function PlanWeekModal() {
         const day = dayKey as PlannedWeekDayKey;
         if (nextPlan[day] !== ownership.mealId) return;
         nextPlan[day] = null;
-        nextSides[day] = [...ownership.originalSides];
+        if (sameSides(nextSides[day] ?? [], ownership.assignedSides)) {
+          nextSides[day] = [...ownership.originalSides];
+        }
         delete nextSpecialMealTitles[day];
       });
     }
@@ -1606,8 +1622,8 @@ export default function PlanWeekModal() {
   );
 
   const suggestionPool = useMemo(
-    () => buildMealSuggestions(filteredMeals, activeDayPins, plannedMealIds),
-    [activeDayPins, filteredMeals, plannedMealIds],
+    () => buildMealSuggestions(filteredMeals, activeDayPins, plannedMealIds, servedEntries),
+    [activeDayPins, filteredMeals, plannedMealIds, servedEntries],
   );
 
   const activeSuggestionEntry = useMemo(() => {
@@ -1634,8 +1650,8 @@ export default function PlanWeekModal() {
     [dayPinsMap, searchModalTitleDay],
   );
   const suggestModalPool = useMemo(
-    () => buildMealSuggestions(filteredMeals, suggestModalPins, plannedMealIds),
-    [filteredMeals, plannedMealIds, suggestModalPins],
+    () => buildMealSuggestions(filteredMeals, suggestModalPins, plannedMealIds, servedEntries),
+    [filteredMeals, plannedMealIds, suggestModalPins, servedEntries],
   );
   const suggestModalEntry = useMemo(() => {
     if (!suggestModalPool.length) {
@@ -1682,6 +1698,11 @@ export default function PlanWeekModal() {
   const plannedEditMeal = plannedEditDay
     ? getPlannedMealForDay(plannedEditDay)
     : undefined;
+  const swapSourceMeal = swapSourceDay ? getPlannedMealForDay(swapSourceDay) : undefined;
+  const daySelectionMeal = swapSourceMeal ?? (!inspirationTargetDay ? selectedInspirationMeal : null);
+  useEffect(() => {
+    if (swapSourceDay && !swapSourceMeal) setSwapSourceDay(null);
+  }, [swapSourceDay, swapSourceMeal]);
   const plannedEditLastServedISO = useMemo(() => {
     if (!plannedEditMeal) {
       return null;
@@ -1966,9 +1987,12 @@ export default function PlanWeekModal() {
     if (!previousDay || expandedDrawerDay !== null) return;
 
     requestAnimationFrame(() => {
-      plannerScrollRef.current?.scrollTo({ y: 0, animated: true });
+      plannerScrollRef.current?.scrollTo({
+        y: swapSourceDay ? Math.max(0, plannerRowsOffsetRef.current - 140) : 0,
+        animated: true,
+      });
     });
-  }, [expandedDrawerDay]);
+  }, [expandedDrawerDay, swapSourceDay]);
 
   const beginInspirationDayEditor = useCallback(
     (day: PlannedWeekDayKey, meal: Meal) => {
@@ -2051,6 +2075,7 @@ export default function PlanWeekModal() {
 
   const handleSelectMealPoolMeal = useCallback(
     (meal: Meal, poolId: MealPoolId) => {
+      setSwapSourceDay(null);
       Haptics.selectionAsync().catch(() => {});
       setSelectedSavedIdeaMealId(meal.id);
       setSelectedMealPoolId(poolId);
@@ -2068,6 +2093,7 @@ export default function PlanWeekModal() {
   );
 
   const handleInspirationPoolChange = useCallback((poolId: MealPoolId | null) => {
+    setSwapSourceDay(null);
     setActiveInspirationPoolId(poolId);
     setSelectedSavedIdeaMealId(null);
     setSelectedMealPoolId(null);
@@ -2491,6 +2517,17 @@ export default function PlanWeekModal() {
     setToastDay(null);
     setPendingPlannedDay(null);
   }, [sessionDays, toastDay]);
+
+  const handleSwapDrawerDays = useCallback((source: PlannedWeekDayKey, target: PlannedWeekDayKey) => {
+    if (!sessionDays.includes(source) || !sessionDays.includes(target)) return;
+    const next = swapPlannedDays(plannedWeek, daySidesMap, source, target);
+    setPlannedWeek(next.plan);
+    resetSides(next.sides);
+    setSwapSourceDay(null);
+    setExpandedDrawerDay(null);
+    Keyboard.dismiss();
+    Haptics.selectionAsync().catch(() => {});
+  }, [daySidesMap, plannedWeek, resetSides, sessionDays]);
 
   const handleSwapPlannedMeal = useCallback(
     async (day: PlannedWeekDayKey) => {
@@ -3107,20 +3144,20 @@ export default function PlanWeekModal() {
                 }
               />
 
-              {selectedInspirationMeal && !inspirationTargetDay ? (
+              {daySelectionMeal ? (
                 <View style={styles.chooseDayPrompt}>
                   <Text style={styles.chooseDayText} numberOfLines={2}>
                     Choose a day for{" "}
                     <Text style={styles.chooseDayMealName}>
-                      {(selectedInspirationMeal as Meal & {
+                      {(daySelectionMeal as Meal & {
                         displayTitle?: string;
-                      }).displayTitle?.trim() || selectedInspirationMeal.title}
+                      }).displayTitle?.trim() || daySelectionMeal.title}
                     </Text>
                   </Text>
                   <Pressable
-                    onPress={cancelInspirationSelection}
+                    onPress={swapSourceDay ? () => setSwapSourceDay(null) : cancelInspirationSelection}
                     accessibilityRole="button"
-                    accessibilityLabel={`Cancel assigning ${selectedInspirationMeal.title}`}
+                    accessibilityLabel={swapSourceDay ? "Cancel meal swap" : `Cancel assigning ${daySelectionMeal.title}`}
                     hitSlop={8}
                   >
                     <Text style={styles.chooseDayCancel}>Cancel</Text>
@@ -3199,6 +3236,8 @@ export default function PlanWeekModal() {
                   const isChoosingInspirationDay = Boolean(
                     selectedInspirationMeal && !inspirationTargetDay,
                   );
+                  const isChoosingSwapDay = Boolean(swapSourceDay && swapSourceMeal);
+                  const isSwapSource = isChoosingSwapDay && swapSourceDay === day;
                   return (
                     <Animated.View
                       key={day}
@@ -3210,21 +3249,30 @@ export default function PlanWeekModal() {
                         styles.weekDrawer,
                         isActive && styles.weekRowActive,
                         isCelebrated && styles.weekDrawerCelebrated,
-                        isChoosingInspirationDay &&
+                        (isChoosingInspirationDay || (isChoosingSwapDay && !isSwapSource)) &&
                           styles.weekDrawerChooseTarget,
                         isExpanded && styles.weekDrawerExpanded,
                         { transform: [{ scale: rowScale }] },
                       ]}
                     >
                       <Pressable
+                        disabled={isSwapSource}
                         accessibilityRole="button"
                         accessibilityLabel={
-                          isChoosingInspirationDay && selectedInspirationMeal
+                          isChoosingSwapDay
+                            ? isSwapSource
+                              ? `${PLANNED_WEEK_DISPLAY_NAMES[day]}, current day for ${swapSourceMeal?.title}`
+                              : `${plannedWeek[day] ? "Swap with" : "Move to"} ${PLANNED_WEEK_DISPLAY_NAMES[day]}${plannedWeek[day] ? `: ${plannedMeal?.title ?? "Planned meal"}` : ""}`
+                            : isChoosingInspirationDay && selectedInspirationMeal
                             ? `${PLANNED_WEEK_DISPLAY_NAMES[day]}, ${plannedMeal ? `${plannedMeal.title} planned, replace` : "unplanned, assign"} ${selectedInspirationMeal.title}`
                             : `${PLANNED_WEEK_DISPLAY_NAMES[day]}, ${accessiblePlanLabel}${accessibleSides}`
                         }
-                        accessibilityState={{ expanded: isExpanded }}
+                        accessibilityState={{ expanded: isExpanded, disabled: isSwapSource }}
                         onPress={() => {
+                          if (isChoosingSwapDay && swapSourceDay) {
+                            handleSwapDrawerDays(swapSourceDay, day);
+                            return;
+                          }
                           setActiveDayIndex(index);
                           if (isChoosingInspirationDay) {
                             handleChooseInspirationDay(day, plannedMeal);
@@ -3343,7 +3391,11 @@ export default function PlanWeekModal() {
                               ) : null}
                             </View>
                           </Animated.View>
-                          {isChoosingInspirationDay ? (
+                          {isChoosingSwapDay ? (
+                            <Text style={isSwapSource ? styles.weekRowSubtitle : styles.weekRowReplace}>
+                              {isSwapSource ? "Current" : plannedWeek[day] ? "Swap" : "Move"}
+                            </Text>
+                          ) : isChoosingInspirationDay ? (
                             plannedMeal ? (
                               <Text style={styles.weekRowReplace}>Replace</Text>
                             ) : (
@@ -3462,6 +3514,16 @@ export default function PlanWeekModal() {
                             history={servedEntries}
                             completedWeekHistory={completedWeekHistory}
                             assignedMeal={plannedMeal ?? null}
+                            onRequestSwap={sessionDays.length > 1 ? () => {
+                              setSelectedSavedIdeaMealId(null);
+                              setSelectedMealPoolId(null);
+                              setInspirationTargetDay(null);
+                              setPendingInlineMeal(null);
+                              setPendingEatOutDay(null);
+                              setAddingMealDay(null);
+                              setSwapSourceDay(day);
+                              setExpandedDrawerDay(null);
+                            } : undefined}
                             onSelectMeal={(meal) =>
                               beginInlineMealEditing(
                                 day,
@@ -3642,6 +3704,7 @@ export default function PlanWeekModal() {
         }}
       />
       <SuggestMealModal
+        history={servedEntries}
         visible={isSuggestModalVisible}
         dayName={PLANNED_WEEK_DISPLAY_NAMES[suggestModalDay]}
         suggestion={suggestModalEntry}
@@ -3661,6 +3724,7 @@ export default function PlanWeekModal() {
         onPinsChange={handleSuggestModalPinsChange}
       />
       <MealSearchModal
+        history={servedEntries}
         visible={isSearchModalVisible}
         meals={meals}
         onDismiss={handleDismissSearchModal}

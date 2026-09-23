@@ -36,6 +36,7 @@ import ChangeMealIdentity from "../../week-dashboard/ChangeMealIdentity";
 import MealEmoji from "../../emoji/MealEmoji";
 
 type Props = {
+  embedded?: boolean;
   visible: boolean;
   dayName: string;
   dayKey?: PlannedWeekDayKey;
@@ -44,6 +45,7 @@ type Props = {
   mode?: "plan" | "changeDinner" | "recordPastDinner";
   currentMeal?: Meal | null;
   currentMealSides?: string[];
+  errorMessage?: string | null;
   suggestion?: MealSuggestion;
   canSuggestAnother?: boolean;
   onDismiss: () => void;
@@ -115,6 +117,7 @@ const formatLastServed = (iso?: string) => {
 };
 
 export default function SuggestMealModal({
+  embedded = false,
   visible,
   dayName,
   dayKey,
@@ -123,6 +126,7 @@ export default function SuggestMealModal({
   mode: flowMode = "plan",
   currentMeal,
   currentMealSides = [],
+  errorMessage,
   suggestion,
   canSuggestAnother = true,
   onDismiss,
@@ -179,13 +183,15 @@ export default function SuggestMealModal({
       normalizedPins.expense ||
       normalizedPins.reuseWeeks ||
       normalizedPins.freezerNight ||
-      normalizedPins.familyStar
+      normalizedPins.familyStar ||
+      normalizedPins.types.length ||
+      normalizedPins.excludedTypes.length
   );
   const filteredMeals = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const sourceMeals =
       pins && hasActivePins
-        ? buildMealSuggestions(meals, normalizedPins).map((entry) => entry.meal)
+        ? buildMealSuggestions(meals, normalizedPins, undefined, history).map((entry) => entry.meal)
         : meals;
     if (!normalized) {
       return sourceMeals;
@@ -193,7 +199,7 @@ export default function SuggestMealModal({
     return sourceMeals.filter((candidate) =>
       candidate.title.toLowerCase().includes(normalized)
     );
-  }, [hasActivePins, meals, normalizedPins, pins, query]);
+  }, [hasActivePins, history, meals, normalizedPins, pins, query]);
   const isChangeDinnerMode = flowMode === "changeDinner";
   const isHistoricalLoggingMode = flowMode === "recordPastDinner";
   const isDinnerEditMode = isChangeDinnerMode || isHistoricalLoggingMode;
@@ -445,17 +451,8 @@ export default function SuggestMealModal({
     );
   };
 
-  return (
-    <Modal
-      transparent
-      animationType="fade"
-      presentationStyle="overFullScreen"
-      visible={visible}
-      onRequestClose={onDismiss}
-    >
-      <View style={styles.backdrop}>
-        <Pressable style={styles.backdropPad} onPress={onDismiss} />
-        <SafeAreaView style={styles.sheet} edges={["bottom"]}>
+  const content = (
+        <SafeAreaView style={[styles.sheet, embedded && styles.embeddedSheet]} edges={["bottom"]}>
           <View style={styles.body}>
             <View style={styles.header}>
               {mode === "suggest" ? (
@@ -478,7 +475,16 @@ export default function SuggestMealModal({
                 </Pressable>
               )}
               <Text style={styles.title}>{titleText}</Text>
-              {canShowFilterToggle ? (
+              {embedded ? (
+                <Pressable
+                  onPress={onDismiss}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close change meal"
+                  style={styles.headerIconButton}
+                >
+                  <MaterialCommunityIcons name="close" size={20} color={theme.color.ink} />
+                </Pressable>
+              ) : canShowFilterToggle ? (
                 <Pressable
                   onPress={() => setFilterMode((prev) => !prev)}
                   accessibilityRole="button"
@@ -500,6 +506,12 @@ export default function SuggestMealModal({
                 <View style={styles.headerTitleSlot} />
               )}
             </View>
+
+            {errorMessage ? (
+              <Text accessibilityRole="alert" style={{ color: theme.color.danger }}>
+                {errorMessage}
+              </Text>
+            ) : null}
 
             {canShowFilterToggle && isFilterMode && pins && onPinsChange ? (
               <DayPinsControls
@@ -1096,6 +1108,21 @@ export default function SuggestMealModal({
             ) : null}
           </View>
         </SafeAreaView>
+  );
+
+  if (embedded) return visible ? content : null;
+
+  return (
+    <Modal
+      transparent
+      animationType="fade"
+      presentationStyle="overFullScreen"
+      visible={visible}
+      onRequestClose={onDismiss}
+    >
+      <View style={styles.backdrop}>
+        <Pressable style={styles.backdropPad} onPress={onDismiss} />
+        {content}
       </View>
     </Modal>
   );
@@ -1121,6 +1148,11 @@ const createStyles = (theme: WeeklyTheme) =>
       minHeight: "85%",
       flexShrink: 0,
       width: "100%",
+    },
+    embeddedSheet: {
+      flex: 1,
+      minHeight: 0,
+      maxHeight: "100%",
     },
     body: {
       flex: 1,

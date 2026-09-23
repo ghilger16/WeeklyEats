@@ -39,6 +39,7 @@ type Props = {
   onEditSides: () => void;
   onViewDetails: () => void;
   onRemove: () => void;
+  onRequestSwap?: () => void;
   onExpandedLayout: () => void;
   autoFocus?: boolean;
 };
@@ -57,6 +58,7 @@ export default function InlineDaySearch({
   onEditSides,
   onViewDetails,
   onRemove,
+  onRequestSwap,
   onExpandedLayout,
   autoFocus = true,
 }: Props) {
@@ -133,12 +135,13 @@ export default function InlineDaySearch({
             contentContainerStyle={styles.quickOptions}
             keyboardShouldPersistTaps="handled"
           >
-            {assignedMeal && !isSpecialMealId(assignedMeal.id) ? (
+            {assignedMeal ? (
               <QuickOption
-                icon="card-text-outline"
-                label="Details"
-                accessibilityLabel={`View details for ${assignedMeal.title}`}
-                onPress={onViewDetails}
+                icon="delete-outline"
+                label="Remove"
+                accessibilityLabel={`Remove ${assignedMeal.title} from ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
+                onPress={onRemove}
+                destructive
                 styles={styles}
                 theme={theme}
               />
@@ -153,13 +156,22 @@ export default function InlineDaySearch({
                 theme={theme}
               />
             ) : null}
-            {assignedMeal ? (
+            {assignedMeal && onRequestSwap ? (
               <QuickOption
-                icon="delete-outline"
-                label="Remove"
-                accessibilityLabel={`Remove ${assignedMeal.title} from ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
-                onPress={onRemove}
-                destructive
+                icon="swap-horizontal"
+                label="Swap"
+                accessibilityLabel={`Move or swap ${assignedMeal.title} to another day`}
+                onPress={() => { Keyboard.dismiss(); onRequestSwap(); }}
+                styles={styles}
+                theme={theme}
+              />
+            ) : null}
+            {assignedMeal && !isSpecialMealId(assignedMeal.id) ? (
+              <QuickOption
+                icon="card-text-outline"
+                label="Details"
+                accessibilityLabel={`View details for ${assignedMeal.title}`}
+                onPress={onViewDetails}
                 styles={styles}
                 theme={theme}
               />
@@ -280,6 +292,7 @@ function QuickOption({
   icon:
     | "silverware-fork-knife"
     | "sync"
+    | "swap-horizontal"
     | "food-variant"
     | "card-text-outline"
     | "plus-circle-outline"

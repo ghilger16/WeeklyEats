@@ -1,3 +1,4 @@
+import { ServedMealEntry } from "../../stores/servedMealsStorage";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -22,6 +23,7 @@ import { buildMealSuggestions } from "../plan-week/suggestions/suggestionMatcher
 import MealEmoji from "../emoji/MealEmoji";
 
 type Props = {
+  history?: ServedMealEntry[];
   visible: boolean;
   meals: Meal[];
   onDismiss: () => void;
@@ -37,6 +39,7 @@ type Props = {
 };
 
 export default function MealSearchModal({
+  history = [],
   visible,
   meals,
   onDismiss,
@@ -83,14 +86,16 @@ export default function MealSearchModal({
       normalizedPins.expense ||
       normalizedPins.reuseWeeks ||
       normalizedPins.freezerNight ||
-      normalizedPins.familyStar
+      normalizedPins.familyStar ||
+      normalizedPins.types.length ||
+      normalizedPins.excludedTypes.length
   );
 
   const filteredMeals = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const sourceMeals =
       pins && hasActivePins
-        ? buildMealSuggestions(meals, normalizedPins).map((entry) => entry.meal)
+        ? buildMealSuggestions(meals, normalizedPins, undefined, history).map((entry) => entry.meal)
         : meals;
     if (!normalized) {
       return sourceMeals;
@@ -98,7 +103,7 @@ export default function MealSearchModal({
     return sourceMeals.filter((meal) =>
       meal.title.toLowerCase().includes(normalized)
     );
-  }, [hasActivePins, meals, normalizedPins, pins, query]);
+  }, [hasActivePins, history, meals, normalizedPins, pins, query]);
 
   const handleSelect = (meal: Meal) => {
     if (onAddSide) {

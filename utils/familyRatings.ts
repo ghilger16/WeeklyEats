@@ -63,3 +63,22 @@ export const getFamilyRatingSummary = (
     isUnanimousHeart,
   };
 };
+
+/** Planner-only contribution. Zero/unrecorded ratings are neutral, not dislikes. */
+export const getFamilyRatingScore = (meal: Meal): number => {
+  const memberIds = Object.keys(meal.familyRatings ?? {}).filter(
+    (id) => [1, 2, 3].includes(meal.familyRatings![id]),
+  );
+  const summary = getFamilyRatingSummary(meal.familyRatings, memberIds);
+  if (summary) {
+    if (summary.isUnanimousHeart) return 12;
+    const weights = { 1: -12, 2: 6, 3: 12 };
+    return memberIds.reduce((sum, id) => {
+      const rating = meal.familyRatings![id] as 1 | 2 | 3;
+      return sum + weights[rating];
+    }, 0) / memberIds.length;
+  }
+  // Legacy overall stars remain useful when individual family ratings are absent.
+  const rating = Number.isFinite(meal.rating) ? Math.max(0, Math.min(5, meal.rating)) : 0;
+  return rating === 0 ? 0 : Math.max(-12, Math.min(12, (rating - 3) * 6));
+};

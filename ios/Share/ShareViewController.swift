@@ -22,7 +22,6 @@ final class ShareViewController: UIViewController {
     private let previewImageContainer = UIView()
     private let previewPhotoImageView = UIImageView()
     private let previewImageIcon = UIImageView()
-    private let planSwitch = UISwitch()
     private let saveButton = UIButton(type: .system)
     private let statusLabel = UILabel()
 
@@ -100,9 +99,6 @@ final class ShareViewController: UIViewController {
         let previewCard = makePreviewCard()
         contentView.addSubview(previewCard)
 
-        let planRow = makePlanForLaterRow()
-        contentView.addSubview(planRow)
-
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.backgroundColor = accentColor
         saveButton.tintColor = .white
@@ -176,13 +172,9 @@ final class ShareViewController: UIViewController {
             previewCard.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: 34),
             previewCard.heightAnchor.constraint(equalToConstant: 150),
 
-            planRow.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
-            planRow.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
-            planRow.topAnchor.constraint(equalTo: previewCard.bottomAnchor, constant: 38),
-
             saveButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
             saveButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24),
-            saveButton.topAnchor.constraint(equalTo: planRow.bottomAnchor, constant: 40),
+            saveButton.topAnchor.constraint(equalTo: previewCard.bottomAnchor, constant: 40),
             saveButton.heightAnchor.constraint(equalToConstant: 62),
 
             closeButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24),
@@ -344,58 +336,6 @@ final class ShareViewController: UIViewController {
             chevron.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             chevron.widthAnchor.constraint(equalToConstant: 20),
             chevron.heightAnchor.constraint(equalToConstant: 20),
-        ])
-
-        return row
-    }
-
-    private func makePlanForLaterRow() -> UIView {
-        let row = UIView()
-        row.translatesAutoresizingMaskIntoConstraints = false
-
-        let icon = UIImageView(image: UIImage(systemName: "calendar"))
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.tintColor = accentColor
-        icon.contentMode = .scaleAspectFit
-        row.addSubview(icon)
-
-        let title = UILabel()
-        title.translatesAutoresizingMaskIntoConstraints = false
-        title.text = "Plan for Later?"
-        title.textColor = .black
-        title.font = .systemFont(ofSize: 20, weight: .bold)
-        row.addSubview(title)
-
-        let subtitle = UILabel()
-        subtitle.translatesAutoresizingMaskIntoConstraints = false
-        subtitle.text = "Add this recipe to your next week ideas."
-        subtitle.textColor = softTextColor
-        subtitle.font = .systemFont(ofSize: 16, weight: .regular)
-        subtitle.numberOfLines = 2
-        row.addSubview(subtitle)
-
-        planSwitch.translatesAutoresizingMaskIntoConstraints = false
-        planSwitch.onTintColor = accentColor
-        planSwitch.isOn = true
-        row.addSubview(planSwitch)
-
-        NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 4),
-            icon.topAnchor.constraint(equalTo: row.topAnchor, constant: 6),
-            icon.widthAnchor.constraint(equalToConstant: 30),
-            icon.heightAnchor.constraint(equalToConstant: 30),
-
-            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 22),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: planSwitch.leadingAnchor, constant: -14),
-            title.topAnchor.constraint(equalTo: row.topAnchor),
-
-            subtitle.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            subtitle.trailingAnchor.constraint(lessThanOrEqualTo: planSwitch.leadingAnchor, constant: -14),
-            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
-            subtitle.bottomAnchor.constraint(equalTo: row.bottomAnchor),
-
-            planSwitch.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -2),
-            planSwitch.centerYAnchor.constraint(equalTo: row.centerYAnchor),
         ])
 
         return row
@@ -606,7 +546,6 @@ final class ShareViewController: UIViewController {
             "createdAt": now,
             "sharedAt": now,
             "source": "share-extension",
-            "planForLater": planSwitch.isOn,
         ]
 
         var imports = defaults.array(forKey: pendingImportsKey) as? [[String: Any]] ?? []
@@ -618,9 +557,7 @@ final class ShareViewController: UIViewController {
         defaults.set(imports, forKey: pendingImportsKey)
         defaults.synchronize()
 
-        statusLabel.text = planSwitch.isOn
-            ? "Saved for review. Plan for Later will apply when added."
-            : "Saved for review in Weekly Eats."
+        statusLabel.text = "Saved for review in Weekly Eats."
         saveButton.isEnabled = false
         saveButton.alpha = 0.7
         finishAfterSave()

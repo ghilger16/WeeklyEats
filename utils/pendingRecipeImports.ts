@@ -10,7 +10,6 @@ export type PendingRecipeImport = {
   createdAt?: string;
   sharedAt?: string;
   source?: string;
-  planForLater?: boolean;
 };
 
 type PendingRecipeImportsModule = {

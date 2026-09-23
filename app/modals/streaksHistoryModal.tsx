@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useMeals } from "../../hooks/useMeals";
 import { useThemeController } from "../../providers/theme/ThemeController";
+import { useWeekStartController } from "../../providers/week-start/WeekStartController";
 import {
   WeekPlanHistoryEntry,
   getWeekPlanStreak,
@@ -34,6 +35,15 @@ import MealEmoji from "../../components/emoji/MealEmoji";
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_OFFSET = 85;
 const GENERIC_MEAL_EMOJI = "🍽️";
+const SHORT_DAY_NAMES = {
+  mon: "Mon",
+  tue: "Tues",
+  wed: "Wed",
+  thu: "Thurs",
+  fri: "Fri",
+  sat: "Sat",
+  sun: "Sun",
+};
 
 const isSampleHistoryEntry = (entry: WeekPlanHistoryEntry) =>
   PLANNED_WEEK_ORDER.some((day) =>
@@ -48,6 +58,7 @@ export default function StreaksHistoryModal() {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { meals } = useMeals();
+  const { orderedDays } = useWeekStartController();
   const [streakCount, setStreakCount] = useState(0);
   const [history, setHistory] = useState<WeekPlanHistoryEntry[]>([]);
   const [expandedWeekStartISO, setExpandedWeekStartISO] = useState<string | null>(
@@ -99,7 +110,7 @@ export default function StreaksHistoryModal() {
 
   const getMealRows = useCallback(
     (entry: WeekPlanHistoryEntry) =>
-      PLANNED_WEEK_ORDER.flatMap((day) => {
+      orderedDays.flatMap((day) => {
         const id = entry.plan[day];
         if (typeof id !== "string") return [];
         const snapshot = entry.mealSnapshots?.[id];
@@ -108,6 +119,7 @@ export default function StreaksHistoryModal() {
         return [{
           id: `${day}-${id}`,
           day: PLANNED_WEEK_DISPLAY_NAMES[day],
+          shortDay: SHORT_DAY_NAMES[day],
           emoji: snapshot?.emoji ?? liveMeal?.emoji ?? specialMeal?.emoji ?? GENERIC_MEAL_EMOJI,
           title:
             snapshot?.title ??
@@ -117,7 +129,7 @@ export default function StreaksHistoryModal() {
             "Meal",
         }];
       }),
-    [meals],
+    [meals, orderedDays],
   );
 
   const toggleWeek = useCallback(
@@ -211,7 +223,7 @@ export default function StreaksHistoryModal() {
                         <View style={styles.mealsList}>
                           {mealRows.map((meal) => (
                             <View key={meal.id} style={styles.mealRow}>
-                              <Text style={styles.mealDay}>{meal.day}</Text>
+                              <Text style={styles.mealDay} accessibilityLabel={meal.day}>{meal.shortDay}</Text>
                               <MealEmoji value={meal.emoji} size={22} />
                               <Text style={styles.mealTitle}>{meal.title}</Text>
                             </View>
@@ -328,7 +340,7 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   mealsList: { gap: theme.space.sm, marginTop: theme.space.sm },
   mealRow: { flexDirection: "row", alignItems: "center", gap: theme.space.sm },
   mealDay: {
-    width: 74,
+    width: 42,
     color: theme.color.subtleInk,
     fontSize: theme.type.size.xs,
     fontWeight: theme.type.weight.bold,

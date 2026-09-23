@@ -1,3 +1,5 @@
+jest.mock("@react-native-async-storage/async-storage", () => require("@react-native-async-storage/async-storage/jest/async-storage-mock"));
+
 import { buildAutoPlan } from "../components/plan-week/autoPlan";
 import { createEmptyDayPinsMap } from "../types/dayPins";
 import { Meal } from "../types/meals";
