@@ -2411,6 +2411,7 @@ export default function PlanWeekModal() {
       const completedPlan: CurrentPlannedWeek = {
         ...plannedWeek,
         weekedPlanned: true,
+        plannedAtISO: new Date().toISOString(),
         weekStartISO: planningWeekStartISO,
         plannedScope: isRemainingMode ? "remaining" : "full",
         // Suggestions are scoped to this planning session. Unused suggestions

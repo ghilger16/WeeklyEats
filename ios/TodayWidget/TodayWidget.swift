@@ -484,10 +484,12 @@ struct TodayMealWidget: Widget {
     .frame(width: 329, height: 155)
     .background(Color.widgetBackground)
 }
-#endif
-
+@available(iOSApplicationExtension 17.0, *)
 #Preview("Small · No Plans", as: .systemSmall) { TodayMealWidget() } timeline: { TodayMealProvider.emptyEntry }
+@available(iOSApplicationExtension 17.0, *)
 #Preview("Medium · No Plans + next", as: .systemMedium) { TodayMealWidget() } timeline: {
   TodayMealEntry(date: Date(), today: .noPlans(on: Date()), tomorrow: nil, outcome: nil, nextUpcoming: TodayMealProvider.previewNormal.tomorrow)
 }
+@available(iOSApplicationExtension 17.0, *)
 #Preview("Medium · No Plans", as: .systemMedium) { TodayMealWidget() } timeline: { TodayMealProvider.emptyEntry }
+#endif

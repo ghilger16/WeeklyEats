@@ -229,3 +229,10 @@ describe("week planning streak", () => {
     ]);
   });
 });
+
+it("preserves the plan save timestamp through storage normalization", async () => {
+  const weekStartISO = "2026-09-25";
+  const plan = { ...createEmptyCurrentPlannedWeek({ weekStartISO }), mon: "tacos", plannedAtISO: "2026-09-25T15:30:00Z" };
+  await setWeekPlanDataBatch([{ weekStartISO, plan, sides: createEmptyCurrentWeekSides() }]);
+  expect((await getCurrentWeekPlan(weekStartISO)).plannedAtISO).toBe(plan.plannedAtISO);
+});

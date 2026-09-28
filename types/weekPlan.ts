@@ -18,6 +18,7 @@ export type SavedMealIdea = {
 
 export type CurrentPlannedWeek = {
   weekedPlanned?: boolean;
+  plannedAtISO?: string;
   weekStartISO?: string;
   plannedScope?: "full" | "remaining";
   savedIdeas?: SavedMealIdea[];

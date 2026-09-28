@@ -24,7 +24,10 @@ const validateIngredientCorrection = (result, source) => {
   for (const item of corrected) {
     if (!item || typeof item.name !== "string" || !Array.isArray(item.sourceIndices) || !item.sourceIndices.length) throw new Error("Missing ingredient source reference.");
     for (const index of item.sourceIndices) {
-      if (!validIndex(index) || !supportedBy(item.name, source.ingredients[index])) throw new Error("Ingredient not supported by its source.");
+      if (!validIndex(index) || !supportedBy(item.name, source.ingredients[index])) {
+        // Bound model-provided text and escape control characters for log output.
+        throw new Error(`Ingredient not supported by its source. Ingredient: ${JSON.stringify(item.name.slice(0, 120))}; source index: ${JSON.stringify(index)}.`);
+      }
       covered.add(index);
     }
   }

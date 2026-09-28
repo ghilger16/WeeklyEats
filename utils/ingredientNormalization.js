@@ -58,15 +58,21 @@ const stripSafeModifiers = (name) => {
     ? identity : name;
 };
 const basicSeasoning = /^(?:(?:fine|coarse|finely|coarsely|freshly|ground|cracked|fresh|iodized|iodised|kosher|sea|table|pink|himalayan|rock|black|white)\s+)*(?:salt|pepper|peppercorns?)$/i;
+// Require a unit on each measurement so a slash in a fraction or ingredient
+// name cannot be mistaken for an alternative metric/imperial quantity.
+const measurementAmount = "\\d+(?:[\\d\\s./–-]*\\d)?";
+const measurementUnit = "(?:cups?|tablespoons?|tbsp|teaspoons?|tsp|ounces?|oz|pounds?|lbs?|grams?|g|kilograms?|kg|milliliters?|ml|liters?)\\b\\.?";
+const measuredPrefix = new RegExp(`^${measurementAmount}\\s*${measurementUnit}(?:\\s*/\\s*${measurementAmount}\\s*${measurementUnit})*\\s+`, "i");
 const cleanIngredientName = (raw) => {
   if (typeof raw !== "string") return "";
   const normalized = raw.normalize("NFKC").replace(/⁄/g, "/")
     .replace(/\([^)]*\)/g, " ")
     .replace(/^\s*[•*\-]\s*/, "").trim();
-  const withoutQuantity = normalized.replace(/^\d+(?:[\d\s./–-]*\d)?\s+/, "");
-  const withoutUnit = withoutQuantity !== normalized
+  const withoutMeasurements = normalized.replace(measuredPrefix, "");
+  const withoutQuantity = withoutMeasurements.replace(/^\d+(?:[\d\s./–-]*\d)?\s+/, "");
+  const withoutUnit = withoutQuantity !== withoutMeasurements
     ? withoutQuantity.replace(/^(?:cups?|tablespoons?|tbsp\.?|teaspoons?|tsp\.?|ounces?|oz\.?|pounds?|lbs?\.?|grams?|g|kilograms?|kg|milliliters?|ml|liters?|pinch(?:es)?|dash(?:es)?|cloves?|cans?|packages?|sticks?|slices?|bunches?)\b\.?\s*/i, "")
-    : normalized;
+    : withoutMeasurements;
   return withoutUnit.replace(/^of\s+/i, "")
     .replace(/,\s*(?:chopped|diced|minced|sliced|grated|shredded|divided|melted|softened|drained|rinsed|to taste|as needed|or to taste)\b.*$/i, "")
     .replace(/\s+(?:to taste|as needed)$/i, "")

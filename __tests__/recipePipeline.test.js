@@ -48,6 +48,14 @@ it.each([
   ['cloves', 'Cloves'], ['pound cake', 'Pound Cake'], ['2% milk', '2% Milk'], ['ground beef', 'Ground Beef'], ['steak', 'Steak'], ['heavy cream', 'Heavy Cream'], ['milk', 'Milk'],
   ['red pepper flakes', 'Red Pepper Flakes'], ['pepper jack cheese', 'Pepper Jack Cheese'],
   ['1½ cups flour', 'Flour'], ['½ teaspoon paprika', 'Paprika'],
+  ['80 g / 3oz mozzarella, sliced (or other melting cheese)', 'Mozzarella Cheese'],
+  ['80g / 3 oz mozzarella, sliced', 'Mozzarella Cheese'],
+  ['3 oz / 80 g mozzarella', 'Mozzarella Cheese'],
+  ['80g mozzarella', 'Mozzarella Cheese'],
+  ['30g / 2 tbsp unsalted butter', 'Unsalted Butter'],
+  ['1/2 cup / 120 ml olive oil', 'Olive Oil'],
+  ['1 1/2 cups / 180g all purpose flour', 'All-Purpose Flour'],
+  ['salt/pepper seasoning', 'Salt/Pepper Seasoning'],
 ])('canonicalizes %s without inventing specificity', (input, output) => expect(canonicalIngredientName(input)).toBe(output));
 it.each(['salt', 'kosher salt', 'sea salt', 'table salt', 'black pepper', 'ground black pepper', 'freshly ground pepper', '1 pinch salt', 'salt and pepper to taste'])('excludes %s', (name) => expect(canonicalIngredientName(name)).toBe(''));
 it('deduplicates aliases and preserves real spices', () => {
@@ -63,6 +71,16 @@ it('applies corrections only when every required ingredient has a supported sour
   expect(() => validateIngredientCorrection({ ...correction, correctedIngredients: [ingredient('Rice', [0])] }, source)).toThrow();
   expect(() => validateIngredientCorrection({ ...correction, correctedIngredients: [ingredient('Chicken Breast', [0])] }, source)).toThrow();
   expect(() => validateIngredientCorrection({ ...correction, excludedSourceIngredients: [{ index: 1, reason: 'water' }] }, source)).toThrow();
+});
+it('accepts cheese aliases after dual-unit cleanup while rejecting unsupported cheese varieties', () => {
+  const source = { ingredients: ['80 g / 3oz mozzarella, sliced (or other melting cheese)'] };
+  const result = { valid: true, missingIngredients: [], inventedIngredients: [],
+    correctedIngredients: [ingredient('Mozzarella Cheese', [0])], excludedSourceIngredients: [] };
+  expect(validateIngredientCorrection(result, source)[0].name).toBe('Mozzarella Cheese');
+  expect(() => validateIngredientCorrection({ ...result, correctedIngredients: [ingredient('Cheddar Cheese', [0])] }, source))
+    .toThrow('Ingredient not supported by its source. Ingredient: "Cheddar Cheese"; source index: 0.');
+  expect(() => validateIngredientCorrection({ ...result, correctedIngredients: [ingredient('Mozzarella Cheese', [4])] }, source))
+    .toThrow('source index: 4');
 });
 it.each([[0,1],[2.99,1],[3,2],[4.99,2],[5,3],[7.99,3],[8,4],[10,4],[10.01,5]])('maps cost %s to expense %s', (cost, expense) => expect(expenseFromCost(cost)).toBe(expense));
 it.each([-1, NaN, Infinity, undefined, '4'])('rejects invalid cost %s', (cost) => expect(() => expenseFromCost(cost)).toThrow());

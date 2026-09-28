@@ -352,7 +352,7 @@ export default function ThisWeekList({
               onPressIn={canDrag ? () => startDrag(day, index) : undefined}
               {...(canDrag && draggingIndex === index ? panResponder.panHandlers : {})}
               accessibilityRole="button"
-              accessibilityLabel={canDrag ? `Drag ${day.meal?.title ?? "meal"} from ${day.displayName}` : `${day.displayName}, ${isEatOut ? "Eat Out" : day.meal?.title ?? "unplanned"}${eatOutNote ? `, ${eatOutNote}` : ""}${isServed ? ", served" : ""}`}
+              accessibilityLabel={canDrag ? `Drag ${day.meal?.title ?? "meal"} from ${day.displayName}` : `${day.displayName}, ${isEatOut ? "Eat Out" : day.meal?.title ?? "unplanned"}${eatOutNote ? `, ${eatOutNote}` : ""}${isServed ? ", served" : isPastEatOut && !isSkipped ? ", ate out" : ""}`}
               style={({ pressed }) => [
                 styles.row,
                 isToday && styles.todayRow,
@@ -377,6 +377,7 @@ export default function ThisWeekList({
               </View>
               {!isReordering ? <View style={styles.statusColumn}>
                 {isServed ? <Text style={styles.servedLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Served</Text>
+                : isPastEatOut && !isSkipped ? <MaterialCommunityIcons name="check" size={18} color={theme.color.success} accessibilityLabel="Ate out" />
                 : isToday ? <Text style={styles.tonight} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Tonight</Text>
                 : isPending ? <Text style={styles.pending} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>Pending</Text>
                 : isFreezerMeal ? <MaterialCommunityIcons name="snowflake" size={18} color={theme.color.accent} accessibilityLabel="Freezer meal" /> : null}

@@ -1,7 +1,7 @@
 import { buildTodayWidgetPayload } from "../../../utils/todayWidgetPlan";
 import { offerRemindersAfterPlanning } from "../../../services/notifications/service";
 import ShareWeekModal from "../../../components/share-week/ShareWeekModal";
-import { selectShareWeek } from "../../../components/share-week/shareWeekData";
+import { selectShareWeek, ShareWeekSelection } from "../../../components/share-week/shareWeekData";
 import {
   ActivityIndicator,
   Animated,
@@ -144,7 +144,8 @@ export default function WeekDashboardScreen() {
   );
   const [overrideDate, setOverrideDate] = useState<Date | null>(null);
   const [isPreviewVisible, setPreviewVisible] = useState(false);
-  const [shareWeekDays, setShareWeekDays] = useState<{ days: WeekPlanDay[]; nextDays?: WeekPlanDay[] } | null>(null);
+  const [completedShareWeekStartISO, setCompletedShareWeekStartISO] = useState<string | null>(null);
+  const [shareWeekDays, setShareWeekDays] = useState<{ days: WeekPlanDay[]; nextDays?: WeekPlanDay[]; selection: ShareWeekSelection } | null>(null);
   const [todayCardFocusKey, setTodayCardFocusKey] = useState(0);
   const [pendingPlanningIntent, setPendingPlanningIntent] =
     useState<PlanningIntent | null>(null);
@@ -1707,6 +1708,7 @@ export default function WeekDashboardScreen() {
   );
   const handleWeekCompletionChange = useCallback(
     (isComplete: boolean) => {
+      setCompletedShareWeekStartISO(isComplete ? weekStartISO : null);
       if (!isComplete) {
         completedWeekSyncRef.current.delete(weekStartISO);
         return;
@@ -2121,19 +2123,26 @@ export default function WeekDashboardScreen() {
     [dashboardAnim]
   );
 
+  const shareWeekSelection: ShareWeekSelection = {
+    currentCompleted: completedShareWeekStartISO === weekStartISO,
+    currentPlannedAt: plan.plannedAtISO,
+    nextPlannedAt: nextWeekPlan.plannedAtISO,
+  };
+
   return (
     <View style={styles.screenContainer}>
-      {shareWeekDays && <ShareWeekModal days={shareWeekDays.days} nextDays={shareWeekDays.nextDays} onClose={() => setShareWeekDays(null)} />}
+      {shareWeekDays && <ShareWeekModal days={shareWeekDays.days} nextDays={shareWeekDays.nextDays} selection={shareWeekDays.selection} onClose={() => setShareWeekDays(null)} />}
       <Animated.View style={[styles.screenWrapper, screenMotionStyle]}>
         <TabParent
           title="Dashboard"
           uniformActionSize
-          menuBtn={selectShareWeek(days, nextWeekDays).length ? {
+          menuBtn={selectShareWeek(days, nextWeekDays, shareWeekSelection).length ? {
             iconName: "export-variant",
             accessibilityLabel: "Share your week",
             onPress: () => setShareWeekDays({
-              days: selectShareWeek(days, nextWeekDays),
-              nextDays: days.some(day => day.meal) && nextWeekDays.some(day => day.meal) ? nextWeekDays : undefined,
+              days,
+              nextDays: nextWeekDays,
+              selection: shareWeekSelection,
             }),
           } : undefined}
           header={header}

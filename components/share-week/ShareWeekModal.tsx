@@ -1,3 +1,4 @@
+import { getShareWeekOrder, ShareWeekSelection } from "./shareWeekData";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, TurboModuleRegistry, useWindowDimensions, View } from "react-native";
@@ -8,11 +9,13 @@ import { useThemeController } from "../../providers/theme/ThemeController";
 import { getCustomEmojiSource } from "../emoji/customEmojiRegistry";
 import WeekShareCard, { SHARE_STYLES, SHARE_TITLES, WeekShareBackground } from "./WeekShareCard";
 
-export default function ShareWeekModal({ days: currentDays, nextDays, onClose }: { days: WeekPlanDay[]; nextDays?: WeekPlanDay[]; onClose: () => void }) {
+export default function ShareWeekModal({ days: currentDays, nextDays = [], selection = {}, onClose }: { days: WeekPlanDay[]; nextDays?: WeekPlanDay[]; selection?: ShareWeekSelection; onClose: () => void }) {
   const { theme } = useThemeController();
-  const [week, setWeek] = useState<"current" | "next">("current");
-  const hasWeekChoice = Boolean(nextDays?.some(day => day.meal) && currentDays.some(day => day.meal));
-  const days = week === "next" && nextDays ? nextDays : currentDays;
+  const weekOrder = getShareWeekOrder(currentDays, nextDays, selection);
+  const [selectedWeek, setWeek] = useState<"current" | "next">(() => weekOrder[0] ?? "current");
+  const week = weekOrder.includes(selectedWeek) ? selectedWeek : weekOrder[0];
+  const hasWeekChoice = weekOrder.length > 1;
+  const days = week === "next" ? nextDays : week === "current" ? currentDays : [];
   const imageKey = (key: string) => `${week}:${key}:${days.find(day => day.key === key)?.meal?.emoji ?? ""}`;
   const { width, height } = useWindowDimensions();
   const cardWidth = Math.min(width - 24, Math.max(220, (height - (hasWeekChoice ? 296 : 240)) / 1.25), 496);
@@ -73,7 +76,7 @@ export default function ShareWeekModal({ days: currentDays, nextDays, onClose }:
         <Pressable disabled={busy} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close share preview" style={{ padding: 10, borderRadius: 24, backgroundColor: theme.color.surfaceAlt }}><MaterialCommunityIcons name="close" size={24} color={textColor} /></Pressable>
       </View>
       {hasWeekChoice && <View style={{ flexDirection: "row", marginHorizontal: 20, marginBottom: 28, padding: 4, borderRadius: 16, backgroundColor: theme.color.surfaceAlt }}>
-        {(["current", "next"] as const).map(value => <Pressable key={value} disabled={busy} accessibilityRole="button" accessibilityLabel={value === "current" ? "Share current week" : "Share next week"} accessibilityState={{ selected: week === value, disabled: busy }} onPress={() => setWeek(value)} style={{ flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: week === value ? theme.color.bg : "transparent" }}>
+        {weekOrder.map(value => <Pressable key={value} disabled={busy} accessibilityRole="button" accessibilityLabel={value === "current" ? "Share current week" : "Share next week"} accessibilityState={{ selected: week === value, disabled: busy }} onPress={() => setWeek(value)} style={{ flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: week === value ? theme.color.bg : "transparent" }}>
           <Text style={{ color: week === value ? theme.color.accent : textColor, fontSize: 15, fontWeight: "600" }}>{value === "current" ? "Current Week" : "Next Week"}</Text>
         </Pressable>)}
       </View>}

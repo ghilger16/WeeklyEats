@@ -93,3 +93,19 @@ it.each(["capture", "sharing"])("keeps preview usable when the native %s module 
   fireEvent.press(screen.getByLabelText("Warm style"));
   expect(screen.getByLabelText("Warm style").props.accessibilityState.selected).toBe(true);
 });
+
+it("shows and selects the newest planned week first", () => {
+  const nextDays = [{ ...days[0], meal: { ...days[0].meal!, title: "Pasta" } }];
+  const screen = render(<ShareWeekModal days={days} nextDays={nextDays} selection={{ currentPlannedAt: "2026-09-20T12:00:00Z", nextPlannedAt: "2026-09-25T12:00:00Z" }} onClose={jest.fn()} />);
+  const selectors = screen.getAllByRole("button").filter(button => ["Share next week", "Share current week"].includes(button.props.accessibilityLabel));
+  expect(selectors.map(button => button.props.accessibilityLabel)).toEqual(["Share next week", "Share current week"]);
+  expect(selectors[0].props.accessibilityState.selected).toBe(true);
+  expect(screen.getByText("Pasta")).toBeTruthy();
+});
+it("omits completed current weeks and previews next week", () => {
+  const nextDays = [{ ...days[0], meal: { ...days[0].meal!, title: "Pasta" } }];
+  const screen = render(<ShareWeekModal days={days} nextDays={nextDays} selection={{ currentCompleted: true }} onClose={jest.fn()} />);
+  expect(screen.queryByLabelText("Share current week")).toBeNull();
+  expect(screen.queryByText("Tacos")).toBeNull();
+  expect(screen.getByText("Pasta")).toBeTruthy();
+});

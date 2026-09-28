@@ -113,6 +113,8 @@ const normalizePlan = (
   }
 
   const plannedScopeValue = (raw as { plannedScope?: unknown }).plannedScope;
+  const plannedAtISO = (raw as { plannedAtISO?: unknown }).plannedAtISO;
+  if (isValidISODateString(plannedAtISO)) plan.plannedAtISO = plannedAtISO;
   if (plannedScopeValue === "remaining" || plannedScopeValue === "full") {
     plan.plannedScope = plannedScopeValue;
   }

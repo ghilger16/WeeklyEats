@@ -1,8 +1,25 @@
 import { WeekPlanDay } from "../../hooks/useCurrentWeekPlan";
 import { EAT_OUT_MEAL_ID, FLEX_NIGHT_MEAL_ID } from "../../types/specialMeals";
 
-export const selectShareWeek = (current: WeekPlanDay[], next: WeekPlanDay[]) =>
-  current.some(day => day.meal) ? current : next.some(day => day.meal) ? next : [];
+export type ShareWeekSelection = {
+  currentCompleted?: boolean;
+  currentPlannedAt?: string;
+  nextPlannedAt?: string;
+};
+
+export const getShareWeekOrder = (current: WeekPlanDay[], next: WeekPlanDay[], options: ShareWeekSelection = {}) => {
+  const timestamp = (iso?: string) => Date.parse(iso ?? "") || 0;
+  const order: ("current" | "next")[] = timestamp(options.currentPlannedAt) > timestamp(options.nextPlannedAt)
+    ? ["current", "next"] : ["next", "current"];
+  return order.filter(week => week === "current"
+    ? !options.currentCompleted && current.some(day => day.meal)
+    : next.some(day => day.meal));
+};
+
+export const selectShareWeek = (current: WeekPlanDay[], next: WeekPlanDay[], options: ShareWeekSelection = {}) => {
+  const first = getShareWeekOrder(current, next, options)[0];
+  return first === "current" ? current : first === "next" ? next : [];
+};
 
 export const shareDayDetails = (day: WeekPlanDay) => {
   const eatOut = day.mealId === EAT_OUT_MEAL_ID;
