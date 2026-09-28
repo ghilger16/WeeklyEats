@@ -65,8 +65,16 @@ const measurementUnit = "(?:cups?|tablespoons?|tbsp|teaspoons?|tsp|ounces?|oz|po
 const measuredPrefix = new RegExp(`^${measurementAmount}\\s*${measurementUnit}(?:\\s*/\\s*${measurementAmount}\\s*${measurementUnit})*\\s+`, "i");
 const cleanIngredientName = (raw) => {
   if (typeof raw !== "string") return "";
-  const normalized = raw.normalize("NFKC").replace(/⁄/g, "/")
-    .replace(/\([^)]*\)/g, " ")
+  // Recipe schemas may nest notes inside prep parentheses. Remove each complete
+  // parenthetical span so closing brackets cannot prevent exact alias matching.
+  let depth = 0;
+  let withoutNotes = "";
+  for (const character of raw) {
+    if (character === "(") { depth += 1; if (depth === 1) withoutNotes += " "; }
+    else if (character === ")" && depth > 0) depth -= 1;
+    else if (depth === 0) withoutNotes += character;
+  }
+  const normalized = withoutNotes.normalize("NFKC").replace(/⁄/g, "/")
     .replace(/^\s*[•*\-]\s*/, "").trim();
   const withoutMeasurements = normalized.replace(measuredPrefix, "");
   const withoutQuantity = withoutMeasurements.replace(/^\d+(?:[\d\s./–-]*\d)?\s+/, "");

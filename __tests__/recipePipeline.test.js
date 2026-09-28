@@ -52,6 +52,8 @@ it.each([
   ['80g / 3 oz mozzarella, sliced', 'Mozzarella Cheese'],
   ['3 oz / 80 g mozzarella', 'Mozzarella Cheese'],
   ['80g mozzarella', 'Mozzarella Cheese'],
+  ['80 g / 3oz mozzarella (, sliced (or other melting cheese))', 'Mozzarella Cheese'],
+  ['mozzarella (sliced (thinly (for filling)))', 'Mozzarella Cheese'],
   ['30g / 2 tbsp unsalted butter', 'Unsalted Butter'],
   ['1/2 cup / 120 ml olive oil', 'Olive Oil'],
   ['1 1/2 cups / 180g all purpose flour', 'All-Purpose Flour'],
@@ -73,7 +75,7 @@ it('applies corrections only when every required ingredient has a supported sour
   expect(() => validateIngredientCorrection({ ...correction, excludedSourceIngredients: [{ index: 1, reason: 'water' }] }, source)).toThrow();
 });
 it('accepts cheese aliases after dual-unit cleanup while rejecting unsupported cheese varieties', () => {
-  const source = { ingredients: ['80 g / 3oz mozzarella, sliced (or other melting cheese)'] };
+  const source = { ingredients: ['80 g / 3oz mozzarella (, sliced (or other melting cheese))'] };
   const result = { valid: true, missingIngredients: [], inventedIngredients: [],
     correctedIngredients: [ingredient('Mozzarella Cheese', [0])], excludedSourceIngredients: [] };
   expect(validateIngredientCorrection(result, source)[0].name).toBe('Mozzarella Cheese');
@@ -81,6 +83,25 @@ it('accepts cheese aliases after dual-unit cleanup while rejecting unsupported c
     .toThrow('Ingredient not supported by its source. Ingredient: "Cheddar Cheese"; source index: 0.');
   expect(() => validateIngredientCorrection({ ...result, correctedIngredients: [ingredient('Mozzarella Cheese', [4])] }, source))
     .toThrow('source index: 4');
+});
+it('validates the actual RecipeTin Eats stuffed chicken ingredient formatting', () => {
+  const source = { ingredients: [
+    '2 x 220g / 7oz chicken breast (, skinless boneless (Note 1))',
+    '3/4 tsp salt', '1/4 tsp pepper', '30g / 2 tbsp unsalted butter',
+    '200g / 7 oz mushrooms (, sliced 3mm (1/8″) thick (~2 heaped cups))',
+    '2 garlic cloves (, finely minced)', '1/2 tsp thyme leaves ((Note 2))',
+    '2 cups baby spinach ((Note 3))',
+    '80 g / 3oz mozzarella (, sliced (or other melting cheese))', '1 tbsp olive oil',
+  ] };
+  const names = ['Chicken Breast', 'Unsalted Butter', 'Mushrooms', 'Garlic', 'Thyme', 'Baby Spinach', 'Mozzarella', 'Olive Oil'];
+  const indices = [0, 3, 4, 5, 6, 7, 8, 9];
+  const result = { valid: true, missingIngredients: [], inventedIngredients: [],
+    correctedIngredients: names.map((name, i) => ingredient(name, [indices[i]])),
+    excludedSourceIngredients: [{ index: 1, reason: 'saltPepper' }, { index: 2, reason: 'saltPepper' }] };
+  expect(validateIngredientCorrection(result, source).map((item) => item.name)).toEqual(names);
+  expect(() => validateIngredientCorrection({ ...result,
+    correctedIngredients: result.correctedIngredients.map((item) => item.name === 'Mozzarella'
+      ? { ...item, name: 'Cheddar' } : item) }, source)).toThrow('Ingredient not supported');
 });
 it.each([[0,1],[2.99,1],[3,2],[4.99,2],[5,3],[7.99,3],[8,4],[10,4],[10.01,5]])('maps cost %s to expense %s', (cost, expense) => expect(expenseFromCost(cost)).toBe(expense));
 it.each([-1, NaN, Infinity, undefined, '4'])('rejects invalid cost %s', (cost) => expect(() => expenseFromCost(cost)).toThrow());
