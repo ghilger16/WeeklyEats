@@ -22,9 +22,35 @@ final class TodayWidgetBridge: NSObject {
       return
     }
 
-    defaults.set(payload, forKey: payloadKey)
+    guard JSONSerialization.isValidJSONObject(payload),
+          let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else {
+      reject("invalid_widget_payload", "Widget snapshot is not valid JSON.", nil)
+      return
+    }
+    // JSON data supports nullable optional React Native fields; property-list
+    // dictionaries do not support NSNull. Compare content across app restarts too.
+    let previous: NSDictionary? = {
+      if let saved = defaults.data(forKey: payloadKey) {
+        return (try? JSONSerialization.jsonObject(with: saved)) as? NSDictionary
+      }
+      return defaults.dictionary(forKey: payloadKey) as NSDictionary?
+    }()
+    func content(_ value: NSDictionary) -> NSDictionary {
+      let copy = value.mutableCopy() as! NSMutableDictionary
+      copy.removeObject(forKey: "generatedAtISO")
+      copy.removeObject(forKey: "snapshotGeneratedAt")
+      return copy
+    }
+    if let previous, content(previous).isEqual(content(payload)) {
+      resolve(true)
+      return
+    }
+    defaults.set(data, forKey: payloadKey)
     defaults.synchronize()
     reloadWidgets()
+    #if DEBUG
+    print("[WeeklyEatsWidget] shared snapshot written before reload; date=\(payload["snapshotDate"] ?? "unknown"), generated=\(payload["snapshotGeneratedAt"] ?? "unknown")")
+    #endif
     resolve(true)
   }
 

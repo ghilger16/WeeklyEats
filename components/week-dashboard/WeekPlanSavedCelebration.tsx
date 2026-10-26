@@ -213,7 +213,11 @@ export default function WeekPlanSavedCelebration({
               </View>
               <View style={styles.headingCopy}>
                 <Text style={styles.title}>✨ Dinner is handled.</Text>
-                <Text style={styles.accentLine}>
+                <Text
+                  style={styles.accentLine}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
                   Your week is planned and ready to go.
                 </Text>
               </View>

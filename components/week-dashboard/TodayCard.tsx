@@ -124,6 +124,7 @@ export default function TodayCard({
   const [isNotesFocused, setNotesFocused] = useState(false);
   const savingRef = useRef(false);
   const carouselRef = useRef<ScrollView | null>(null);
+  const pendingRatingsSlideRef = useRef(false);
   const notesInputRef = useRef<TextInput | null>(null);
   const experienceKeyRef = useRef(`${meal.id}:${dateKey ?? dateLabel}`);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -217,6 +218,7 @@ export default function TodayCard({
     const nextKey = `${meal.id}:${dateKey ?? dateLabel}`;
     if (experienceKeyRef.current === nextKey) return;
     experienceKeyRef.current = nextKey;
+    pendingRatingsSlideRef.current = false;
     clearTimers();
     setCarouselOrder(null);
     setRatingsWereNeeded(null);
@@ -235,6 +237,7 @@ export default function TodayCard({
   useEffect(() => {
     if (!servedFromEntry) {
       if (savingRef.current) return;
+      pendingRatingsSlideRef.current = false;
       clearTimers();
       setLocallyServed(false);
       setCarouselOrder(null);
@@ -271,6 +274,7 @@ export default function TodayCard({
     setSaving(true);
     setLocallyServed(true);
     const shouldCelebrate = !isEatOut && !isFlexNight;
+    pendingRatingsSlideRef.current = shouldCelebrate && ratingMode !== "off" && ratingsNeeded;
     setPhase(shouldCelebrate ? "burst" : "idle");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     if (!shouldCelebrate) {
@@ -306,6 +310,7 @@ export default function TodayCard({
     try {
       await onMarkServed?.("Dinner served");
     } catch (error) {
+      pendingRatingsSlideRef.current = false;
       clearTimers();
       setLocallyServed(false);
       setPhase("idle");
@@ -467,6 +472,13 @@ export default function TodayCard({
               bounces={false}
               onMomentumScrollEnd={handleCarouselMomentumEnd}
               keyboardShouldPersistTaps="handled"
+              onContentSizeChange={(contentWidth) => {
+                const ratingsIndex = visibleCarouselOrder?.indexOf("ratings") ?? -1;
+                if (!pendingRatingsSlideRef.current || ratingsIndex < 0 ||
+                    !carouselWidth || contentWidth < (ratingsIndex + 1) * carouselWidth) return;
+                pendingRatingsSlideRef.current = false;
+                scrollToPage(ratingsIndex);
+              }}
             >
               {visibleCarouselOrder?.map((page) => <View key={page} style={[styles.carouselPage, { width: carouselWidth }]}>{renderCarouselPage(page)}</View>)}
             </ScrollView>
@@ -477,7 +489,7 @@ export default function TodayCard({
           ) : null}
           <View style={styles.pageIndicators}>
             {visibleCarouselOrder?.map((page, index) => (
-              <Pressable key={page} onPress={() => scrollToPage(index)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Show ${page} card`}>
+              <Pressable key={page} onPress={() => scrollToPage(index)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Show ${page} card`} accessibilityState={{ selected: index === activePage }}>
                 <View style={[styles.pageDot, index === activePage && styles.pageDotActive]} />
               </Pressable>
             ))}

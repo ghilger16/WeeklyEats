@@ -1,3 +1,4 @@
+import { syncWidgetState } from "../../services/widget/syncWidgetState";
 import { refreshScheduledNotifications } from "../../services/notifications/service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -81,6 +82,7 @@ export default function FamilyProfileModal() {
       { text: "Reset", style: "destructive", onPress: async () => {
         setResetting(true);
         await AsyncStorage.clear();
+        await syncWidgetState().catch(console.warn);
         await refreshScheduledNotifications();
         router.dismissAll();
         router.replace("/onboarding");

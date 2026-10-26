@@ -16,6 +16,7 @@ import { WeekPlanHistoryEntry } from "../../../stores/weekPlanStorage";
 import { alpha, WeeklyTheme } from "../../../styles/theme";
 import { Meal } from "../../../types/meals";
 import { isSpecialMealId } from "../../../types/specialMeals";
+import { IngredientSearchResult, getIngredientSearchResults, mealContainsIngredient } from "../../../utils/mealIngredientSearch";
 import {
   PLANNED_WEEK_DISPLAY_NAMES,
   PlannedWeekDayKey,
@@ -66,6 +67,11 @@ export default function InlineDaySearch({
   const styles = useMemo(() => createStyles(theme), [theme]);
   const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState("");
+  const [ingredientFilter, setIngredientFilter] = useState<IngredientSearchResult | null>(null);
+  const ingredientResults = useMemo(
+    () => ingredientFilter ? [] : getIngredientSearchResults(meals, query),
+    [ingredientFilter, meals, query],
+  );
   const normalizedQuery = query.trim().toLowerCase();
 
   useEffect(() => {
@@ -76,7 +82,9 @@ export default function InlineDaySearch({
 
   const resultMeals = useMemo(
     () =>
-      normalizedQuery
+      ingredientFilter
+        ? meals.filter((meal) => mealContainsIngredient(meal, ingredientFilter.normalizedName))
+        : normalizedQuery
         ? meals.filter((meal) =>
             meal.title.toLowerCase().includes(normalizedQuery),
           )
@@ -98,17 +106,18 @@ export default function InlineDaySearch({
       history,
       meals,
       normalizedQuery,
+      ingredientFilter,
     ],
   );
-  const showMealSection = normalizedQuery
-    ? true
+  const showMealSection = normalizedQuery || ingredientFilter
+    ? resultMeals.length > 0 || ingredientResults.length === 0
     : completedWeekHistory
       ? completedWeekHistory.length > 0 && resultMeals.length > 0
       : true;
 
   return (
     <View style={styles.content} onLayout={onExpandedLayout}>
-      <View style={styles.searchField}>
+      {!ingredientFilter ? <View style={styles.searchField}>
         <MaterialCommunityIcons
           name="magnify"
           size={22}
@@ -117,16 +126,29 @@ export default function InlineDaySearch({
         <TextInput
           ref={inputRef}
           value={query}
-          onChangeText={setQuery}
-          placeholder="Search meals…"
+          onChangeText={(text) => { setQuery(text); setIngredientFilter(null); }}
+          placeholder="Search meals or ingredients…"
           placeholderTextColor={theme.color.subtleInk}
           accessibilityLabel={`Search meals for ${PLANNED_WEEK_DISPLAY_NAMES[day]}`}
           returnKeyType="search"
           style={styles.input}
         />
-      </View>
+      </View> : null}
+      {ingredientFilter ? (
+        <Pressable
+          onPress={() => { setIngredientFilter(null); setQuery(""); }}
+          accessibilityRole="button"
+          accessibilityLabel="Clear ingredient filter"
+          style={styles.ingredientChip}
+        >
+          <View style={[styles.ingredientBullet, styles.selectedIngredientBullet]} />
+          <Text style={styles.mealTitle}>Ingredient: {ingredientFilter.name}</Text>
+          <MaterialCommunityIcons name="close" size={20} color={theme.color.subtleInk} />
+        </Pressable>
+      ) : null}
 
-      {!normalizedQuery ? (
+
+      {!normalizedQuery && !ingredientFilter ? (
         <>
           <Text style={styles.sectionTitle}>Quick Picks</Text>
           <ScrollView
@@ -205,7 +227,7 @@ export default function InlineDaySearch({
         </>
       ) : null}
       {showMealSection ? <Text style={styles.sectionTitle}>
-        {normalizedQuery
+        {normalizedQuery || ingredientFilter
           ? resultMeals.length
             ? "Search Results"
             : "No Matches"
@@ -239,7 +261,7 @@ export default function InlineDaySearch({
             </Pressable>
           ))}
         </View>
-      ) : normalizedQuery && onAddMealFromSearch ? (
+      ) : normalizedQuery && !ingredientResults.length && onAddMealFromSearch ? (
         <Pressable
           onPress={() => {
             Keyboard.dismiss();
@@ -275,6 +297,28 @@ export default function InlineDaySearch({
         </Pressable>
       ) : showMealSection ? (
         <Text style={styles.empty}>No meals found</Text>
+      ) : null}
+      {ingredientResults.length ? (
+        <View>
+          <Text style={styles.sectionTitle}>Matching Ingredients</Text>
+          <ScrollView horizontal keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickOptions}>
+            {ingredientResults.map((ingredient) => (
+              <Pressable
+                key={ingredient.normalizedName}
+                accessibilityRole="button"
+                accessibilityLabel={`Show meals with ${ingredient.name}`}
+                style={[styles.ingredientChip, styles.ingredientResultChip]}
+                onPress={() => { setIngredientFilter(ingredient); setQuery(""); Keyboard.dismiss(); }}
+              >
+                <View style={styles.ingredientBullet} />
+                <View style={styles.ingredientCopy}>
+                  <Text style={styles.ingredientName}>{ingredient.name}</Text>
+                  <Text style={styles.ingredientCount}>{ingredient.mealCount} {ingredient.mealCount === 1 ? "meal" : "meals"}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
       ) : null}
     </View>
   );
@@ -337,6 +381,13 @@ const createStyles = (theme: WeeklyTheme) => StyleSheet.create({
   searchField: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: theme.space.sm, paddingHorizontal: theme.space.md, borderRadius: theme.radius.full, backgroundColor: theme.color.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border },
   input: { flex: 1, color: theme.color.ink, fontSize: theme.type.size.base, paddingVertical: theme.space.sm },
   sectionTitle: { marginTop: theme.space.xs, color: theme.color.subtleInk, fontSize: theme.type.size.sm, fontWeight: theme.type.weight.bold, letterSpacing: 0.4 },
+  ingredientChip: { flexDirection: "row", alignItems: "center", gap: theme.space.sm, padding: theme.space.sm, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceAlt },
+  ingredientName: { color: theme.color.ink, fontSize: theme.type.size.sm, lineHeight: 20, fontWeight: theme.type.weight.medium },
+  ingredientResultChip: { flexDirection: "row", alignItems: "flex-start" },
+  ingredientBullet: { width: 6, height: 6, marginTop: 7, borderRadius: 3, backgroundColor: theme.color.accent },
+  selectedIngredientBullet: { marginTop: 0 },
+  ingredientCopy: { gap: theme.space.xs },
+  ingredientCount: { color: theme.color.subtleInk, fontSize: theme.type.size.sm },
   quickOptions: { flexDirection: "row", gap: theme.space.sm },
   quickOption: { width: 108, minHeight: 76, alignItems: "center", justifyContent: "center", gap: theme.space.xs, borderRadius: theme.radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.cardOutline, backgroundColor: theme.color.surfaceAlt },
   quickOptionDestructive: { borderColor: theme.color.danger },

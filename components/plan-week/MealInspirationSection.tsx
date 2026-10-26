@@ -864,6 +864,10 @@ export default function MealInspirationSection({
                   ratingDisplayMode === "summary" && (meal.rating ?? 0) > 0;
                 const hasDisplayedRating =
                   Boolean(familyRatingSummary) || hasStarRating;
+                const showFamilyStar =
+                  familyRatingSummary?.average === 5 ||
+                  (hasStarRating && meal.rating === 5) ||
+                  (!hasDisplayedRating && activePool.id === "familyStars");
                 const plannedDay = orderedDays.find(
                   (day) => plannedWeek[day] === meal.id,
                 );
@@ -916,7 +920,14 @@ export default function MealInspirationSection({
                     {hasDisplayedRating || activePool.id === "familyStars" ||
                     activePool.id === "fiveStars" || activePool.id === "freezerMeals" ? (
                       <View style={styles.carouselIndicators}>
-                        {familyRatingSummary ? (
+                        {showFamilyStar ? (
+                          <Text
+                            style={styles.carouselFamilyStar}
+                            accessibilityLabel="Family Star meal"
+                          >
+                            ⭐
+                          </Text>
+                        ) : familyRatingSummary ? (
                           <View
                             style={styles.carouselFamilyRating}
                             accessible
@@ -940,13 +951,6 @@ export default function MealInspirationSection({
                             color={theme.color.accent}
                             accessibilityLabel="Five-star meal"
                           />
-                        ) : activePool.id === "familyStars" ? (
-                          <Text
-                            style={styles.carouselFamilyStar}
-                            accessibilityLabel="Family Star meal"
-                          >
-                            ⭐
-                          </Text>
                         ) : null}
                         {activePool.id === "freezerMeals" ? (
                           <MaterialCommunityIcons

@@ -323,7 +323,7 @@ const MealSearchInputComponent = ({
             >
               <FlexGrid.Row alignItems="center" style={styles.sortBadgeContent}>
                 <Text style={styles.sortBadgeText}>{badgeText}</Text>
-                {renderPin({
+                {selectedSort.option.badgeType !== "cuisine" && renderPin({
                   context: "sort",
                   badgeType: selectedSort.option.badgeType,
                   direction: selectedSort.direction,

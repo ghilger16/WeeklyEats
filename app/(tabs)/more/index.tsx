@@ -1,8 +1,9 @@
+import { syncWidgetState } from "../../../services/widget/syncWidgetState";
 import { refreshScheduledNotifications } from "../../../services/notifications/service";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DevSettings, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import SettingsRow from "../../../components/settings/SettingsRow";
 import TabParent from "../../../components/tab-parent/TabParent";
 import { useThemeController } from "../../../providers/theme/ThemeController";
@@ -23,6 +24,10 @@ import {
 import { deriveFamilyInitials } from "../../../utils/familyInitials";
 import { memberColorPalette } from "../../../components/meals/FamilyRatingIcons";
 import { useSubscription } from "../../../hooks/useSubscription";
+import { useMeals } from "../../../hooks/useMeals";
+import { useServedMeals } from "../../../hooks/useServedMeals";
+import { getWeekPlanHistory } from "../../../stores/weekPlanStorage";
+import { setSmartLevelTestOverride, useSmartLevel } from "../../../hooks/useSmartLevel";
 
 const FEATURE_FLAG_LABELS: Record<keyof FeatureFlags, string> = {
   recipeAutoFillEnabled: "Recipe Auto-fill",
@@ -36,6 +41,18 @@ export default function MoreScreen() {
   const { members } = useFamilyMembers();
   const { mode: ratingDisplayMode } = useRatingDisplayMode();
   const subscription = useSubscription();
+  const { meals } = useMeals();
+  const { entries: servedEntries, refresh: refreshServedMeals } = useServedMeals();
+  const [plannedWeeksCount, setPlannedWeeksCount] = useState(0);
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    getWeekPlanHistory().then((history) => {
+      if (active) setPlannedWeeksCount(history.length);
+    }).catch(console.warn);
+    void refreshServedMeals().catch(console.warn);
+    return () => { active = false; };
+  }, [refreshServedMeals]));
+  const smartLevel = useSmartLevel({ meals, servedEntries, plannedWeeksCount });
   const featureFlags = useFeatureFlags();
   const featureFlagDefaults = getFeatureFlagDefaults();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -75,7 +92,8 @@ export default function MoreScreen() {
 
   const resetOnboarding = async () => {
     await AsyncStorage.clear();
-        await refreshScheduledNotifications();
+    await syncWidgetState().catch(console.warn);
+    await refreshScheduledNotifications();
     if (typeof DevSettings.reload === "function") {
       DevSettings.reload();
       return;
@@ -113,6 +131,17 @@ export default function MoreScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {smartLevel === 5 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionHeading}>Your Progress</Text>
+            <SettingsRow
+              icon="auto-fix"
+              label="Your Smart Level"
+              value="Level 5"
+              onPress={() => router.push("/modals/smartLevelModal")}
+            />
+          </View>
+        ) : null}
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>Appearance</Text>
           <SettingsRow
@@ -151,33 +180,41 @@ export default function MoreScreen() {
             />
           </View>
         ) : null}
-        <View style={styles.section}>
-          <Text style={styles.sectionHeading}>Feature Flags</Text>
-          {featureFlagKeys.map((key) => (
-            <View style={styles.flagRow} key={key}>
-              <View style={styles.flagTextGroup}>
-                <Text style={styles.flagLabel}>{FEATURE_FLAG_LABELS[key]}</Text>
-                <Text style={styles.flagDefault}>
-                  Default: {featureFlagDefaults[key] ? "On" : "Off"}
-                </Text>
-              </View>
-              <Switch
-                value={featureFlags[key]}
-                onValueChange={(value) => setFeatureFlagOverride(key, value)}
-                trackColor={{
-                  false: theme.color.surfaceAlt,
-                  true: theme.color.accent,
-                }}
-                thumbColor={
-                  featureFlags[key] ? theme.color.ink : theme.color.surface
-                }
-              />
-            </View>
-          ))}
-        </View>
         {__DEV__ ? (
           <View style={styles.section}>
             <Text style={styles.sectionHeading}>Testing</Text>
+            <Text style={styles.sectionHeading}>Feature Flags</Text>
+            {featureFlagKeys.map((key) => (
+              <View style={styles.flagRow} key={key}>
+                <View style={styles.flagTextGroup}>
+                  <Text style={styles.flagLabel}>{FEATURE_FLAG_LABELS[key]}</Text>
+                  <Text style={styles.flagDefault}>
+                    Default: {featureFlagDefaults[key] ? "On" : "Off"}
+                  </Text>
+                </View>
+                <Switch
+                  value={featureFlags[key]}
+                  onValueChange={(value) => setFeatureFlagOverride(key, value)}
+                  trackColor={{
+                    false: theme.color.surfaceAlt,
+                    true: theme.color.accent,
+                  }}
+                  thumbColor={
+                    featureFlags[key] ? theme.color.ink : theme.color.surface
+                  }
+                />
+              </View>
+            ))}
+            <SettingsRow
+              icon="auto-fix"
+              label="Set Smart Level to 5"
+              onPress={() => void setSmartLevelTestOverride(5).catch(console.warn)}
+            />
+            <SettingsRow
+              icon="restore"
+              label="Reset Smart Level Test Override"
+              onPress={() => void setSmartLevelTestOverride(null).catch(console.warn)}
+            />
             <SettingsRow icon="bell-ring-outline" label="Test Notifications" onPress={() => router.push("/modals/test-notifications")} />
             <SettingsRow
               icon="restart"

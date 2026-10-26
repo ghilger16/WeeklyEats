@@ -143,6 +143,7 @@ export const EmojiPickerModal = ({
             </Pressable>
           ) : null}
           <FlatList
+            style={styles.resultsList}
             data={data}
             keyExtractor={renderKey}
             numColumns={6}
@@ -151,6 +152,7 @@ export const EmojiPickerModal = ({
             updateCellsBatchingPeriod={16}
             windowSize={5}
             keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
             contentContainerStyle={styles.listContent}
             renderItem={renderItem}
             ListEmptyComponent={
@@ -190,7 +192,7 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingHorizontal: theme.space.lg,
       paddingTop: theme.space.md,
       paddingBottom: theme.space["2xl"],
-      maxHeight: "80%",
+      height: "80%",
     },
     handle: {
       width: 48,
@@ -209,6 +211,7 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     searchInput: {
       height: 44,
+      flexShrink: 0,
       borderRadius: theme.radius.md,
       borderWidth: 1,
       borderColor: theme.color.cardOutline,
@@ -240,6 +243,10 @@ const createStyles = (theme: WeeklyTheme) =>
     },
     suggestionEmoji: {
       fontSize: theme.type.size.title,
+    },
+    resultsList: {
+      flex: 1,
+      minHeight: 0,
     },
     listContent: {
       paddingBottom: theme.space.lg,

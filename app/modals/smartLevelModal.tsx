@@ -16,7 +16,8 @@ import { useServedMeals } from "../../hooks/useServedMeals";
 import { useThemeController } from "../../providers/theme/ThemeController";
 import { getWeekPlanHistory } from "../../stores/weekPlanStorage";
 import { alpha, WeeklyTheme } from "../../styles/theme";
-import { getSmartLevel, SmartLevel } from "../../utils/smartLevel";
+import { SmartLevel } from "../../utils/smartLevel";
+import { useSmartLevel } from "../../hooks/useSmartLevel";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_OFFSET = 85;
@@ -70,10 +71,7 @@ export default function SmartLevelModal() {
     }, [refreshServedMeals]),
   );
 
-  const currentLevel = useMemo(
-    () => getSmartLevel({ meals, servedEntries, plannedWeeksCount }),
-    [meals, plannedWeeksCount, servedEntries],
-  );
+  const currentLevel = useSmartLevel({ meals, servedEntries, plannedWeeksCount });
 
   const handleClose = useCallback(() => {
     if (typeof router.canGoBack === "function" && router.canGoBack()) {

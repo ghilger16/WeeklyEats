@@ -1,5 +1,6 @@
 import { notifyReminderDataChanged } from "../../services/notifications/service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { notifyWidgetDataChanged } from "../../services/widget/widgetEvents";
 import {
   ReactNode,
   createContext,
@@ -68,6 +69,7 @@ export const WeekStartControllerProvider = ({ children }: Props) => {
     setStartDayState(day);
     try {
       await AsyncStorage.setItem(STORAGE_KEY, day);
+      notifyWidgetDataChanged();
       notifyReminderDataChanged();
     } catch (error) {
       console.warn("[WeekStartController] Failed to persist start day", error);

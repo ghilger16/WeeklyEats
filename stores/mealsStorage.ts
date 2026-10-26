@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { notifyWidgetDataChanged } from "../services/widget/widgetEvents";
 import { Meal, FamilyRatingValue } from "../types/meals";
 import { isCuisineType } from "../types/cuisine";
 
@@ -124,6 +125,7 @@ export const getMeals = async (): Promise<Meal[]> => {
 export const setMeals = async (meals: Meal[]): Promise<void> => {
   try {
     await AsyncStorage.setItem(MEALS_STORAGE_KEY, serializeMeals(meals));
+    notifyWidgetDataChanged();
   } catch (error) {
     console.warn("[mealsStorage] Failed to persist meals", error);
   }
@@ -161,6 +163,7 @@ export const removeMeal = async (id: string): Promise<Meal[]> => {
 export const clearMeals = async (): Promise<void> => {
   try {
     await AsyncStorage.removeItem(MEALS_STORAGE_KEY);
+    notifyWidgetDataChanged();
   } catch (error) {
     console.warn("[mealsStorage] Failed to clear meals", error);
   }

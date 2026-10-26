@@ -1,6 +1,8 @@
 import { notifyReminderDataChanged } from "../services/notifications/service";
 import { getServedMeals } from "./servedMealsStorage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { notifyWidgetDataChanged } from "../services/widget/widgetEvents";
+import { parseLocalDate, resolvePlanWeekDate } from "../utils/widgetCalendar";
 import {
   CurrentPlannedWeek,
   CurrentWeekSides,
@@ -16,6 +18,15 @@ import {
   WeekPlanCelebrationStat,
 } from "../utils/weekPlanCelebration";
 
+// Serialize read-modify-write operations so concurrent week mutations cannot
+// overwrite one another's map entries.
+let pendingPlanWrite: Promise<void> = Promise.resolve();
+const serializePlanWrite = (write: () => Promise<void>): Promise<void> => {
+  const result = pendingPlanWrite.then(write, write);
+  pendingPlanWrite = result.catch(() => {});
+  return result;
+};
+
 const LEGACY_PLAN_KEY = "@weeklyeats/weekPlan";
 const LEGACY_PLAN_SIDES_KEY = "@weeklyeats/weekPlanSides";
 const WEEK_PLAN_MAP_KEY = "@weeklyeats/weekPlanByWeek";
@@ -23,6 +34,13 @@ const WEEK_PLAN_SIDES_MAP_KEY = "@weeklyeats/weekPlanSidesByWeek";
 const WEEK_PLAN_STREAK_KEY = "@weeklyeats/weekPlanStreak";
 const WEEK_PLAN_HISTORY_KEY = "@weeklyeats/weekPlanHistory";
 const WEEK_PLAN_DRAFT_MAP_KEY = "@weeklyeats/weekPlanDraftByWeek";
+
+const calendarDateForPlan = async (weekId: string, plan: CurrentPlannedWeek) => {
+  const preference = await AsyncStorage.getItem("weeklyeats.weekStartDay");
+  const startDay = isValidDayKey(preference) ? preference : "mon";
+  return resolvePlanWeekDate(weekId, startDay,
+    plan.weekStartISO?.slice(0, 10) === weekId ? plan.calendarWeekStartDate : undefined) ?? undefined;
+};
 
 export type WeekPlanDraft = {
   plan: CurrentPlannedWeek;
@@ -87,6 +105,10 @@ const normalizePlan = (
   }
 
   const plan = createEmptyCurrentPlannedWeek({ weekStartISO });
+  const calendarWeekStartDate = (raw as { calendarWeekStartDate?: unknown }).calendarWeekStartDate;
+  if (typeof calendarWeekStartDate === "string" && parseLocalDate(calendarWeekStartDate)) {
+    plan.calendarWeekStartDate = calendarWeekStartDate;
+  }
   let hasValidEntry = false;
 
   Object.entries(raw as Record<string, unknown>).forEach(([key, value]) => {
@@ -321,6 +343,7 @@ const savePlanMap = async (map: WeekPlanMap) => {
     await AsyncStorage.setItem(WEEK_PLAN_MAP_KEY, JSON.stringify(map));
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to persist plan map", error);
+    throw error;
   }
 };
 
@@ -329,6 +352,7 @@ const saveSidesMap = async (map: WeekSidesMap) => {
     await AsyncStorage.setItem(WEEK_PLAN_SIDES_MAP_KEY, JSON.stringify(map));
   } catch (error) {
     console.warn("[weekPlanStorage] Failed to persist plan sides map", error);
+    throw error;
   }
 };
 
@@ -356,27 +380,6 @@ const getSidesMap = async (): Promise<WeekSidesMap> => {
     console.warn("[weekPlanStorage] Failed to read plan sides map", error);
     return {};
   }
-};
-
-const cleanupStalePlans = (
-  map: WeekPlanMap,
-  referenceWeekStartISO: string
-): WeekPlanMap => {
-  const reference = new Date(referenceWeekStartISO);
-  const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
-  return Object.entries(map).reduce<WeekPlanMap>((acc, [key, value]) => {
-    if (!isValidISODateString(key)) {
-      return acc;
-    }
-    const start = new Date(key);
-    const isOlderThanReference =
-      reference.getTime() - start.getTime() >= oneWeekMs;
-    if (isOlderThanReference && !value.weekedPlanned) {
-      return acc;
-    }
-    acc[key] = value;
-    return acc;
-  }, {});
 };
 
 const migrateLegacyPlan = async (
@@ -415,8 +418,7 @@ export const getCurrentWeekPlan = async (
     ? weekStartISO.slice(0, 10)
     : weekStartISO;
 
-  let planMap = await getPlanMap();
-  planMap = cleanupStalePlans(planMap, normalizedStart);
+  const planMap = await getPlanMap();
   const hasAnyPlans = Object.keys(planMap).length > 0;
 
   let plan: CurrentPlannedWeek | undefined = planMap[normalizedStart];
@@ -432,8 +434,6 @@ export const getCurrentWeekPlan = async (
     plan.weekStartISO = normalizedStart;
   }
 
-  planMap[normalizedStart] = plan;
-  await savePlanMap(planMap);
   return plan;
 };
 
@@ -441,20 +441,24 @@ export const setCurrentWeekPlan = async (
   weekStartISO: string,
   plan: CurrentPlannedWeek
 ): Promise<void> => {
-  try {
-    const normalizedStart = isValidISODateString(weekStartISO)
-      ? weekStartISO.slice(0, 10)
-      : weekStartISO;
-    const planMap = await getPlanMap();
-    planMap[normalizedStart] = {
-      ...plan,
-      weekStartISO: normalizedStart,
-    };
-    await savePlanMap(planMap);
-    notifyReminderDataChanged();
-  } catch (error) {
-    console.warn("[weekPlanStorage] Failed to persist plan", error);
-  }
+  return serializePlanWrite(async () => {
+    try {
+      const normalizedStart = isValidISODateString(weekStartISO)
+        ? weekStartISO.slice(0, 10)
+        : weekStartISO;
+      const planMap = await getPlanMap();
+      planMap[normalizedStart] = {
+        ...plan,
+        weekStartISO: normalizedStart,
+        calendarWeekStartDate: await calendarDateForPlan(normalizedStart, plan),
+      };
+      await savePlanMap(planMap);
+      notifyWidgetDataChanged();
+      notifyReminderDataChanged();
+    } catch (error) {
+      console.warn("[weekPlanStorage] Failed to persist plan", error);
+    }
+  });
 };
 
 export const addSavedMealIdeaToWeekPlan = async (
@@ -518,8 +522,6 @@ export const getCurrentWeekSides = async (
     null;
   const normalizedSides = sides ? normalizeSides(sides) : null;
   const result = normalizedSides ?? createEmptyCurrentWeekSides();
-  sidesMap[normalizedStart] = result;
-  await saveSidesMap(sidesMap);
   return result;
 };
 
@@ -527,16 +529,19 @@ export const setCurrentWeekSides = async (
   weekStartISO: string,
   sides: CurrentWeekSides
 ): Promise<void> => {
-  try {
-    const normalizedStart = isValidISODateString(weekStartISO)
-      ? weekStartISO.slice(0, 10)
-      : weekStartISO;
-    const sidesMap = await getSidesMap();
-    sidesMap[normalizedStart] = sides;
-    await saveSidesMap(sidesMap);
-  } catch (error) {
-    console.warn("[weekPlanStorage] Failed to persist plan sides", error);
-  }
+  return serializePlanWrite(async () => {
+    try {
+      const normalizedStart = isValidISODateString(weekStartISO)
+        ? weekStartISO.slice(0, 10)
+        : weekStartISO;
+      const sidesMap = await getSidesMap();
+      sidesMap[normalizedStart] = sides;
+      await saveSidesMap(sidesMap);
+      notifyWidgetDataChanged();
+    } catch (error) {
+      console.warn("[weekPlanStorage] Failed to persist plan sides", error);
+    }
+  });
 };
 
 export const setWeekPlanDataBatch = async (
@@ -546,62 +551,73 @@ export const setWeekPlanDataBatch = async (
     sides: CurrentWeekSides;
   }>
 ): Promise<void> => {
-  try {
-    const [planMap, sidesMap] = await Promise.all([getPlanMap(), getSidesMap()]);
-    updates.forEach(({ weekStartISO, plan, sides }) => {
-      const normalizedStart = isValidISODateString(weekStartISO)
-        ? weekStartISO.slice(0, 10)
-        : weekStartISO;
-      planMap[normalizedStart] = {
-        ...plan,
-        weekStartISO: normalizedStart,
-      };
-      sidesMap[normalizedStart] = sides;
-    });
-    await AsyncStorage.multiSet([
-      [WEEK_PLAN_MAP_KEY, JSON.stringify(planMap)],
-      [WEEK_PLAN_SIDES_MAP_KEY, JSON.stringify(sidesMap)],
-    ]);
-    notifyReminderDataChanged();
-  } catch (error) {
-    console.warn("[weekPlanStorage] Failed to persist batched plan data", error);
-    throw error;
-  }
+  return serializePlanWrite(async () => {
+    try {
+      const [planMap, sidesMap] = await Promise.all([getPlanMap(), getSidesMap()]);
+      for (const { weekStartISO, plan, sides } of updates) {
+        const normalizedStart = isValidISODateString(weekStartISO)
+          ? weekStartISO.slice(0, 10)
+          : weekStartISO;
+        planMap[normalizedStart] = {
+          ...plan,
+          weekStartISO: normalizedStart,
+          calendarWeekStartDate: await calendarDateForPlan(normalizedStart, plan),
+        };
+        sidesMap[normalizedStart] = sides;
+      }
+      await AsyncStorage.multiSet([
+        [WEEK_PLAN_MAP_KEY, JSON.stringify(planMap)],
+        [WEEK_PLAN_SIDES_MAP_KEY, JSON.stringify(sidesMap)],
+      ]);
+      notifyWidgetDataChanged();
+      notifyReminderDataChanged();
+    } catch (error) {
+      console.warn("[weekPlanStorage] Failed to persist batched plan data", error);
+      throw error;
+    }
+  });
 };
 
 export const clearCurrentWeekPlan = async (
   weekStartISO: string
 ): Promise<void> => {
-  try {
-    const normalizedStart = isValidISODateString(weekStartISO)
-      ? weekStartISO.slice(0, 10)
-      : weekStartISO;
-    const planMap = await getPlanMap();
-    const sidesMap = await getSidesMap();
-    delete planMap[normalizedStart];
-    delete sidesMap[normalizedStart];
-    await Promise.all([savePlanMap(planMap), saveSidesMap(sidesMap)]);
-    notifyReminderDataChanged();
-  } catch (error) {
-    console.warn("[weekPlanStorage] Failed to clear plan", error);
-  }
+  return serializePlanWrite(async () => {
+    try {
+      const normalizedStart = isValidISODateString(weekStartISO)
+        ? weekStartISO.slice(0, 10)
+        : weekStartISO;
+      const planMap = await getPlanMap();
+      const sidesMap = await getSidesMap();
+      delete planMap[normalizedStart];
+      delete sidesMap[normalizedStart];
+      await Promise.all([savePlanMap(planMap), saveSidesMap(sidesMap)]);
+      notifyWidgetDataChanged();
+      notifyReminderDataChanged();
+    } catch (error) {
+      console.warn("[weekPlanStorage] Failed to clear plan", error);
+    }
+  });
 };
 
 export const clearWeekPlanData = async (): Promise<void> => {
-  try {
-    await Promise.all([
-      AsyncStorage.removeItem(WEEK_PLAN_MAP_KEY),
-      AsyncStorage.removeItem(WEEK_PLAN_SIDES_MAP_KEY),
-      AsyncStorage.removeItem(LEGACY_PLAN_KEY),
-      AsyncStorage.removeItem(LEGACY_PLAN_SIDES_KEY),
-    ]);
-    notifyReminderDataChanged();
-  } catch (error) {
-    console.warn("[weekPlanStorage] Failed to clear all plan data", error);
-  }
+  return serializePlanWrite(async () => {
+    try {
+      await Promise.all([
+        AsyncStorage.removeItem(WEEK_PLAN_MAP_KEY),
+        AsyncStorage.removeItem(WEEK_PLAN_SIDES_MAP_KEY),
+        AsyncStorage.removeItem(LEGACY_PLAN_KEY),
+        AsyncStorage.removeItem(LEGACY_PLAN_SIDES_KEY),
+      ]);
+      notifyWidgetDataChanged();
+      notifyReminderDataChanged();
+    } catch (error) {
+      console.warn("[weekPlanStorage] Failed to clear all plan data", error);
+    }
+  });
 };
 
 export const weekPlanStorageKey = WEEK_PLAN_MAP_KEY;
+export const weekPlanSidesStorageKey = WEEK_PLAN_SIDES_MAP_KEY;
 
 export const getWeekPlanStreak = async (): Promise<WeekPlanStreak> => {
   try {

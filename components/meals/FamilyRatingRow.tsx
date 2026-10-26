@@ -34,7 +34,60 @@ export default function FamilyRatingRow({
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const initials = useMemo(() => deriveFamilyInitials(members), [members]);
+  const fitMembers = compact && members.length <= 5;
   if (!members.length) return null;
+  const memberItems = members.map((member, index) => {
+    const value = ratings?.[member.id] ?? 0;
+    const meta = ratingMeta[value];
+    return (
+      <Pressable
+        key={member.id}
+        onPress={() => onChange(member.id, getNextFamilyRating(value))}
+        accessibilityRole="button"
+        accessibilityLabel={`${member.name}, ${meta.label}`}
+        style={({ pressed }) => [styles.member, fitMembers && styles.fittedMember, pressed && styles.pressed]}
+      >
+        <View
+          style={[
+            styles.avatar,
+            fitMembers && styles.fittedAvatar,
+            {
+              backgroundColor:
+                memberColorPalette[index % memberColorPalette.length],
+            },
+          ]}
+        >
+          <Text style={styles.initial}>
+            {initials[member.id] ?? member.name[0] ?? "?"}
+          </Text>
+          {meta.icon ? (
+            <View style={styles.ratingBadge}>
+              <MaterialCommunityIcons
+                name={meta.icon as any}
+                size={19}
+                color={meta.color}
+              />
+            </View>
+          ) : null}
+        </View>
+        <Text style={styles.name} numberOfLines={1} adjustsFontSizeToFit={fitMembers} minimumFontScale={0.8}>
+          {member.name}
+        </Text>
+        <Text
+          style={[styles.rating, { color: meta.color }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+        >
+          {value > 0 ? meta.label : " "}
+        </Text>
+      </Pressable>
+    );
+  });
+
+  if (fitMembers) {
+    return <View style={[styles.row, styles.fittedRow, styles.compactScroll]}>{memberItems}</View>;
+  }
   return (
     <ScrollView
       horizontal
@@ -42,53 +95,7 @@ export default function FamilyRatingRow({
       style={[styles.scroll, compact && styles.compactScroll]}
       contentContainerStyle={[styles.row, compact && styles.compactRow]}
     >
-      {members.map((member, index) => {
-        const value = ratings?.[member.id] ?? 0;
-        const meta = ratingMeta[value];
-        return (
-          <Pressable
-            key={member.id}
-            onPress={() => onChange(member.id, getNextFamilyRating(value))}
-            accessibilityRole="button"
-            accessibilityLabel={`${member.name}, ${meta.label}`}
-            style={({ pressed }) => [styles.member, pressed && styles.pressed]}
-          >
-            <View
-              style={[
-                styles.avatar,
-                {
-                  backgroundColor:
-                    memberColorPalette[index % memberColorPalette.length],
-                },
-              ]}
-            >
-              <Text style={styles.initial}>
-                {initials[member.id] ?? member.name[0] ?? "?"}
-              </Text>
-              {meta.icon ? (
-                <View style={styles.ratingBadge}>
-                  <MaterialCommunityIcons
-                    name={meta.icon as any}
-                    size={19}
-                    color={meta.color}
-                  />
-                </View>
-              ) : null}
-            </View>
-            <Text style={styles.name} numberOfLines={1}>
-              {member.name}
-            </Text>
-            <Text
-              style={[styles.rating, { color: meta.color }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.8}
-            >
-              {value > 0 ? meta.label : " "}
-            </Text>
-          </Pressable>
-        );
-      })}
+      {memberItems}
     </ScrollView>
   );
 }
@@ -105,6 +112,9 @@ const createStyles = (theme: WeeklyTheme) =>
       paddingHorizontal: theme.space.md,
     },
     compactRow: { gap: theme.space.md },
+    fittedRow: { flexDirection: "row", flexGrow: 0, width: "100%", gap: theme.space.xs, paddingHorizontal: theme.space.xs },
+    fittedMember: { flex: 1, width: 0, minWidth: 0, maxWidth: 65 },
+    fittedAvatar: { width: "80%", maxWidth: 44, height: undefined, aspectRatio: 1 },
     member: { width: 65, alignItems: "center", gap: theme.space.xs },
     avatar: {
       width: 48,

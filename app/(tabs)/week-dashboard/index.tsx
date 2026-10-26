@@ -1,4 +1,3 @@
-import { buildTodayWidgetPayload } from "../../../utils/todayWidgetPlan";
 import { offerRemindersAfterPlanning } from "../../../services/notifications/service";
 import ShareWeekModal from "../../../components/share-week/ShareWeekModal";
 import { selectShareWeek, ShareWeekSelection } from "../../../components/share-week/shareWeekData";
@@ -75,10 +74,6 @@ import {
   recalculateWeekPlanStreak,
 } from "../../../stores/weekPlanStorage";
 import { clearStoredDayPins } from "../../../stores/dayPinsStorage";
-import {
-  clearTodayWidgetPayload,
-  saveTodayWidgetPayload,
-} from "../../../stores/todayWidgetStorage";
 import { clearServedMeals } from "../../../stores/servedMealsStorage";
 import type { ServedOutcome } from "../../../components/week-dashboard/servedActions";
 import { getRandomCelebrationMessage } from "../../../components/week-dashboard/celebrations";
@@ -93,7 +88,7 @@ import { setFamilyRatingValue } from "../../../utils/familyRatings";
 import { getGalaxyMealId } from "../../../utils/galaxyMeal";
 import { useRatingDisplayMode } from "../../../hooks/useRatingDisplayMode";
 import { promoteSavedSides } from "../../../components/plan-week/inline/sideOptions";
-import { getSmartLevel } from "../../../utils/smartLevel";
+import { useSmartLevel } from "../../../hooks/useSmartLevel";
 import { suggestEmojiForTitle } from "../../../utils/emojiCatalog";
 import WeekPlanSavedCelebration from "../../../components/week-dashboard/WeekPlanSavedCelebration";
 import type { WeekPlanCelebrationPayload } from "../../../utils/weekPlanCelebration";
@@ -477,10 +472,7 @@ export default function WeekDashboardScreen() {
     );
     return () => subscription.remove();
   }, [refreshNextWeekPlan, refreshWeekPlan]);
-  const smartLevel = useMemo(
-    () => getSmartLevel({ meals, servedEntries, plannedWeeksCount }),
-    [meals, plannedWeeksCount, servedEntries],
-  );
+  const smartLevel = useSmartLevel({ meals, servedEntries, plannedWeeksCount });
 
   useFocusEffect(
     useCallback(() => {
@@ -654,16 +646,6 @@ export default function WeekDashboardScreen() {
       )?.servedAtISO ?? null,
     [servedEntries]
   );
-
-  const todayWidgetPayload = useMemo(
-    () => buildTodayWidgetPayload(days, nextWeekDays, effectiveDate, todayServedEntry?.outcome),
-    [days, nextWeekDays, effectiveDate, todayServedEntry?.outcome],
-  );
-  const todayWidgetKey = JSON.stringify(todayWidgetPayload);
-  useEffect(() => {
-    if (isLoading || isNextWeekLoading || areServedMealsLoading) return;
-    void saveTodayWidgetPayload(todayWidgetPayload);
-  }, [isLoading, isNextWeekLoading, areServedMealsLoading, todayWidgetKey]);
 
   const unmarkedDays = useMemo(
     () =>
@@ -1822,7 +1804,6 @@ export default function WeekDashboardScreen() {
     await Promise.all([
       clearWeekPlanData(),
       clearStoredDayPins(),
-      clearTodayWidgetPayload(),
     ]);
     await Promise.all([refreshWeekPlan(), refreshNextWeekPlan()]);
   }, [
@@ -2150,10 +2131,10 @@ export default function WeekDashboardScreen() {
             count: streakCount,
             onPress: () => router.push("/modals/streaksHistoryModal"),
           }}
-          smartLevel={{
+          smartLevel={smartLevel < 5 ? {
             level: smartLevel,
             onPress: () => router.push("/modals/smartLevelModal"),
-          }}
+          } : undefined}
         >
           <ScrollView
             ref={scrollViewRef}
@@ -2338,6 +2319,7 @@ export default function WeekDashboardScreen() {
       <WrapUpLastWeekModal
         visible={Boolean(pendingPlanningIntent)}
         days={unresolvedPreviousWeekDays}
+        allDays={previousWeekDays}
         servedEntries={servedEntries}
         onDayPress={(day) => {
           setSelectedDashboardDay(day);
@@ -3057,7 +3039,7 @@ const createStyles = (theme: WeeklyTheme) =>
       backgroundColor: "rgba(0, 0, 0, 0.56)",
     },
     dinnerFlowSheet: {
-      height: "75%",
+      height: "86.25%",
       overflow: "hidden",
       borderTopLeftRadius: theme.radius.xl,
       borderTopRightRadius: theme.radius.xl,

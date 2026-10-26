@@ -46,7 +46,9 @@ const addDays = (date: Date, amount: number) => {
 
 const loadCalendarModule = async (): Promise<CalendarModule | null> => {
   try {
-    return await import("expo-calendar");
+    // Keep the optional native module lazy, including in runtimes without
+    // dynamic-import support.
+    return require("expo-calendar") as CalendarModule;
   } catch {
     return null;
   }
@@ -95,6 +97,7 @@ const normalizeEvent = (
 export const getWeekEvents = async (
   startDate: Date,
   endDate: Date,
+  { requestPermission = false }: { requestPermission?: boolean } = {},
 ): Promise<PlanningCalendarEvent[]> => {
   const Calendar = await loadCalendarModule();
   if (!Calendar) {
@@ -106,7 +109,10 @@ export const getWeekEvents = async (
     return [];
   }
 
-  const permission = await Calendar.requestCalendarPermissionsAsync();
+  let permission = await Calendar.getCalendarPermissionsAsync();
+  if (!permission.granted && requestPermission) {
+    permission = await Calendar.requestCalendarPermissionsAsync();
+  }
   if (!permission.granted) {
     return [];
   }

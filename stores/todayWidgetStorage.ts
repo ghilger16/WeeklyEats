@@ -11,10 +11,19 @@ export type TodayWidgetMeal = {
   sides: string[];
   prepNote?: string;
   recipeUrl?: string;
+  mealDate?: string;
+  weekStartDate?: string;
+  servedState?: "served" | "cookedAlt" | "ateOut" | "skipped";
 };
 
 export type TodayWidgetPayload = {
   generatedAtISO: string;
+  schemaVersion?: number;
+  snapshotGeneratedAt?: string;
+  snapshotDate?: string;
+  snapshotTimeZone?: string;
+  snapshotUTCOffsetMinutes?: number;
+  outcomesByDate?: Record<string, { mealId: string | null; servedState: NonNullable<TodayWidgetPayload["todayOutcome"]> }>;
   plannedMeals?: TodayWidgetMeal[];
   today: TodayWidgetMeal;
   tomorrow?: TodayWidgetMeal;
@@ -32,15 +41,16 @@ const bridge = NativeModules.TodayWidgetBridge as
 
 export const saveTodayWidgetPayload = async (
   payload: TodayWidgetPayload
-): Promise<void> => {
+): Promise<boolean> => {
   if (Platform.OS !== "ios" || !bridge?.savePayload) {
-    return;
+    return false;
   }
 
   try {
-    await bridge.savePayload(payload);
+    return await bridge.savePayload(payload);
   } catch (error) {
     console.warn("[todayWidgetStorage] Failed to save widget payload", error);
+    return false;
   }
 };
 

@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { notifyWidgetDataChanged } from "../services/widget/widgetEvents";
+import { localDateKey } from "../utils/widgetCalendar";
 import { PlannedWeekDayKey } from "../types/weekPlan";
 import type { ServedOutcome } from "../components/week-dashboard/servedActions";
 
@@ -7,6 +9,7 @@ export type ServedMealEntry = {
   dayKey: PlannedWeekDayKey;
   mealId: string | null;
   servedAtISO: string;
+  mealDate?: string;
   outcome: ServedOutcome;
   celebrationMessage?: string;
   servedTitle?: string;
@@ -96,6 +99,7 @@ export const setServedMeals = async (
 ): Promise<void> => {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, serializeEntries(entries));
+    notifyWidgetDataChanged();
   } catch (error) {
     console.warn("[servedMealsStorage] Failed to persist entries", error);
   }
@@ -115,6 +119,7 @@ export const addServedMeal = async (
   const entry: ServedMealEntry = {
     ...input,
     id,
+    mealDate: input.mealDate ?? localDateKey(new Date(input.servedAtISO)),
   };
 
   const next = [
@@ -148,6 +153,7 @@ export const removeServedMeal = async (
 export const clearServedMeals = async (): Promise<void> => {
   try {
     await AsyncStorage.removeItem(STORAGE_KEY);
+    notifyWidgetDataChanged();
   } catch (error) {
     console.warn("[servedMealsStorage] Failed to clear entries", error);
   }

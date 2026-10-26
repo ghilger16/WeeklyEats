@@ -20,6 +20,7 @@ export type CurrentPlannedWeek = {
   weekedPlanned?: boolean;
   plannedAtISO?: string;
   weekStartISO?: string;
+  calendarWeekStartDate?: string;
   plannedScope?: "full" | "remaining";
   savedIdeas?: SavedMealIdea[];
   carryOverIdeas?: SavedMealIdea[];

@@ -984,28 +984,32 @@ export default function PlanWeekModal() {
   }, [inventoryPulseTrigger]);
 
   useEffect(() => {
+    // A passive Eat Out check must not suppress a later explicit calendar opt-in.
+    const calendarRequestKey = `${calendarWeekKey}:${isCalendarContextVisible ? "requested" : "existing"}`;
     if (
       (!isCalendarContextVisible && !pendingEatOutDay) ||
-      loadedCalendarWeekKey === calendarWeekKey
+      loadedCalendarWeekKey === calendarRequestKey
     ) {
       return;
     }
 
     let isCancelled = false;
-    getWeekEvents(planningRangeStart, planningWeekEnd)
+    getWeekEvents(planningRangeStart, planningWeekEnd, {
+      requestPermission: isCalendarContextVisible,
+    })
       .then((events) => {
         if (isCancelled) {
           return;
         }
         setPlanningCalendarEvents(events);
-        setLoadedCalendarWeekKey(calendarWeekKey);
+        setLoadedCalendarWeekKey(calendarRequestKey);
       })
       .catch(() => {
         if (isCancelled) {
           return;
         }
         setPlanningCalendarEvents([]);
-        setLoadedCalendarWeekKey(calendarWeekKey);
+        setLoadedCalendarWeekKey(calendarRequestKey);
         setCalendarContextVisible(false);
       });
 

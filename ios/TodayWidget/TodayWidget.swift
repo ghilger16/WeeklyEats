@@ -79,45 +79,41 @@ struct TodayMealProvider: TimelineProvider {
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<TodayMealEntry>) -> Void) {
     let now = Date()
-    let calendar = Calendar.current
-    let futureMidnights = (1...14).compactMap { calendar.date(byAdding: .day, value: $0, to: calendar.startOfDay(for: now)) }
-    let entries = [loadEntry(now: now)] + futureMidnights.map { loadEntry(now: $0) }
-    completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(1_800))))
+    let calendar = WidgetCalendarSnapshot.calendar()
+    let payload = readPayload()
+    let dates = WidgetCalendarSnapshot.timelineDates(now: now, calendar: calendar)
+    let nextRefresh = WidgetCalendarSnapshot.nextRefresh(now: now, calendar: calendar)
+    let entries = dates.map { loadEntry(now: $0, payload: payload) }
+    #if DEBUG
+    print("[WeeklyEatsWidget] requested=\(WidgetCalendarSnapshot.dateKey(now, calendar: calendar)), snapshot=\(payload["snapshotGeneratedAt"] ?? payload["generatedAtISO"] ?? "missing"), timezone=\(calendar.timeZone.identifier), next refresh=\(nextRefresh)")
+    #endif
+    completion(Timeline(entries: entries, policy: .after(nextRefresh)))
   }
 
-  private func loadEntry(now: Date = Date()) -> TodayMealEntry {
-    guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
-          let payload = defaults.dictionary(forKey: payloadKey) else {
-      return TodayMealEntry(date: now, today: .noPlans(on: now), tomorrow: nil, outcome: nil)
+  private func readPayload() -> [String: Any] {
+    guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return [:] }
+    if let data = defaults.data(forKey: payloadKey) {
+      return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
-    let calendar = Calendar.current
-    let storedToday = (payload["today"] as? [String: Any]).flatMap(meal(from:))
-    let storedTomorrow = (payload["tomorrow"] as? [String: Any]).flatMap(meal(from:))
-    // A dated plan snapshot lets the widget roll over without showing yesterday's
-    // meal or promoting a later meal into today's primary position.
-    let plannedMeals = ((payload["plannedMeals"] as? [[String: Any]])?.compactMap(meal(from:))
-      ?? [storedToday, storedTomorrow].compactMap { $0 })
-      .filter { $0.isPlanned }.sorted { $0.date < $1.date }
-    let today = plannedMeals.first { calendar.isDate($0.date, inSameDayAs: now) }
-    let tomorrowDate = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
-    let tomorrow = plannedMeals.first { calendar.isDate($0.date, inSameDayAs: tomorrowDate) }
-    let nextUpcoming = plannedMeals.first { calendar.startOfDay(for: $0.date) > calendar.startOfDay(for: now) }
-    // Outcome belongs only to the recorded day, never to a future/unplanned day.
-    let outcomeIsForToday = storedToday.map { calendar.isDate($0.date, inSameDayAs: now) } ?? false
-    let outcome = today != nil && outcomeIsForToday
-      ? (payload["todayOutcome"] as? String).flatMap(DinnerOutcome.init(rawValue:)) : nil
+    return defaults.dictionary(forKey: payloadKey) ?? [:]
+  }
+
+  private func loadEntry(now: Date = Date(), payload: [String: Any]? = nil) -> TodayMealEntry {
+    let calendar = WidgetCalendarSnapshot.calendar()
+    let selection = WidgetCalendarSnapshot.select(payload ?? readPayload(), on: now, calendar: calendar)
+    let today = selection.today.flatMap(meal(from:))
+    let tomorrow = selection.tomorrow.flatMap(meal(from:))
+    let nextUpcoming = selection.nextUpcoming.flatMap(meal(from:))
+    let outcome = selection.outcome.flatMap(DinnerOutcome.init(rawValue:))
+    #if DEBUG
+    print("[WeeklyEatsWidget] selected date=\(WidgetCalendarSnapshot.dateKey(now, calendar: calendar)), mealId=\(today?.mealId ?? "none"), served=\(selection.outcome ?? "pending")")
+    #endif
     return TodayMealEntry(date: now, today: today ?? .noPlans(on: now), tomorrow: tomorrow, outcome: outcome, nextUpcoming: nextUpcoming)
   }
 
   private func meal(from dictionary: [String: Any]) -> WidgetMeal? {
     guard let rawTitle = dictionary["title"] as? String, !rawTitle.trimmed.isEmpty else { return nil }
-    // Calendar dates preserve the planned day when the user's timezone changes.
-    let localDate = (dictionary["dateKey"] as? String).flatMap { value -> Date? in
-      let parts = value.split(separator: "-").compactMap { Int($0) }
-      guard parts.count == 3 else { return nil }
-      return Calendar.current.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
-    }
-    guard let date = localDate ?? (dictionary["dateISO"] as? String).flatMap(Self.isoFormatter.date(from:)) else { return nil }
+    guard let date = WidgetCalendarSnapshot.mealDate(dictionary, calendar: WidgetCalendarSnapshot.calendar()) else { return nil }
     let sides = (dictionary["sides"] as? [String] ?? []).map(\.trimmed).filter { !$0.isEmpty }
     return WidgetMeal(
       date: date,
@@ -132,16 +128,10 @@ struct TodayMealProvider: TimelineProvider {
     )
   }
 
-  private static let isoFormatter: ISO8601DateFormatter = {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter
-  }()
-
   fileprivate static let previewNormal = TodayMealEntry(
     date: Date(),
     today: WidgetMeal(date: Date(), title: "Burgers", icon: "🍔", dateLabel: "Fri, Sep 4", sides: ["Side Salad", "Air Fryer Fries"], prepNote: "Slice onions, prep patties", recipeURL: URL(string: "https://example.com/burgers")),
-    tomorrow: WidgetMeal(date: Date().addingTimeInterval(86_400), title: "Pizza", icon: "🍕", dateLabel: "Sat, Sep 5", sides: ["Garlic Bread"], prepNote: "Preheat oven to 425°", recipeURL: nil),
+    tomorrow: WidgetMeal(date: Calendar.current.date(byAdding: .day, value: 1, to: Date())!, title: "Pizza", icon: "🍕", dateLabel: "Sat, Sep 5", sides: ["Garlic Bread"], prepNote: "Preheat oven to 425°", recipeURL: nil),
     outcome: nil
   )
   fileprivate static let previewServed = TodayMealEntry(date: Date(), today: previewNormal.today, tomorrow: previewNormal.tomorrow, outcome: .served)

@@ -20,6 +20,7 @@ import BurstSparkles from "./BurstSparkles";
 export function WrapUpLastWeekModal({
   visible,
   days,
+  allDays,
   servedEntries,
   onDayPress,
   onContinue,
@@ -27,6 +28,7 @@ export function WrapUpLastWeekModal({
 }: {
   visible: boolean;
   days: WeekPlanDay[];
+  allDays: WeekPlanDay[];
   servedEntries: ServedMealEntry[];
   onDayPress: (day: WeekPlanDay) => void;
   onContinue: () => void;
@@ -34,6 +36,21 @@ export function WrapUpLastWeekModal({
 }) {
   const { theme } = useThemeController();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const [sessionDays, setSessionDays] = useState<WeekPlanDay[]>([]);
+  useEffect(() => {
+    if (!visible) {
+      setSessionDays([]);
+      return;
+    }
+    setSessionDays((previous) => {
+      const retained = new Map(previous.map((day) => [day.plannedDateISO, day]));
+      days.forEach((day) => retained.set(day.plannedDateISO, day));
+      return [...retained.values()];
+    });
+  }, [days, visible]);
+  const displayDays = sessionDays.map((day) =>
+    allDays.find((current) => current.plannedDateISO === day.plannedDateISO) ?? day,
+  );
   const isComplete = days.length === 0;
   if (!visible) return null;
 
@@ -75,14 +92,14 @@ export function WrapUpLastWeekModal({
             </Text>
           </View>
 
-          {!isComplete ? (
+          {displayDays.length > 0 ? (
             <ScrollView
               style={styles.modalRows}
               contentContainerStyle={styles.modalRowsContent}
               showsVerticalScrollIndicator={false}
             >
               <ThisWeekList
-                days={days}
+                days={displayDays}
                 servedEntries={servedEntries}
                 onDayPress={onDayPress}
                 hideHeader

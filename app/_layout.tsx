@@ -1,4 +1,5 @@
 import NotificationCoordinator from "../services/notifications/NotificationCoordinator";
+import WidgetCoordinator from "../services/widget/WidgetCoordinator";
 import { Stack, usePathname } from "expo-router";
 import { useEffect, useRef } from "react";
 import {
@@ -156,6 +157,7 @@ export default function RootLayout() {
           <FamilyMembersProvider>
             <RootStack />
             <NotificationCoordinator />
+            <WidgetCoordinator />
           </FamilyMembersProvider>
         </WeekStartControllerProvider>
       </ThemeControllerProvider>
