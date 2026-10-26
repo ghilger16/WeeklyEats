@@ -1,3 +1,4 @@
+import RecoveryGate from "../services/recovery/RecoveryGate";
 import NotificationCoordinator from "../services/notifications/NotificationCoordinator";
 import WidgetCoordinator from "../services/widget/WidgetCoordinator";
 import { Stack, usePathname } from "expo-router";
@@ -147,20 +148,22 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <DatadogProvider
-      configuration={datadogConfiguration}
-      onInitialization={() => void initializeAnalyticsIdentity()}
-    >
-      <DatadogRouteTracker />
-      <ThemeControllerProvider>
-        <WeekStartControllerProvider>
-          <FamilyMembersProvider>
-            <RootStack />
-            <NotificationCoordinator />
-            <WidgetCoordinator />
-          </FamilyMembersProvider>
-        </WeekStartControllerProvider>
-      </ThemeControllerProvider>
-    </DatadogProvider>
+    <RecoveryGate>
+      <DatadogProvider
+        configuration={datadogConfiguration}
+        onInitialization={() => void initializeAnalyticsIdentity()}
+      >
+        <DatadogRouteTracker />
+        <ThemeControllerProvider>
+          <WeekStartControllerProvider>
+            <FamilyMembersProvider>
+              <RootStack />
+              <NotificationCoordinator />
+              <WidgetCoordinator />
+            </FamilyMembersProvider>
+          </WeekStartControllerProvider>
+        </ThemeControllerProvider>
+      </DatadogProvider>
+    </RecoveryGate>
   );
 }

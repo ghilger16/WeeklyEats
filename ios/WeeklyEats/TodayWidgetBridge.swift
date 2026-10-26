@@ -17,6 +17,24 @@ final class TodayWidgetBridge: NSObject {
     resolver resolve: RCTPromiseResolveBlock,
     rejecter reject: RCTPromiseRejectBlock
   ) {
+    writePayload(payload, force: false, resolve: resolve, reject: reject)
+  }
+
+  @objc(repairPayload:resolver:rejecter:)
+  func repairPayload(
+    _ payload: NSDictionary,
+    resolver resolve: RCTPromiseResolveBlock,
+    rejecter reject: RCTPromiseRejectBlock
+  ) {
+    writePayload(payload, force: true, resolve: resolve, reject: reject)
+  }
+
+  private func writePayload(_ payload: NSDictionary, force: Bool,
+                            resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+    guard FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) != nil else {
+      reject("app_group_unavailable", "WeeklyEats shared storage is unavailable. Install the latest TestFlight build.", nil)
+      return
+    }
     guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
       reject("app_group_unavailable", "Could not open WeeklyEats app group.", nil)
       return
@@ -41,12 +59,16 @@ final class TodayWidgetBridge: NSObject {
       copy.removeObject(forKey: "snapshotGeneratedAt")
       return copy
     }
-    if let previous, content(previous).isEqual(content(payload)) {
+    if !force, let previous, content(previous).isEqual(content(payload)) {
       resolve(true)
       return
     }
     defaults.set(data, forKey: payloadKey)
     defaults.synchronize()
+    guard defaults.data(forKey: payloadKey) == data else {
+      reject("widget_write_failed", "Widget data could not be verified.", nil)
+      return
+    }
     reloadWidgets()
     #if DEBUG
     print("[WeeklyEatsWidget] shared snapshot written before reload; date=\(payload["snapshotDate"] ?? "unknown"), generated=\(payload["snapshotGeneratedAt"] ?? "unknown")")

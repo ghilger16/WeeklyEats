@@ -1511,6 +1511,7 @@ export default function OnboardingScreen() {
             <View style={styles.backButtonPlaceholder} />
           )}
           <Text style={styles.progressText}>{progress}</Text>
+          {stepIndex === 0 ? <Pressable accessibilityRole="button" onPress={() => router.push("/modals/recovery")}><Text style={{ color: theme.color.accent }}>Restore Backup</Text></Pressable> : null}
         </View>
         {step === "family" ? (
           <View style={styles.familyPageContent}>{renderStep()}</View>

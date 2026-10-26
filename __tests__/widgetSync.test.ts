@@ -170,3 +170,41 @@ it("finishes a newer sync after an older native write completes", async () => {
   expect(save).toHaveBeenCalledTimes(2);
   expect(save.mock.calls.at(-1)![0].today.mealId).toBe("B");
 });
+
+it("forces repair of unchanged content without touching the source data", async () => {
+  const source = fixture();
+  const before = JSON.stringify(source);
+  const save = jest.fn().mockResolvedValue(true);
+  const sync = createWidgetSync({ read: async () => source, save, now: () => monday, settle: async () => {} });
+  await sync();
+  await sync();
+  expect(save).toHaveBeenCalledTimes(1);
+  await sync(true);
+  expect(save).toHaveBeenCalledTimes(2);
+  expect(save.mock.calls[1][1]).toBe(true);
+  expect(JSON.stringify(source)).toBe(before);
+  await sync();
+  expect(save).toHaveBeenCalledTimes(2);
+});
+
+it("retains a repair requested while an ordinary native save is in progress", async () => {
+  let finish!: (value: boolean) => void;
+  const save = jest.fn().mockReturnValueOnce(new Promise<boolean>(resolve => { finish = resolve; })).mockResolvedValue(true);
+  const sync = createWidgetSync({ read: async () => fixture(), save, now: () => monday, settle: async () => {} });
+  const first = sync();
+  await Promise.resolve(); await Promise.resolve();
+  const repair = sync(true);
+  finish(true);
+  await Promise.all([first, repair]);
+  expect(save).toHaveBeenCalledTimes(2);
+  expect(save.mock.calls[1][1]).toBe(true);
+});
+
+it("retries failed force repairs even when the content is unchanged", async () => {
+  const save = jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false).mockResolvedValue(true);
+  const sync = createWidgetSync({ read: async () => fixture(), save, now: () => monday, settle: async () => {} });
+  await sync();
+  await expect(sync(true)).rejects.toThrow();
+  await sync();
+  expect(save.mock.calls[2][1]).toBe(true);
+});

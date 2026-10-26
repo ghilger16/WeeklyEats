@@ -180,6 +180,10 @@ export default function MoreScreen() {
             />
           </View>
         ) : null}
+        <View style={styles.section}>
+          <Text style={styles.sectionHeading}>Your Data</Text>
+          <SettingsRow icon="backup-restore" label="Backup & Recovery" subtitle="Save your data or repair the widget" onPress={() => router.push("/modals/recovery")} />
+        </View>
         {__DEV__ ? (
           <View style={styles.section}>
             <Text style={styles.sectionHeading}>Testing</Text>

@@ -32,6 +32,7 @@ export type TodayWidgetPayload = {
 
 type TodayWidgetBridgeModule = {
   savePayload?: (payload: TodayWidgetPayload) => Promise<boolean>;
+  repairPayload?: (payload: TodayWidgetPayload) => Promise<boolean>;
   clearPayload?: () => Promise<boolean>;
 };
 
@@ -40,16 +41,23 @@ const bridge = NativeModules.TodayWidgetBridge as
   | undefined;
 
 export const saveTodayWidgetPayload = async (
-  payload: TodayWidgetPayload
+  payload: TodayWidgetPayload,
+  force = false
 ): Promise<boolean> => {
   if (Platform.OS !== "ios" || !bridge?.savePayload) {
+    if (force) throw new Error("Widget repair requires the latest iOS recovery build.");
     return false;
   }
 
   try {
+    if (force) {
+      if (!bridge.repairPayload) throw new Error("Install the recovery build to repair the widget.");
+      return await bridge.repairPayload(payload);
+    }
     return await bridge.savePayload(payload);
   } catch (error) {
     console.warn("[todayWidgetStorage] Failed to save widget payload", error);
+    if (force) throw error;
     return false;
   }
 };
